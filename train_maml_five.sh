@@ -1,0 +1,23 @@
+python main.py \
+--algorithm maml \
+--model-type conv \
+--num-channels 32 \
+--fast-lr 0.05 \
+--inner-loop-grad-clip 20.0 \
+--num-updates 5 \
+--num-batches 60000 \
+--meta-batch-size 10 \
+--slow-lr 0.001 \
+--model-grad-clip 0.0 \
+--dataset multimodal_few_shot \
+--multimodal_few_shot omniglot miniimagenet cifar bird aircraft \
+--num-classes-per-batch 5 \
+--num-train-samples-per-class 5 \
+--num-val-samples-per-class 5 \
+--common-img-side-len 84 \
+--common-img-channel 3 \
+--output-folder maml_five_5w5s \
+--device cuda \
+--device-number 0 \
+--log-interval 50 \
+--save-interval 1000

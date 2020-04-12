@@ -1,0 +1,24 @@
+python main.py \
+--algorithm mmaml \
+--model-type gatedconv \
+--condition-type affine \
+--embedding-type ConvGRU \
+--embedding-hidden-size 128 \
+--no-rnn-aggregation True \
+--fast-lr 0.05 \
+--inner-loop-grad-clip 20.0 \
+--num-updates 5 \
+--num-batches 60000 \
+--meta-batch-size 10 \
+--slow-lr 0.001 \
+--model-grad-clip 0.0 \
+--dataset miniimagenet \
+--num-classes-per-batch 5 \
+--num-train-samples-per-class 5 \
+--num-val-samples-per-class 5 \
+--img-side-len 84 \
+--output-folder mmaml_miniImagenet_5w5s \
+--device cuda \
+--device-number 1 \
+--log-interval 50 \
+--save-interval 1000
