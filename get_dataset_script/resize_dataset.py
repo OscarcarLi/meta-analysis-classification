@@ -1,5 +1,6 @@
 import os
 import sys
+import numpy as np
 from imageio import imread, imwrite
 from skimage.transform import resize
 
@@ -16,4 +17,5 @@ for root, dirnames, filenames in os.walk(target_dir):
 for i, path in enumerate(_ids):
     img = imread(path)
     print('{}/{} size: {}'.format(i, len(_ids), img.shape))
-    imwrite(path, resize(img, img_size))
+    resize_img = (255 * resize(img, img_size)).astype(np.uint8)
+    imwrite(path, resize_img)
