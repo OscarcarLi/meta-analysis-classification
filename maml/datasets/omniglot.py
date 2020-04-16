@@ -23,7 +23,7 @@ class OmniglotMAMLSplit(Omniglot):
     dataset integrity.
     A map-style dataset where we use index to get the image and class
     """
-    def __init__(self, root, train=True, num_train_classes=1100, **kwargs):
+    def __init__(self, root, split='train', num_train_classes=1100, **kwargs):
         '''
         __init__(self, root, background=True, transform=None, target_transform=None,
                  download=False)
@@ -31,7 +31,7 @@ class OmniglotMAMLSplit(Omniglot):
         super(OmniglotMAMLSplit, self).__init__(root, download=True,
                                                 background=True, **kwargs)
 
-        self._train = train
+        self._split = split
         self._num_train_classes = num_train_classes
 
         # download testing data and test integrity
@@ -44,11 +44,11 @@ class OmniglotMAMLSplit(Omniglot):
         # 'data/omniglot-py/images_evaluation/Gurmukhi/character17'
         # totally there are 1623 characters
         all_character_dirs = glob.glob(os.path.join(self.root, '**/**/**'))
-        if self._train:
-            print('Omniglot using train')
+        if self._split == 'train':
+            print('Omniglot train')
             self._character_dirs = all_character_dirs[:self._num_train_classes]
         else:
-            print('Omniglot using test')
+            print('Omniglot test')
             self._character_dirs = all_character_dirs[self._num_train_classes:]
 
         self._character_images = []
@@ -97,7 +97,7 @@ class OmniglotMetaDataset(object):
                  img_side_len=28, img_channel=1,
                  num_classes_per_batch=5, num_samples_per_class=5, 
                  num_total_batches=200000,
-                 num_val_samples=1, meta_batch_size=40, train=True,
+                 num_val_samples=1, meta_batch_size=40, split='train',
                  num_train_classes=1100, num_workers=0, device='cpu'):
         self.name = name
         self._root = root
@@ -109,7 +109,7 @@ class OmniglotMetaDataset(object):
         self._num_val_samples = num_val_samples
         self._meta_batch_size = meta_batch_size
         self._num_train_classes = num_train_classes
-        self._train = train
+        self._split = split
         self._num_workers = num_workers
         self._device = device
 
@@ -133,7 +133,7 @@ class OmniglotMetaDataset(object):
             img_transform = transforms.Compose(
                 [resize, transforms.ToTensor(), invert])
         dset = OmniglotMAMLSplit(self._root, transform=img_transform,
-                                 train=self._train,
+                                 split=self._split,
                                  num_train_classes=self._num_train_classes)
         # repeats in labels [0, 0, ..., 2, 2, ..., ...., 1099]
         _, labels = zip(*dset._flat_character_images)
@@ -141,8 +141,7 @@ class OmniglotMetaDataset(object):
                                        num_classes_per_batch=self._num_classes_per_batch,
                                        num_samples_per_class=self._total_samples_per_class,
                                        meta_batch_size=self._meta_batch_size,
-                                       num_total_batches=self._num_total_batches,
-                                       train=self._train)
+                                       num_total_batches=self._num_total_batches)
 
         batch_size = (self._meta_batch_size
                       *self._num_classes_per_batch

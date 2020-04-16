@@ -8,7 +8,7 @@ class MultimodalFewShotDataset(object):
     def __init__(self, datasets, num_total_batches,
                  name='MultimodalFewShot',
                  mix_meta_batch=True, mix_mini_batch=False,
-                 train=True, verbose=False, txt_file=None):
+                 split='train', verbose=False, txt_file=None):
         # datasets is a list of datasets
         self._datasets = datasets
         self._num_total_batches = num_total_batches
@@ -20,11 +20,13 @@ class MultimodalFewShotDataset(object):
         self._mix_meta_batch = mix_meta_batch
         # mix_mini_batch means if we are mixing meta batch, do you do this completely randomly or follow a fixed order
         self._mix_mini_batch = mix_mini_batch
-        self._train = train
-        if self._train:
-            print('multimodal using train sampling')
-        else:
-            print('multimodal using test sampling')
+        self._split = split
+        if self._split == 'test':
+            print('multimodal test sampling')
+        elif self._split == 'val':
+            print('multimodal val sampling')
+        else :
+            print('multimodal train sampling')
         self._verbose = verbose
         self._txt_file = open(txt_file, 'w') if not txt_file is None else None
         
@@ -38,7 +40,7 @@ class MultimodalFewShotDataset(object):
 
         # build iterators
         self._datasets_iter = [iter(dataset) for dataset in self._datasets]
-        if not self._train:
+        if self._split != 'train':
             self._iter_index = 0
         
         self.n = 0 # the number of batches produced so far
@@ -80,7 +82,7 @@ class MultimodalFewShotDataset(object):
                     """
                     # balancedly sample from all datasets
                     dataset_indexes = []
-                    if self._train:
+                    if self._split == 'train':
                         dataset_start_idx = np.random.randint(0, self.num_dataset)
                     else:
                         dataset_start_idx = self._iter_index
@@ -92,7 +94,7 @@ class MultimodalFewShotDataset(object):
                     # remember which dataset class was sampled from the last time
                     # if the dataset_start_idx = 3 and num_dataset = 5
                     # then the dataset class we sample from is 3, 4, 0, 1 if our meta_batch_size is 4
-                    if not self._train:
+                    if self._split != 'train':
                         self._iter_index = (self._iter_index + self._meta_batch_size) % self.num_dataset
 
                     train_tasks = []
@@ -119,4 +121,6 @@ class MultimodalFewShotDataset(object):
             raise StopIteration
 
     def __iter__(self):
+        # rebuild iterators
+        self._datasets_iter = [iter(dataset) for dataset in self._datasets]
         return self

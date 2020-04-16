@@ -8,7 +8,7 @@ class ClassBalancedSampler(Sampler):
     """Generates indices for class balanced batch by sampling with replacement.
     """
     def __init__(self, dataset_labels, num_classes_per_batch,
-                 num_samples_per_class, meta_batch_size, num_total_batches, train):
+                 num_samples_per_class, meta_batch_size, num_total_batches):
         """
         Args:
             dataset_labels: list of dataset labels
@@ -28,7 +28,6 @@ class ClassBalancedSampler(Sampler):
         self._num_samples_per_class = num_samples_per_class
         self._meta_batch_size = meta_batch_size
         self._num_total_batches = num_total_batches
-        self._train = train
 
     def __iter__(self):
         for i in range(self._num_total_batches * self._meta_batch_size):

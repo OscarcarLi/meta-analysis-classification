@@ -13,14 +13,12 @@ from maml.datasets.cifar100 import Cifar100MetaDataset
 from maml.datasets.bird import BirdMetaDataset
 from maml.datasets.aircraft import AircraftMetaDataset
 from maml.datasets.multimodal_few_shot import MultimodalFewShotDataset
-from maml.models.fully_connected import FullyConnectedModel, MultiFullyConnectedModel
 from maml.models.conv_net import ConvModel
-from maml.models.gated_conv_net import GatedConvModel
-from maml.models.gated_net import GatedNet
+from maml.models.gated_conv_net import GatedConvModel, RegConvModel
 from maml.models.simple_embedding_model import SimpleEmbeddingModel
 from maml.models.lstm_embedding_model import LSTMEmbeddingModel
 from maml.models.gru_embedding_model import GRUEmbeddingModel
-from maml.models.conv_embedding_model import ConvEmbeddingModel
+from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddingModel
 from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm
 from maml.algorithm_trainer import Gradient_based_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
@@ -55,151 +53,169 @@ def main(args):
         json.dump(config, f, indent=2)
 
     _num_tasks = 1
+    # define splits num_batches and num_val samples for the different splits
+    # since we need to create different datasets (one for each split)
+    dataset_splits = ('train', 'val', 'test')
+    num_batches = {
+        'train': args.num_batches_meta_train, 
+        'val': args.num_batches_meta_val, 
+        'test': args.num_batches_meta_test
+    }
+    num_val_samples_per_class = {
+        'train': args.num_val_samples_per_class_meta_train, 
+        'val': args.num_val_samples_per_class_meta_val, 
+        'test': args.num_val_samples_per_class_meta_test
+    }
+    dataset = {} # dictionary of datasets, indexed by split
+
     if args.dataset == 'omniglot':
-        dataset = OmniglotMetaDataset(
-            root='data',
-            img_side_len=28, # args.img_side_len,
-            num_classes_per_batch=args.num_classes_per_batch,
-            num_samples_per_class=args.num_train_samples_per_class,
-            num_total_batches=args.num_batches,
-            num_val_samples=args.num_val_samples_per_class,
-            meta_batch_size=args.meta_batch_size,
-            train=is_training,
-            num_train_classes=args.num_train_classes,
-            num_workers=args.num_workers,
-            device=args.device)
-        loss_func = torch.nn.CrossEntropyLoss()
-        collect_accuracies = True
-    elif args.dataset == 'cifar':
-        dataset = Cifar100MetaDataset(
-            root='data',
-            img_side_len=32,
-            num_classes_per_batch=args.num_classes_per_batch,
-            num_samples_per_class=args.num_train_samples_per_class,
-            num_total_batches=args.num_batches,
-            num_val_samples=args.num_val_samples_per_class,
-            meta_batch_size=args.meta_batch_size,
-            train=is_training,
-            num_workers=args.num_workers,
-            device=args.device)
-        loss_func = torch.nn.CrossEntropyLoss()
-        collect_accuracies = True
-    elif args.dataset == 'multimodal_few_shot':
-        # multiple different classes of classification tasks
-        dataset_list = []
-        # when we mix the datasets together we use the square image with side length common_img_side_len
-        if 'omniglot' in args.multimodal_few_shot:
-            dataset_list.append(OmniglotMetaDataset(
+        for split in dataset_splits:
+            dataset[split] = OmniglotMetaDataset(
                 root='data',
-                img_side_len=args.common_img_side_len,
-                img_channel=args.common_img_channel,
+                img_side_len=28, # args.img_side_len,
                 num_classes_per_batch=args.num_classes_per_batch,
                 num_samples_per_class=args.num_train_samples_per_class,
-                num_total_batches=args.num_batches,
-                num_val_samples=args.num_val_samples_per_class,
+                num_total_batches=num_batches[split],
+                num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
-                train=is_training,
+                split=split,
                 num_train_classes=args.num_train_classes,
                 num_workers=args.num_workers,
                 device=args.device)
+        loss_func = torch.nn.CrossEntropyLoss()
+        collect_accuracies = True
+    elif args.dataset == 'cifar':
+        for split in dataset_splits:
+            dataset[split] = Cifar100MetaDataset(
+                root='data',
+                img_side_len=32,
+                num_classes_per_batch=args.num_classes_per_batch,
+                num_samples_per_class=args.num_train_samples_per_class,
+                num_total_batches=num_batches[split],
+                num_val_samples=num_val_samples_per_class[split],
+                meta_batch_size=args.meta_batch_size,
+                split=split,
+                num_workers=args.num_workers,
+                device=args.device)
+        loss_func = torch.nn.CrossEntropyLoss()
+        collect_accuracies = True
+    elif args.dataset == 'multimodal_few_shot':
+        for split in dataset_splits:
+            # multiple different classes of classification tasks
+            dataset_list = []
+            # when we mix the datasets together we use the square image with side length common_img_side_len
+            if 'omniglot' in args.multimodal_few_shot:
+                dataset_list.append(OmniglotMetaDataset(
+                    root='data',
+                    img_side_len=args.common_img_side_len,
+                    img_channel=args.common_img_channel,
+                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_total_batches=num_batches[split],
+                    num_val_samples=num_val_samples_per_class[split],
+                    meta_batch_size=args.meta_batch_size,
+                    split=split,
+                    num_train_classes=args.num_train_classes,
+                    num_workers=args.num_workers,
+                    device=args.device)
+                )
+            if 'miniimagenet' in args.multimodal_few_shot:
+                dataset_list.append( MiniimagenetMetaDataset(
+                    root='data',
+                    img_side_len=args.common_img_side_len,
+                    img_channel=args.common_img_channel,
+                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_total_batches=num_batches[split],
+                    num_val_samples=num_val_samples_per_class[split],
+                    meta_batch_size=args.meta_batch_size,
+                    split=split,
+                    num_workers=args.num_workers,
+                    device=args.device)
+                )           
+            if 'cifar' in args.multimodal_few_shot:
+                dataset_list.append(Cifar100MetaDataset(
+                    root='data',
+                    img_side_len=args.common_img_side_len,
+                    img_channel=args.common_img_channel,
+                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_total_batches=num_batches[split],
+                    num_val_samples=num_val_samples_per_class[split],
+                    meta_batch_size=args.meta_batch_size,
+                    split=split,
+                    num_workers=args.num_workers,
+                    device=args.device)
+                )
+            # if 'doublemnist' in args.multimodal_few_shot:
+            #     dataset_list.append( DoubleMNISTMetaDataset(
+            #         root='data',
+            #         img_side_len=args.common_img_side_len,
+            #         img_channel=args.common_img_channel,
+            #         num_classes_per_batch=args.num_classes_per_batch,
+            #         num_samples_per_class=args.num_samples_per_class,
+            #         num_total_batches=args.num_batches,
+            #         num_val_samples=args.num_val_samples,
+            #         meta_batch_size=args.meta_batch_size,
+            #         train=is_training,
+            #         num_train_classes=args.num_train_classes,
+            #         num_workers=args.num_workers,
+            #         device=args.device)
+            #     )
+            # if 'triplemnist' in args.multimodal_few_shot:
+            #     dataset_list.append( TripleMNISTMetaDataset(
+            #         root='data',
+            #         img_side_len=args.common_img_side_len,
+            #         img_channel=args.common_img_channel,
+            #         num_classes_per_batch=args.num_classes_per_batch,
+            #         num_samples_per_class=args.num_samples_per_class,
+            #         num_total_batches=args.num_batches,
+            #         num_val_samples=args.num_val_samples,
+            #         meta_batch_size=args.meta_batch_size,
+            #         train=is_training,
+            #         num_train_classes=args.num_train_classes,
+            #         num_workers=args.num_workers,
+            #         device=args.device)
+            #     )
+            if 'bird' in args.multimodal_few_shot:
+                dataset_list.append(BirdMetaDataset(
+                    root='data',
+                    img_side_len=args.common_img_side_len,
+                    img_channel=args.common_img_channel,
+                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_total_batches=num_batches[split],
+                    num_val_samples=num_val_samples_per_class[split],
+                    meta_batch_size=args.meta_batch_size,
+                    split=split,
+                    num_workers=args.num_workers,
+                    device=args.device)
+                )           
+            if 'aircraft' in args.multimodal_few_shot:
+                dataset_list.append(AircraftMetaDataset(
+                    root='data',
+                    img_side_len=args.common_img_side_len,
+                    img_channel=args.common_img_channel,
+                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_total_batches=num_batches[split],
+                    num_val_samples=num_val_samples_per_class[split],
+                    meta_batch_size=args.meta_batch_size,
+                    split=split,
+                    num_workers=args.num_workers,
+                    device=args.device)
+                )           
+            assert len(dataset_list) > 0
+            print('Multimodal Few Shot Datasets: {}'.format(
+                ' '.join([dataset.name for dataset in dataset_list])))
+            dataset[split] = MultimodalFewShotDataset(
+                dataset_list, 
+                num_total_batches=num_batches[split],
+                mix_meta_batch=args.mix_meta_batch,
+                mix_mini_batch=args.mix_mini_batch,
+                txt_file=args.sample_embedding_file+'.txt' if args.num_sample_embedding > 0 else None,
+                split=split,
             )
-        if 'miniimagenet' in args.multimodal_few_shot:
-            dataset_list.append( MiniimagenetMetaDataset(
-                root='data',
-                img_side_len=args.common_img_side_len,
-                img_channel=args.common_img_channel,
-                num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
-                num_total_batches=args.num_batches,
-                num_val_samples=args.num_val_samples_per_class,
-                meta_batch_size=args.meta_batch_size,
-                train=is_training,
-                num_workers=args.num_workers,
-                device=args.device)
-            )           
-        if 'cifar' in args.multimodal_few_shot:
-            dataset_list.append(Cifar100MetaDataset(
-                root='data',
-                img_side_len=args.common_img_side_len,
-                img_channel=args.common_img_channel,
-                num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
-                num_total_batches=args.num_batches,
-                num_val_samples=args.num_val_samples_per_class,
-                meta_batch_size=args.meta_batch_size,
-                train=is_training,
-                num_workers=args.num_workers,
-                device=args.device)
-            )
-        # if 'doublemnist' in args.multimodal_few_shot:
-        #     dataset_list.append( DoubleMNISTMetaDataset(
-        #         root='data',
-        #         img_side_len=args.common_img_side_len,
-        #         img_channel=args.common_img_channel,
-        #         num_classes_per_batch=args.num_classes_per_batch,
-        #         num_samples_per_class=args.num_samples_per_class,
-        #         num_total_batches=args.num_batches,
-        #         num_val_samples=args.num_val_samples,
-        #         meta_batch_size=args.meta_batch_size,
-        #         train=is_training,
-        #         num_train_classes=args.num_train_classes,
-        #         num_workers=args.num_workers,
-        #         device=args.device)
-        #     )
-        # if 'triplemnist' in args.multimodal_few_shot:
-        #     dataset_list.append( TripleMNISTMetaDataset(
-        #         root='data',
-        #         img_side_len=args.common_img_side_len,
-        #         img_channel=args.common_img_channel,
-        #         num_classes_per_batch=args.num_classes_per_batch,
-        #         num_samples_per_class=args.num_samples_per_class,
-        #         num_total_batches=args.num_batches,
-        #         num_val_samples=args.num_val_samples,
-        #         meta_batch_size=args.meta_batch_size,
-        #         train=is_training,
-        #         num_train_classes=args.num_train_classes,
-        #         num_workers=args.num_workers,
-        #         device=args.device)
-        #     )
-        if 'bird' in args.multimodal_few_shot:
-            dataset_list.append(BirdMetaDataset(
-                root='data',
-                img_side_len=args.common_img_side_len,
-                img_channel=args.common_img_channel,
-                num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
-                num_total_batches=args.num_batches,
-                num_val_samples=args.num_val_samples_per_class,
-                meta_batch_size=args.meta_batch_size,
-                train=is_training,
-                num_workers=args.num_workers,
-                device=args.device)
-            )           
-        if 'aircraft' in args.multimodal_few_shot:
-            dataset_list.append(AircraftMetaDataset(
-                root='data',
-                img_side_len=args.common_img_side_len,
-                img_channel=args.common_img_channel,
-                num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
-                num_total_batches=args.num_batches,
-                num_val_samples=args.num_val_samples_per_class,
-                meta_batch_size=args.meta_batch_size,
-                train=is_training,
-                num_workers=args.num_workers,
-                device=args.device)
-            )           
-        assert len(dataset_list) > 0
-        print('Multimodal Few Shot Datasets: {}'.format(
-            ' '.join([dataset.name for dataset in dataset_list])))
-        dataset = MultimodalFewShotDataset(
-            dataset_list, 
-            num_total_batches=args.num_batches,
-            mix_meta_batch=args.mix_meta_batch,
-            mix_mini_batch=args.mix_mini_batch,
-            txt_file=args.sample_embedding_file+'.txt' if args.num_sample_embedding > 0 else None,
-            train=is_training,
-        )
         loss_func = torch.nn.CrossEntropyLoss()
         collect_accuracies = True
     # elif args.dataset == 'doublemnist':
@@ -233,17 +249,18 @@ def main(args):
     #     loss_func = torch.nn.CrossEntropyLoss()
     #     collect_accuracies = True
     elif args.dataset == 'miniimagenet':
-        dataset = MiniimagenetMetaDataset(
-            root='data',
-            img_side_len=84,
-            num_classes_per_batch=args.num_classes_per_batch,
-            num_samples_per_class=args.num_train_samples_per_class,
-            num_total_batches=args.num_batches,
-            num_val_samples=args.num_val_samples_per_class,
-            meta_batch_size=args.meta_batch_size,
-            train=is_training,
-            num_workers=args.num_workers,
-            device=args.device)
+        for split in dataset_splits:
+            dataset[split] = MiniimagenetMetaDataset(
+                root='data',
+                img_side_len=84,
+                num_classes_per_batch=args.num_classes_per_batch,
+                num_samples_per_class=args.num_train_samples_per_class,
+                num_total_batches=num_batches[split],
+                num_val_samples=num_val_samples_per_class[split],
+                meta_batch_size=args.meta_batch_size,
+                split=split,
+                num_workers=args.num_workers,
+                device=args.device)
         loss_func = torch.nn.CrossEntropyLoss()
         collect_accuracies = True
     # elif args.dataset == 'sinusoid':
@@ -353,29 +370,38 @@ def main(args):
     # elif args.model_type == 'conv':
     if args.model_type == 'conv':
         model = ConvModel(
-            input_channels=dataset.input_size[0],
-            output_size=dataset.output_size,
+            input_channels=dataset['train'].input_size[0],
+            output_size=dataset['train'].output_size,
             num_channels=args.num_channels,
-            img_side_len=dataset.input_size[1],
+            img_side_len=dataset['train'].input_size[1],
             use_max_pool=args.use_max_pool,
             verbose=args.verbose)
     elif args.model_type == 'gatedconv':
         model = GatedConvModel(
-            input_channels=dataset.input_size[0],
-            output_size=dataset.output_size,
+            input_channels=dataset['train'].input_size[0],
+            output_size=dataset['train'].output_size,
             use_max_pool=args.use_max_pool,
             num_channels=args.num_channels,
-            img_side_len=dataset.input_size[1],
+            img_side_len=dataset['train'].input_size[1],
             condition_type=args.condition_type,
             condition_order=args.condition_order,
             verbose=args.verbose)
     elif args.model_type == 'gated':
         model = GatedNet(
-            input_size=np.prod(dataset.input_size),
-            output_size=dataset.output_size,
+            input_size=np.prod(dataset['train'].input_size),
+            output_size=dataset['train'].output_size,
             hidden_sizes=args.hidden_sizes,
             condition_type=args.condition_type,
             condition_order=args.condition_order)
+    elif args.model_type == 'regconv':
+        model = RegConvModel(
+            input_channels=dataset['train'].input_size[0],
+            output_size=dataset['train'].output_size,
+            num_channels=args.num_channels,
+            modulation_mat_rank=args.modulation_mat_rank,
+            img_side_len=dataset['train'].input_size[1],
+            use_max_pool=args.use_max_pool,
+            verbose=args.verbose)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -384,29 +410,29 @@ def main(args):
         embedding_model = None
     elif args.embedding_type == 'simple':
         embedding_model = SimpleEmbeddingModel(
-            num_embeddings=dataset.num_tasks,
+            num_embeddings=dataset['train'].num_tasks,
             embedding_dims=args.embedding_dims)
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'GRU':
         embedding_model = GRUEmbeddingModel(
-             input_size=np.prod(dataset.input_size),
-             output_size=dataset.output_size,
+             input_size=np.prod(dataset['train'].input_size),
+             output_size=dataset['train'].output_size,
              modulation_dims=args.modulation_dims,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers)
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'LSTM':
         embedding_model = LSTMEmbeddingModel(
-             input_size=np.prod(dataset.input_size),
-             output_size=dataset.output_size,
+             input_size=np.prod(dataset['train'].input_size),
+             output_size=dataset['train'].output_size,
              modulation_dims=args.modulation_dims,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers)
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'ConvGRU':
         embedding_model = ConvEmbeddingModel(
-             input_size=np.prod(dataset.input_size),
-             output_size=dataset.output_size,
+             input_size=np.prod(dataset['train'].input_size),
+             output_size=dataset['train'].output_size,
              modulation_dims=args.modulation_dims,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers,
@@ -420,7 +446,27 @@ def main(args):
              linear_before_rnn=args.linear_before_rnn,
              num_sample_embedding=args.num_sample_embedding,
              sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
-             img_size=dataset.input_size,
+             img_size=dataset['train'].input_size,
+             verbose=args.verbose)
+        embedding_parameters = list(embedding_model.parameters())
+    elif args.embedding_type == 'RegConvGRU':
+        embedding_model = RegConvEmbeddingModel(
+             input_size=np.prod(dataset['train'].input_size),
+             output_size=dataset['train'].output_size,
+             modulation_mat_size=(args.modulation_mat_rank, args.num_channels*8),
+             hidden_size=args.embedding_hidden_size,
+             num_layers=args.embedding_num_layers,
+             convolutional=args.conv_embedding,
+             num_conv=args.num_conv_embedding_layer,
+             num_channels=args.num_channels,
+             rnn_aggregation=(not args.no_rnn_aggregation),
+             embedding_pooling=args.embedding_pooling,
+             batch_norm=args.conv_embedding_batch_norm,
+             avgpool_after_conv=args.conv_embedding_avgpool_after_conv,
+             linear_before_rnn=args.linear_before_rnn,
+             num_sample_embedding=args.num_sample_embedding,
+             sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
+             img_size=dataset['train'].input_size,
              verbose=args.verbose)
         embedding_parameters = list(embedding_model.parameters())
     else:
@@ -437,6 +483,7 @@ def main(args):
         optimizers = torch.optim.Adam(optimizer_specs)
 
     if args.checkpoint != '':
+        print(f"loading from {args.checkpoint}")
         state_dict = torch.load(args.checkpoint)
         model.load_state_dict(state_dict['model'])
         model.to(args.device)
@@ -490,7 +537,8 @@ def main(args):
             num_updates=args.num_updates,
             inner_loop_grad_clip=args.inner_loop_grad_clip,
             inner_loop_soft_clip_slope=args.inner_loop_soft_clip_slope,
-            device=args.device)
+            device=args.device,
+            is_classification=True)
 
 
     trainer = Gradient_based_algorithm_trainer(
@@ -499,10 +547,22 @@ def main(args):
         log_interval=args.log_interval, save_interval=args.save_interval,
         model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
+    
+
     if is_training:
-        trainer.train(meta_dataset=dataset)
+        # create train iterators
+        train_iterator = iter(dataset['train']) 
+        for iter_start in range(0, num_batches['train'], args.val_interval):
+            try:
+                result = trainer.run(train_iterator, is_training=True, 
+                    start=iter_start, stop=iter_start+args.val_interval)
+            except StopIteration:
+                print("Finished training iterations...running final validation")
+                print(result)
+            # validation
+            trainer.run(iter(dataset['val']), is_training=False, start=iter_start)
     else:
-        results = trainer.test(meta_dataset=dataset)
+        results = trainer.run(iter(dataset['test']), is_training=False, start=0)
         print(results)
         name = args.checkpoint[0:args.checkpoint.rfind('.')]
         with open(name + '_eval.pkl', 'wb') as f:
@@ -547,8 +607,6 @@ if __name__ == '__main__':
     parser.add_argument('--bias-transformation-size', type=int, default=0,
         help='size of bias transformation vector that is concatenated with '
              'input')
-    parser.add_argument('--modulation-mat-rank', type=int, default=32,
-                    help='rank of the modulation matrix before')
 
     # Embedding model
     parser.add_argument('--embedding-type', type=str, default='',
@@ -573,6 +631,8 @@ if __name__ == '__main__':
         choices=['avg', 'max'], default='avg', help='')
     parser.add_argument('--linear-before-rnn', action='store_true',
         help='')
+    parser.add_argument('--modulation-mat-rank', type=int, default=128,
+        help='rank of the modulation matrix before ')
 
     # Randomly sampled embedding vectors
     parser.add_argument('--num-sample-embedding', type=int, default=0,
@@ -596,8 +656,12 @@ if __name__ == '__main__':
         help='how many update steps in the inner loop')
 
     # Optimization
-    parser.add_argument('--num-batches', type=int, default=1920000,
-        help='number of batches')
+    parser.add_argument('--num-batches-meta-train', type=int, default=60000,
+        help='number of batches (meta-train)')
+    parser.add_argument('--num-batches-meta-val', type=int, default=100,
+        help='number of batches (meta-val)')
+    parser.add_argument('--num-batches-meta-test', type=int, default=100,
+        help='number of batches (meta-test)')
     parser.add_argument('--meta-batch-size', type=int, default=10,
         help='number of tasks per batch')
     parser.add_argument('--slow-lr', type=float, default=0.001,
@@ -618,8 +682,12 @@ if __name__ == '__main__':
         help='how many classes per task')
     parser.add_argument('--num-train-samples-per-class', type=int, default=1,
         help='how many samples per class for training')
-    parser.add_argument('--num-val-samples-per-class', type=int, default=15,
-        help='how many samples per class for validation')
+    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=5,
+        help='how many samples per class for validation (meta train)')
+    parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
+        help='how many samples per class for validation (meta val)')
+    parser.add_argument('--num-val-samples-per-class-meta-test', type=int, default=15,
+        help='how many samples per class for validation (meta test)')
     parser.add_argument('--img-side-len', type=int, default=28,
         help='width and height of the input images')
     parser.add_argument('--input-range', type=float, default=[-5.0, 5.0],
@@ -673,6 +741,8 @@ if __name__ == '__main__':
         help='evaluate model')
     parser.add_argument('--checkpoint', type=str, default='',
         help='path to saved parameters.')
+    parser.add_argument('--val-interval', type=int, default=2000,
+        help='no. of iterations after which to perform meta-validation.')
 
     # parser.add_argument('--alternating', action='store_true',
     #     help='') # not set to True in README.md # alternate between the embedding model optimization and model optimization
@@ -693,7 +763,7 @@ if __name__ == '__main__':
         os.makedirs('./train_dir')
 
     # Make sure num sample embedding < num sample tasks
-    args.num_sample_embedding = min(args.num_sample_embedding, args.num_batches)
+    args.num_sample_embedding = min(args.num_sample_embedding, args.num_batches_meta_train)
 
     # computer embedding dims
     num_gated_conv_layers = 4
