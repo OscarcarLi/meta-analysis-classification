@@ -122,5 +122,6 @@ class MultimodalFewShotDataset(object):
 
     def __iter__(self):
         # rebuild iterators
+        self.n = 0
         self._datasets_iter = [iter(dataset) for dataset in self._datasets]
         return self

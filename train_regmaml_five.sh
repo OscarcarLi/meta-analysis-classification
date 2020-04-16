@@ -8,7 +8,8 @@ python main.py \
 --fast-lr 0.05 \
 --inner-loop-grad-clip 10.0 \
 --num-updates 5 \
---num-batches-meta-train 60000 \
+--num-batches-meta-train 20 \
+--num-batches-meta-val 5 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
 --model-grad-clip 0.0 \
@@ -19,11 +20,11 @@ python main.py \
 --num-val-samples-per-class-meta-train 5 \
 --common-img-side-len 84 \
 --common-img-channel 3 \
---output-folder regmaml_five_5w5s_0.05lr_64c_clip10 \
+--output-folder regmaml_five_5w5s_0.05lr_64c_clip10_sample_2 \
 --device cuda \
 --device-number 3 \
 --log-interval 5 \
 --save-interval 1000 \
 --modulation-mat-rank 128 \
 --num-channels 64 \
---val-interval 10
+--val-interval 5

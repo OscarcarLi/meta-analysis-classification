@@ -552,15 +552,21 @@ def main(args):
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
-        for iter_start in range(0, num_batches['train'], args.val_interval):
+        for iter_start in range(1, num_batches['train'], args.val_interval):
             try:
-                result = trainer.run(train_iterator, is_training=True, 
+                train_result = trainer.run(train_iterator, is_training=True, 
                     start=iter_start, stop=iter_start+args.val_interval)
             except StopIteration:
-                print("Finished training iterations...running final validation")
-                print(result)
+                print("Finished training iterations.")
+                print(train_result)
+                print("Starting final validation.")
+    
             # validation
-            trainer.run(iter(dataset['val']), is_training=False, start=iter_start)
+            print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
+            val_result = trainer.run(iter(dataset['val']), is_training=False, start=iter_start)
+            print(val_result)
+            print("\n", "=="*27, "\n Finished validation\n", "=="*27)
+            
     else:
         results = trainer.run(iter(dataset['test']), is_training=False, start=0)
         print(results)

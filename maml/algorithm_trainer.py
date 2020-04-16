@@ -34,7 +34,7 @@ class Gradient_based_algorithm_trainer(object):
 
         for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
                 dataset_iterator, start=start if is_training else 1)):
-
+            
             if is_training and i == stop:
                 return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
                     'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
@@ -117,7 +117,7 @@ class Gradient_based_algorithm_trainer(object):
 
             # logging
             # (i % self._log_interval == 0 or i == 1)
-            if analysis:
+            if analysis and is_training:
                 self.log_output(i,
                                 train_measurements_trajectory_over_batch,
                                 test_measurements_before_adapt_over_batch,
@@ -164,11 +164,18 @@ class Gradient_based_algorithm_trainer(object):
         key_list = ['loss']
         if self._algorithm.is_classification: key_list.append('accu')
         for key in key_list:
-            avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
-            avg_train_before = avg_train_trajectory[0]
-            avg_train_after = avg_train_trajectory[-1]
-            avg_test_before = np.mean(test_measurements_before_adapt_over_batch[key])
-            avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+            if not meta_val:
+                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+                avg_test_before = np.mean(test_measurements_before_adapt_over_batch[key])
+                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
+            else:
+                avg_train_trajectory = train_measurements_trajectory_over_batch[key]
+                avg_test_before = test_measurements_before_adapt_over_batch[key]
+                avg_test_after = test_measurements_after_adapt_over_batch[key]
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
 
             if key == 'accu':
                 log_array.append('train {} before: \t{:.2f}%'.format(key, 100 * avg_train_before))
@@ -207,8 +214,8 @@ class Gradient_based_algorithm_trainer(object):
             # log_array.append('std test {} before: \t{:.3f}'.format(key, std_test_before))
             # log_array.append('std test {} after: \t{:.3f}'.format(key, std_test_after))
             log_array.append('\n') 
-
-        print('\n'.join(log_array))
+        if not meta_val:
+            print('\n'.join(log_array))
 
     def write_gradient_info_to_board(self, iteration,
                                      grad_norm_by_step_over_batch,
