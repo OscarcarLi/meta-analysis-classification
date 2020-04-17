@@ -6,17 +6,27 @@ import numpy as np
 
 # the embedding model does not take into account of the labelling task.y?
 class ConvEmbeddingModel(torch.nn.Module):
-    def __init__(self, input_size, output_size, modulation_dims,
+    def __init__(self, img_size, modulation_dims,
+                 use_label=False, num_classes=None,
                  hidden_size=128, num_layers=1,
                  convolutional=False, num_conv=4, num_channels=32, num_channels_max=256,
                  rnn_aggregation=False, linear_before_rnn=False, 
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
                  num_sample_embedding=0, sample_embedding_file='embedding.hdf5',
-                 img_size=(1, 28, 28), verbose=False):
+                 verbose=False):
 
         super(ConvEmbeddingModel, self).__init__()
-        self._input_size = input_size
-        self._output_size = output_size
+
+        self._use_label = use_label
+        
+        if use_label:
+            assert num_classes is not None
+            self._num_classes = num_classes
+            self._label_representations = torch.nn.Embedding(num_embeddings=num_classes,
+             embedding_dim=img_size[1] * img_size[2])
+        
+        self._img_size = img_size
+        self._input_size = img_size[0] * img_size[1] * img_size[2]
         self._hidden_size = hidden_size
         self._num_layers = num_layers
         self._modulation_dims = modulation_dims
@@ -27,7 +37,6 @@ class ConvEmbeddingModel(torch.nn.Module):
         self._num_channels = num_channels
         self._num_channels_max = num_channels_max
         self._batch_norm = batch_norm
-        self._img_size = img_size
         self._rnn_aggregation = rnn_aggregation
         self._embedding_pooling = embedding_pooling
         self._linear_before_rnn = linear_before_rnn
@@ -40,7 +49,11 @@ class ConvEmbeddingModel(torch.nn.Module):
 
         if self._convolutional:
             conv_list = OrderedDict([])
-            num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+            if self._use_label:
+                num_ch = [self._img_size[0] + 1] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+            else:
+                num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+
             # do not exceed num_channels_max
             num_ch = [min(num_channels_max, ch) for ch in num_ch]
             for i in range(self._num_conv):
@@ -58,6 +71,8 @@ class ConvEmbeddingModel(torch.nn.Module):
             self._num_layer_per_conv = len(conv_list) // self._num_conv
 
             # vectorize the tensor need to know the number of dimensions as rnn input
+            # cannot have both linear_before_rnn and avgpool_after_conv
+            assert not (self._linear_before_rnn and self._avgpool_after_conv)
             if self._linear_before_rnn:
                 # linearly transform the flattened conv features before feeding into rnn
                 linear_input_size = self.compute_input_size(
@@ -72,7 +87,7 @@ class ConvEmbeddingModel(torch.nn.Module):
                     1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
         else:
             # do not use conv feature extractor
-            rnn_input_size = int(input_size)
+            rnn_input_size = int(self._input_size)
 
         # whether to use rnn to combine the individual examples' feature
         if self._rnn_aggregation:
@@ -104,9 +119,15 @@ class ConvEmbeddingModel(torch.nn.Module):
         if not self._reuse and self._verbose: print('='*8 + ' Emb Model ' + '='*8)
         if params is None:
             params = OrderedDict(self.named_parameters())
+        
+        if self._use_label:
+            label_embedding = self._label_representations(task.y).view(-1, 1, self._img_size[1], self._img_size[2])
+            x = torch.cat((task.x, label_embedding), dim=1)
+        else:
+            x = task.x
+
 
         if self._convolutional:
-            x = task.x
             if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
             for layer_name, layer in self.conv.named_children():
                 # the first 'conv.' comes from the sequential
@@ -132,11 +153,11 @@ class ConvEmbeddingModel(torch.nn.Module):
 
             else:
                 # otherwise just vectorize the tensor for each example
-                x = task.x.view(task.x.size(0), -1)
+                x = x.view(x.size(0), -1)
                 if not self._reuse and self._verbose: print('flatten: {}'.format(x.size()))
         else:
             # no convolution then just flatten the image as a vector
-            x = task.x.view(task.x.size(0), -1)
+            x = x.view(x.size(0), -1)
             if not self._reuse and self._verbose: print('flatten: {}'.format(x.size()))
 
         if self._rnn_aggregation:

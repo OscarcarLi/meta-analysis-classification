@@ -114,8 +114,7 @@ class MiniimagenetMetaDataset(object):
                                        num_classes_per_batch=self._num_classes_per_batch,
                                        num_samples_per_class=self._total_samples_per_class,
                                        meta_batch_size=self._meta_batch_size,
-                                       num_total_batches=self._num_total_batches,
-                                       train=self._train)
+                                       num_total_batches=self._num_total_batches)
 
 
         batch_size = (self._num_classes_per_batch *

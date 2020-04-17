@@ -405,22 +405,22 @@ def main(args):
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'ConvGRU':
         embedding_model = ConvEmbeddingModel(
-             input_size=np.prod(dataset.input_size),
-             output_size=dataset.output_size,
+             img_size=dataset.input_size,
              modulation_dims=args.modulation_dims,
+             use_label=args.use_label,
+             num_classes=dataset.output_size,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers,
              convolutional=args.conv_embedding,
              num_conv=args.num_conv_embedding_layer,
              num_channels=args.num_channels,
              rnn_aggregation=(not args.no_rnn_aggregation),
+             linear_before_rnn=s.linear_before_rnn,
              embedding_pooling=args.embedding_pooling,
              batch_norm=args.conv_embedding_batch_norm,
              avgpool_after_conv=args.conv_embedding_avgpool_after_conv,
-             linear_before_rnn=args.linear_before_rnn,
              num_sample_embedding=args.num_sample_embedding,
              sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
-             img_size=dataset.input_size,
              verbose=args.verbose)
         embedding_parameters = list(embedding_model.parameters())
     else:
@@ -553,6 +553,7 @@ if __name__ == '__main__':
     # Embedding model
     parser.add_argument('--embedding-type', type=str, default='',
         help='type of the embedding')
+    parser.add_argument('--use-label', action='store_true', help='use task.y to create label')
     parser.add_argument('--embedding-hidden-size', type=int, default=128,
         help='number of hidden units per layer in recurrent embedding model')
     parser.add_argument('--embedding-num-layers', type=int, default=2,
