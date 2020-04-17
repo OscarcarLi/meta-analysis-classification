@@ -4,6 +4,8 @@ from collections import defaultdict
 
 import torch
 from PIL import Image
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 from torch.utils.data import DataLoader
 from torchvision import transforms
 
@@ -12,22 +14,27 @@ from maml.datasets.task import Task
 
 
 class BirdMAMLSplit():
-    def __init__(self, root, train=True,
+    def __init__(self, root, split='train',
                  transform=None, target_transform=None, **kwargs):
         self.transform = transform
         self.target_transform = target_transform
         self.root = root + '/bird'
 
-        self._train = train
+        self._split = split
 
-        if self._train:
-            print('Bird using train')
-            all_character_dirs = glob.glob(self.root + '/train/**')
-            self._characters = all_character_dirs
-        else:
-            print('Bird using test')
+        if self._split == 'test':
+            print('Bird test')
             all_character_dirs = glob.glob(self.root + '/test/**')
             self._characters = all_character_dirs
+        elif self._split == 'val':
+            print('Bird val')
+            all_character_dirs = glob.glob(self.root + '/val/**')
+            self._characters = all_character_dirs
+        else:
+            print('Bird train')
+            all_character_dirs = glob.glob(self.root + '/train/**')
+            self._characters = all_character_dirs
+
 
         self._character_images = []
         for i, char_path in enumerate(self._characters):
@@ -73,7 +80,7 @@ class BirdMetaDataset(object):
                  img_side_len=84, img_channel=3,
                  num_classes_per_batch=5, num_samples_per_class=6,
                  num_total_batches=200000,
-                 num_val_samples=1, meta_batch_size=40, train=True,
+                 num_val_samples=1, meta_batch_size=40, split='train',
                  num_workers=0, device='cpu'):
         self.name = name
         self._root = root
@@ -84,7 +91,7 @@ class BirdMetaDataset(object):
         self._num_total_batches = num_total_batches
         self._num_val_samples = num_val_samples
         self._meta_batch_size = meta_batch_size
-        self._train = train
+        self._split = split
         self._num_workers = num_workers
         self._device = device
 
@@ -107,15 +114,14 @@ class BirdMetaDataset(object):
             img_transform = transforms.Compose(
                 [resize, transforms.ToTensor()])
         dset = BirdMAMLSplit(
-            self._root, transform=img_transform, train=self._train,
+            self._root, transform=img_transform, split=self._split,
             download=True)
         _, labels = zip(*dset._flat_character_images)
         sampler = ClassBalancedSampler(dataset_labels=labels,
                                 num_classes_per_batch=self._num_classes_per_batch,
                                 num_samples_per_class=self._total_samples_per_class,
                                 meta_batch_size=self._meta_batch_size,
-                                num_total_batches=self._num_total_batches,
-                                train=self._train)
+                                num_total_batches=self._num_total_batches)
 
         batch_size = (self._num_classes_per_batch *
                       self._total_samples_per_class *

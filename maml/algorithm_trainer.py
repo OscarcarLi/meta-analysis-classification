@@ -12,8 +12,9 @@ from maml.algorithm import RegMAML_inner_algorithm
 
 class Gradient_based_algorithm_trainer(object):
 
-    def __init__(self, algorithm, outer_loss_func, outer_optimizer, writer, log_interval,
-                 save_interval, model_type, save_folder, outer_loop_grad_norm):
+    def __init__(self, algorithm, outer_loss_func, outer_optimizer, 
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm):
+
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
         self._outer_optimizer = outer_optimizer
@@ -23,8 +24,8 @@ class Gradient_based_algorithm_trainer(object):
         self._model_type = model_type
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm
-
-    def train_and_test(self, meta_dataset, is_training):
+    
+    def run(self, dataset_iterator, is_training=False, start=1, stop=1):
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
         sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
@@ -32,7 +33,13 @@ class Gradient_based_algorithm_trainer(object):
         n_tasks = 0
 
         for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
-                iter(meta_dataset), start=1)):
+                dataset_iterator, start=start if is_training else 1)):
+            
+            if is_training and i == stop:
+                return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
+                    'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
+                    'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
+
             # _meta_dataset yields data iteration
             train_measurements_trajectory_over_batch = defaultdict(list)
             test_measurements_before_adapt_over_batch = defaultdict(list)
@@ -110,7 +117,7 @@ class Gradient_based_algorithm_trainer(object):
 
             # logging
             # (i % self._log_interval == 0 or i == 1)
-            if analysis:
+            if analysis and is_training:
                 self.log_output(i,
                                 train_measurements_trajectory_over_batch,
                                 test_measurements_before_adapt_over_batch,
@@ -132,31 +139,43 @@ class Gradient_based_algorithm_trainer(object):
                 with open(save_path, 'wb') as f:
                     torch.save(self._algorithm.state_dict(), f)
         
-        return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
+        results = {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
                'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
                'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
+        
+        if not is_training:
+            self.log_output(
+                start,
+                results['train_loss_trajectory'],
+                results['test_loss_before'],
+                results['test_loss_after'],
+                write_tensorboard=True, meta_val=True)
 
-    def train(self, meta_dataset):
-        return self.train_and_test(meta_dataset, is_training=True)
+        return results
 
-    def test(self, meta_dataset):
-        return self.train_and_test(meta_dataset, is_training=False)
 
     def log_output(self, iteration,
                 train_measurements_trajectory_over_batch,
                 test_measurements_before_adapt_over_batch,
                 test_measurements_after_adapt_over_batch,
-                write_tensorboard=False):
+                write_tensorboard=False, meta_val=False):
 
         log_array = ['\nIteration: {}'.format(iteration)]
         key_list = ['loss']
         if self._algorithm.is_classification: key_list.append('accu')
         for key in key_list:
-            avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
-            avg_train_before = avg_train_trajectory[0]
-            avg_train_after = avg_train_trajectory[-1]
-            avg_test_before = np.mean(test_measurements_before_adapt_over_batch[key])
-            avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+            if not meta_val:
+                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+                avg_test_before = np.mean(test_measurements_before_adapt_over_batch[key])
+                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
+            else:
+                avg_train_trajectory = train_measurements_trajectory_over_batch[key]
+                avg_test_before = test_measurements_before_adapt_over_batch[key]
+                avg_test_after = test_measurements_after_adapt_over_batch[key]
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
 
             if key == 'accu':
                 log_array.append('train {} before: \t{:.2f}%'.format(key, 100 * avg_train_before))
@@ -170,12 +189,20 @@ class Gradient_based_algorithm_trainer(object):
                 log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
 
             if write_tensorboard:
-                for step in range(0, avg_train_trajectory.shape[0]):
-                    self._writer.add_scalar('train_{}/after {} step'.format(key, step),
-                                            avg_train_trajectory[step],
-                                            iteration)
-                self._writer.add_scalar('test_{}/before_update'.format(key), avg_test_before, iteration)
-                self._writer.add_scalar('test_{}/after_update'.format(key), avg_test_after, iteration)
+                if meta_val:
+                    for step in range(0, avg_train_trajectory.shape[0]):
+                        self._writer.add_scalar('meta_val_train_{}/after {} step'.format(key, step),
+                                                    avg_train_trajectory[step],
+                                                    iteration)
+                    self._writer.add_scalar('meta_val_test_{}/before_update'.format(key), avg_test_before, iteration)
+                    self._writer.add_scalar('meta_val_test_{}/after_update'.format(key), avg_test_after, iteration)
+                else:
+                    for step in range(0, avg_train_trajectory.shape[0]):
+                        self._writer.add_scalar('train_{}/after {} step'.format(key, step),
+                                                avg_train_trajectory[step],
+                                                iteration)
+                    self._writer.add_scalar('test_{}/before_update'.format(key), avg_test_before, iteration)
+                    self._writer.add_scalar('test_{}/after_update'.format(key), avg_test_after, iteration)
 
             # std_train_before = np.std(np.array(train_measurements_trajectory_over_batch[key])[:,0])
             # std_train_after = np.std(np.array(train_measurements_trajectory_over_batch[key])[:,-1])
@@ -187,8 +214,8 @@ class Gradient_based_algorithm_trainer(object):
             # log_array.append('std test {} before: \t{:.3f}'.format(key, std_test_before))
             # log_array.append('std test {} after: \t{:.3f}'.format(key, std_test_after))
             log_array.append('\n') 
-
-        print('\n'.join(log_array))
+        if not meta_val:
+            print('\n'.join(log_array))
 
     def write_gradient_info_to_board(self, iteration,
                                      grad_norm_by_step_over_batch,

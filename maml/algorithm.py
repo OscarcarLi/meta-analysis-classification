@@ -444,8 +444,8 @@ class RegMAML_inner_algorithm(Algorithm):
             grad_quantiles_by_step = defaultdict(list)
         
         adapted_param_dict = OrderedDict()
-        adapted_param_dict['output_linear.weight'] = self._model.output_linear.weight
-        adapted_param_dict['output_linear.bias'] = self._model.output_linear.bias
+        adapted_param_dict['classifier.fully_connected.weight'] = self._model.classifier.fully_connected.weight
+        adapted_param_dict['classifier.fully_connected.bias'] = self._model.classifier.fully_connected.bias
         
         modulation = self._embedding_model(task, return_task_embedding=False)
 
