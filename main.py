@@ -431,10 +431,10 @@ def main(args):
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'ConvGRU':
         embedding_model = ConvEmbeddingModel(
-             img_size=dataset.input_size,
+             img_size=dataset['train'].input_size,
              modulation_dims=args.modulation_dims,
              use_label=args.use_label,
-             num_classes=dataset.output_size,
+             num_classes=dataset['train'].output_size,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers,
              convolutional=args.conv_embedding,
@@ -451,10 +451,10 @@ def main(args):
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'RegConvGRU':
         embedding_model = RegConvEmbeddingModel(
-             img_size=dataset.input_size,
+             img_size=dataset['train'].input_size,
              modulation_mat_size=(args.modulation_mat_rank, args.num_channels*8),
              use_label=args.use_label,
-             num_classes=dataset.output_size,
+             num_classes=dataset['train'].output_size,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers,
              convolutional=args.conv_embedding,
@@ -562,7 +562,7 @@ def main(args):
     
             # validation
             print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
-            val_result = trainer.run(iter(dataset['val']), is_training=False, start=iter_start)
+            val_result = trainer.run(iter(dataset['val']), is_training=False, start=iter_start+args.val_interval - 1)
             print(val_result)
             print("\n", "=="*27, "\n Finished validation\n", "=="*27)
             
