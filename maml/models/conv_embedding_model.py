@@ -216,7 +216,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
                  convolutional=False, num_conv=4, num_channels=32, num_channels_max=256,
                  rnn_aggregation=False, linear_before_rnn=False, 
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
-                 num_sample_embedding=0, sample_embedding_file='embedding.hdf5',
+                 num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False,
                  img_size=(1, 28, 28), verbose=False):
 
         super(RegConvEmbeddingModel, self).__init__()
@@ -240,12 +240,17 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._num_sample_embedding = num_sample_embedding
         self._sample_embedding_file = sample_embedding_file
         self._avgpool_after_conv = avgpool_after_conv
+        self._original_conv = original_conv
         self._reuse = False
         self._verbose = verbose
 
         if self._convolutional:
             conv_list = OrderedDict([])
-            num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+            if self._original_conv:
+                num_ch = [self._img_size[0]] + [self._num_channels  for _ in range(self._num_conv)]  
+            else:  
+                num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+            # num_ch = [self._img_size[0]] + [self._num_channels, self._num_channels, self._num_channels*2, self._num_channels*2]
             # do not exceed num_channels_max
             num_ch = [min(num_channels_max, ch) for ch in num_ch]
             for i in range(self._num_conv):

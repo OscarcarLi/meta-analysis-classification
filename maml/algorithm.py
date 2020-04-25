@@ -380,7 +380,8 @@ class ModMAML_inner_algorithm(Algorithm):
 class RegMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model, inner_loss_func, fast_lr,
                 first_order, num_updates, inner_loop_grad_clip,
-                inner_loop_soft_clip_slope, device, is_classification=False):
+                inner_loop_soft_clip_slope, device, is_classification=False, 
+                is_momentum=False, gamma_momentum=0.2):
         self._model = model
         self._embedding_model = embedding_model
         self._inner_loss_func = inner_loss_func
@@ -391,10 +392,14 @@ class RegMAML_inner_algorithm(Algorithm):
         self._inner_loop_soft_clip_slope = inner_loop_soft_clip_slope
         self._device = device
         self.is_classification = is_classification
+        self._is_momentum = is_momentum
+        self._gamma_momentum = gamma_momentum
         self.to(self._device)
+        print("Momentum : ", self._is_momentum, self._gamma_momentum)
 
     
-    def inner_loop_one_step_gradient_descent(self, task, adapted_param_dict, modulation, return_grad_list=False):
+    def inner_loop_one_step_gradient_descent(self, task, adapted_param_dict, modulation, 
+            return_grad_list=False, adapted_param_dict_momentum=None):
         """Apply one step of gradient descent on self._inner_loss_func,
         based on data in the single task from argument task
         with respect to parameters in param_dict
@@ -427,14 +432,19 @@ class RegMAML_inner_algorithm(Algorithm):
                                  clip_value=self._inner_loop_grad_clip,
                                  slope=self._inner_loop_soft_clip_slope)
                 clip_grad_list.append(grad)
-            adapted_param_dict[name] = param - self._fast_lr * grad
+            if self._is_momentum:
+                adapted_param_dict_momentum[name] = (1-self._gamma_momentum) * adapted_param_dict_momentum[name] +\
+                    self._gamma_momentum * grad
+                adapted_param_dict[name] = param - self._fast_lr * adapted_param_dict_momentum[name]
+            else:
+                adapted_param_dict[name] = param - self._fast_lr * grad
 
         if return_grad_list:
             if clip_grad:
                 grad_list = clip_grad_list
         else:
             grad_list = None
-        return adapted_param_dict, measurements, grad_list
+        return adapted_param_dict, measurements, grad_list, adapted_param_dict_momentum
 
     def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
@@ -446,6 +456,12 @@ class RegMAML_inner_algorithm(Algorithm):
         adapted_param_dict = OrderedDict()
         adapted_param_dict['classifier.fully_connected.weight'] = self._model.classifier.fully_connected.weight
         adapted_param_dict['classifier.fully_connected.bias'] = self._model.classifier.fully_connected.bias
+        if self._is_momentum:
+            adapted_param_dict_momentum = OrderedDict()
+            for name, param in adapted_param_dict.items():
+                adapted_param_dict_momentum[name] = 0.
+        else:
+            adapted_param_dict_momentum = None
         
         modulation = self._embedding_model(task, return_task_embedding=False)
 
@@ -457,11 +473,12 @@ class RegMAML_inner_algorithm(Algorithm):
         for i in range(num_updates):
             # here model is just a functional template
             # all of the parameters are passed in through params and embeddings 
-            adapted_param_dict, measurements, grad_list = \
+            adapted_param_dict, measurements, grad_list, adapted_param_dict_momentum = \
                 self.inner_loop_one_step_gradient_descent(task=task,
                                                           adapted_param_dict=adapted_param_dict,
                                                           modulation=modulation,
-                                                          return_grad_list=analysis)
+                                                          return_grad_list=analysis,
+                                                          adapted_param_dict_momentum=adapted_param_dict_momentum)
             # add this step's measurement to its trajectory
             for key in measurements.keys():
                 measurements_trajectory[key].append(measurements[key])

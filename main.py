@@ -22,6 +22,8 @@ from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddin
 from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm
 from maml.algorithm_trainer import Gradient_based_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
+from maml.models import gated_conv_net_original, gated_conv_net
+import pprint
 
 
 def main(args):
@@ -394,14 +396,25 @@ def main(args):
             condition_type=args.condition_type,
             condition_order=args.condition_order)
     elif args.model_type == 'regconv':
-        model = RegConvModel(
-            input_channels=dataset['train'].input_size[0],
-            output_size=dataset['train'].output_size,
-            num_channels=args.num_channels,
-            modulation_mat_rank=args.modulation_mat_rank,
-            img_side_len=dataset['train'].input_size[1],
-            use_max_pool=args.use_max_pool,
-            verbose=args.verbose)
+        if args.original_conv:
+            print("Using original MAML implementation")
+            model = gated_conv_net_original.RegConvModel(
+                input_channels=dataset['train'].input_size[0],
+                output_size=dataset['train'].output_size,
+                num_channels=args.num_channels,
+                modulation_mat_rank=args.modulation_mat_rank,
+                img_side_len=dataset['train'].input_size[1],
+                use_max_pool=args.use_max_pool,
+                verbose=args.verbose)
+        else:
+            model = gated_conv_net.RegConvModel(
+                input_channels=dataset['train'].input_size[0],
+                output_size=dataset['train'].output_size,
+                num_channels=args.num_channels,
+                modulation_mat_rank=args.modulation_mat_rank,
+                img_side_len=dataset['train'].input_size[1],
+                use_max_pool=args.use_max_pool,
+                verbose=args.verbose)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -450,10 +463,14 @@ def main(args):
              verbose=args.verbose)
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'RegConvGRU':
+        if args.original_conv:
+            modulation_mat_size = (args.modulation_mat_rank, args.num_channels*5*5)
+        else:
+            modulation_mat_size = (args.modulation_mat_rank, args.num_channels*8)
         embedding_model = RegConvEmbeddingModel(
              input_size=np.prod(dataset['train'].input_size),
              output_size=dataset['train'].output_size,
-             modulation_mat_size=(args.modulation_mat_rank, args.num_channels*8),
+             modulation_mat_size=modulation_mat_size,
              hidden_size=args.embedding_hidden_size,
              num_layers=args.embedding_num_layers,
              convolutional=args.conv_embedding,
@@ -467,12 +484,16 @@ def main(args):
              num_sample_embedding=args.num_sample_embedding,
              sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
              img_size=dataset['train'].input_size,
-             verbose=args.verbose)
+             verbose=args.verbose,
+             original_conv=args.original_conv)
         embedding_parameters = list(embedding_model.parameters())
     else:
         raise ValueError('Unrecognized embedding type {}'.format(
             args.embedding_type))
-
+    print("Model:")
+    print(model)
+    print("Embedding Model:")
+    print(embedding_model)
     optimizers = None
     if embedding_model is None:
         optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
@@ -538,7 +559,9 @@ def main(args):
             inner_loop_grad_clip=args.inner_loop_grad_clip,
             inner_loop_soft_clip_slope=args.inner_loop_soft_clip_slope,
             device=args.device,
-            is_classification=True)
+            is_classification=True,
+            is_momentum=args.momentum,
+            gamma_momentum=args.gamma_momentum)
 
 
     trainer = Gradient_based_algorithm_trainer(
@@ -568,8 +591,9 @@ def main(args):
             print("\n", "=="*27, "\n Finished validation\n", "=="*27)
             
     else:
-        results = trainer.run(iter(dataset['test']), is_training=False, start=0)
-        print(results)
+        results = trainer.run(iter(dataset['val']), is_training=False, start=0)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
         name = args.checkpoint[0:args.checkpoint.rfind('.')]
         with open(name + '_eval.pkl', 'wb') as f:
             pickle.dump(results, f)
@@ -583,7 +607,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Model-Agnostic Meta-Learning (MAML)')
 
-# python main.py -dataset multimodal_few_shot --multimodal_few_shot omniglot miniimagenet cifar bird aircraft --mmaml-model True --num-batches 600000 --output-folder mmaml_5mode_5w1s
+    # python main.py -dataset multimodal_few_shot --multimodal_few_shot omniglot miniimagenet cifar bird aircraft --mmaml-model True --num-batches 600000 --output-folder mmaml_5mode_5w1s
 
     # Algorithm
     parser.add_argument('--algorithm', type=str, help='type of algorithm')
@@ -639,6 +663,8 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--modulation-mat-rank', type=int, default=128,
         help='rank of the modulation matrix before ')
+    parser.add_argument('--original-conv', action='store_true', default=False,
+        help='Use original MAML implementation')
 
     # Randomly sampled embedding vectors
     parser.add_argument('--num-sample-embedding', type=int, default=0,
@@ -676,6 +702,10 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--model-grad-clip', type=float, default=0.0,
                         help='')
+    parser.add_argument('--momentum', action='store_true', default=False,
+        help='momentum update')
+    parser.add_argument('--gamma-momentum', type=float, default=0.2,
+        help='momentum param gamma')
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='multimodal_few_shot',
