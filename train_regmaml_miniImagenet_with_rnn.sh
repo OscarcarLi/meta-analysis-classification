@@ -4,7 +4,7 @@ python main.py \
 --condition-type affine \
 --embedding-type RegConvGRU \
 --embedding-hidden-size 128 \
---no-rnn-aggregation True \
+--no-rnn-aggregation False \
 --fast-lr .5 \
 --inner-loop-grad-clip 20.0 \
 --num-updates 5 \
@@ -12,16 +12,16 @@ python main.py \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
---model-grad-clip 2.0 \
+--model-grad-clip 5.0 \
 --dataset miniimagenet \
 --num-classes-per-batch 5 \
 --num-train-samples-per-class 1 \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder regmaml_minim_5w1s_32chorig_128r_momentum \
+--output-folder regmaml_minim_5w1s_32chorig_128r_momentum_rnn \
 --device cuda \
---device-number 0 \
+--device-number 2 \
 --log-interval 50 \
 --save-interval 1000 \
 --modulation-mat-rank 128 \
@@ -30,3 +30,7 @@ python main.py \
 --momentum \
 --gamma-momentum 0.2 \
 --original-conv
+
+
+# Nameing convention 
+# dataset_type_main_model_rank_training_paradigm_embedding_model

@@ -5,14 +5,14 @@ python main.py \
 --embedding-type RegConvGRU \
 --embedding-hidden-size 128 \
 --no-rnn-aggregation True \
---fast-lr 0.05 \
+--fast-lr .5 \
 --inner-loop-grad-clip 10.0 \
 --num-updates 5 \
---num-batches-meta-train 20 \
---num-batches-meta-val 5 \
+--num-batches-meta-train 60000 \
+--num-batches-meta-val 100 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
---model-grad-clip 0.0 \
+--model-grad-clip 5.0 \
 --dataset multimodal_few_shot \
 --multimodal_few_shot omniglot miniimagenet cifar bird aircraft \
 --num-classes-per-batch 5 \
@@ -20,11 +20,13 @@ python main.py \
 --num-val-samples-per-class-meta-train 5 \
 --common-img-side-len 84 \
 --common-img-channel 3 \
---output-folder regmaml_five_5w5s_0.05lr_64c_clip10_sample_2 \
+--output-folder regmaml_five_5w5s_16ch_16r_momentum_.5lr_5.outer_clip \
 --device cuda \
---device-number 3 \
---log-interval 5 \
+--device-number 1 \
+--log-interval 50 \
 --save-interval 1000 \
---modulation-mat-rank 128 \
---num-channels 64 \
---val-interval 5
+--modulation-mat-rank 16 \
+--num-channels 16 \
+--val-interval 1000 \
+--momentum \
+--gamma-momentum 0.2

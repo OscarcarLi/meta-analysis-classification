@@ -3,6 +3,7 @@ from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
 import torch
+import json
 from torch.nn.utils.clip_grad import clip_grad_norm_
 
 from maml.grad import quantile_marks, get_grad_norm_from_parameters
@@ -44,7 +45,7 @@ class Gradient_based_algorithm_trainer(object):
             train_measurements_trajectory_over_batch = defaultdict(list)
             test_measurements_before_adapt_over_batch = defaultdict(list)
             test_measurements_after_adapt_over_batch = defaultdict(list)
-            analysis = (i % self._log_interval == 0 or i == 1)
+            analysis = (i % self._log_interval == 0)
             modulation_analysis = hasattr(self._algorithm, '_embedding_model') and \
                                        isinstance(self._algorithm._embedding_model,
                                                   LSTMAttentionEmbeddingModel)
@@ -143,13 +144,13 @@ class Gradient_based_algorithm_trainer(object):
                'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
                'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
         
-        if not is_training:
-            self.log_output(
-                start,
-                results['train_loss_trajectory'],
-                results['test_loss_before'],
-                results['test_loss_after'],
-                write_tensorboard=True, meta_val=True)
+        # if not is_training:
+        #     self.log_output(
+        #         start,
+        #         results['train_loss_trajectory'],
+        #         results['test_loss_before'],
+        #         results['test_loss_after'],
+        #         write_tensorboard=True, meta_val=True)
 
         return results
 

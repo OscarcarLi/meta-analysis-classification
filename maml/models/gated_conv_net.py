@@ -233,6 +233,8 @@ class RegConvModel(Model):
         if self._use_max_pool:
             # use 2 by 2 max_pool then use conv_stride = 1
             self._conv_stride = 1
+            self._padding = 0
+            self._kernel_size
             # self._features_size = 1 # _features_size = 1 is clearly a bug in the original code
             self.features = torch.nn.Sequential(OrderedDict([
                 ('layer1_conv', torch.nn.Conv2d(self._input_channels,
@@ -240,45 +242,48 @@ class RegConvModel(Model):
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
+                ('layer1_relu', torch.nn.ReLU(inplace=True)),
                 ('layer1_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer1_relu', torch.nn.ReLU(inplace=True)),
                 ('layer2_conv', torch.nn.Conv2d(self._num_channels,
-                                                self._num_channels*2,
+                                                self._num_channels,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels*2,
+                ('layer2_relu', torch.nn.ReLU(inplace=True)),
+                ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer2_relu', torch.nn.ReLU(inplace=True)),
-                ('layer3_conv', torch.nn.Conv2d(self._num_channels*2,
-                                                self._num_channels*4,
+                ('layer3_conv', torch.nn.Conv2d(self._num_channels,
+                                                self._num_channels,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels*4,
+                ('layer3_relu', torch.nn.ReLU(inplace=True)),
+                
+                ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
+                
                 ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer3_relu', torch.nn.ReLU(inplace=True)),
-                ('layer4_conv', torch.nn.Conv2d(self._num_channels*4,
-                                                self._num_channels*8,
+                ('layer4_conv', torch.nn.Conv2d(self._num_channels,
+                                                self._num_channels,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels*8,
+                ('layer4_relu', torch.nn.ReLU(inplace=True)),
+                ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer4_relu', torch.nn.ReLU(inplace=True)),
+                
             ]))
         else:
             self._conv_stride = 2
