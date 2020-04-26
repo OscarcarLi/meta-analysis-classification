@@ -465,6 +465,7 @@ def main(args):
     elif args.embedding_type == 'RegConvGRU':
         if args.original_conv:
             modulation_mat_size = (args.modulation_mat_rank, args.num_channels*5*5)
+            print("modulation_mat_size", modulation_mat_size)
         else:
             modulation_mat_size = (args.modulation_mat_rank, args.num_channels*8)
         embedding_model = RegConvEmbeddingModel(

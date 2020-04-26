@@ -3,30 +3,31 @@ python main.py \
 --model-type regconv \
 --condition-type affine \
 --embedding-type RegConvGRU \
---embedding-hidden-size 128 \
+--embedding-hidden-size 256 \
 --no-rnn-aggregation True \
---fast-lr .5 \
+--fast-lr 0.5 \
 --inner-loop-grad-clip 10.0 \
 --num-updates 5 \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
---model-grad-clip 5.0 \
+--model-grad-clip 5. \
 --dataset multimodal_few_shot \
 --multimodal_few_shot omniglot miniimagenet cifar bird aircraft \
 --num-classes-per-batch 5 \
 --num-train-samples-per-class 5 \
---num-val-samples-per-class-meta-train 5 \
+--num-val-samples-per-class-meta-train 15 \
+--num-val-samples-per-class-meta-val 15 \
 --common-img-side-len 84 \
 --common-img-channel 3 \
---output-folder regmaml_five_5w5s_16ch_16r_momentum_.5lr_5.outer_clip \
+--output-folder regmaml_five_5w5s_32ch_128r_momentum \
 --device cuda \
---device-number 1 \
+--device-number 0 \
 --log-interval 50 \
 --save-interval 1000 \
---modulation-mat-rank 16 \
---num-channels 16 \
+--modulation-mat-rank 128 \
+--num-channels 32 \
 --val-interval 1000 \
 --momentum \
 --gamma-momentum 0.2
