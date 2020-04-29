@@ -19,10 +19,11 @@ from maml.models.simple_embedding_model import SimpleEmbeddingModel
 from maml.models.lstm_embedding_model import LSTMEmbeddingModel
 from maml.models.gru_embedding_model import GRUEmbeddingModel
 from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddingModel
-from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm
-from maml.algorithm_trainer import Gradient_based_algorithm_trainer
+from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm
+from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
+from maml.models.gated_conv_net import ImpRegConvModel
 import pprint
 
 
@@ -415,6 +416,15 @@ def main(args):
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose)
+    elif args.model_type == 'impregconv':
+        model = ImpRegConvModel(
+                input_channels=dataset['train'].input_size[0],
+                output_size=dataset['train'].output_size,
+                num_channels=args.num_channels,
+                modulation_mat_rank=args.modulation_mat_rank,
+                img_side_len=dataset['train'].input_size[1],
+                use_max_pool=args.use_max_pool,
+                verbose=args.verbose)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -486,7 +496,8 @@ def main(args):
              sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
              img_size=dataset['train'].input_size,
              verbose=args.verbose,
-             original_conv=args.original_conv)
+             original_conv=args.original_conv,
+             modulation_mat_spec_norm = args.modulation_mat_spec_norm)
         embedding_parameters = list(embedding_model.parameters())
     else:
         raise ValueError('Unrecognized embedding type {}'.format(
@@ -562,14 +573,36 @@ def main(args):
             device=args.device,
             is_classification=True,
             is_momentum=args.momentum,
-            gamma_momentum=args.gamma_momentum)
+            gamma_momentum=args.gamma_momentum,
+            l2_lambda=args.l2_inner_loop)
+    elif args.algorithm == 'imp_reg_maml':
+        algorithm = ImpRMAML_inner_algorithm(
+            inner_loss_func=loss_func,
+            fast_lr=args.fast_lr,
+            first_order=args.first_order,
+            num_updates=args.num_updates,
+            inner_loop_grad_clip=args.inner_loop_grad_clip,
+            inner_loop_soft_clip_slope=args.inner_loop_soft_clip_slope,
+            device=args.device,
+            is_classification=True,
+            is_momentum=args.momentum,
+            gamma_momentum=args.gamma_momentum,
+            l2_lambda=args.l2_inner_loop)
 
 
-    trainer = Gradient_based_algorithm_trainer(
-        algorithm=algorithm, outer_loss_func=loss_func,
-        outer_optimizer=optimizers, writer=writer,
-        log_interval=args.log_interval, save_interval=args.save_interval,
-        model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
+    if args.algorithm == 'imp_reg_maml':
+        trainer = Implicit_Gradient_based_algorithm_trainer(
+                algorithm=algorithm, model=model, embedding_model=embedding_model, outer_loss_func=loss_func,
+                outer_optimizer=optimizers, writer=writer, device=args.device,
+                log_interval=args.log_interval, save_interval=args.save_interval,
+                model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
+
+    else:
+        trainer = Gradient_based_algorithm_trainer(
+            algorithm=algorithm, outer_loss_func=loss_func,
+            outer_optimizer=optimizers, writer=writer, device=args.device,
+            log_interval=args.log_interval, save_interval=args.save_interval,
+            model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
     
     if is_training:
@@ -666,6 +699,8 @@ if __name__ == '__main__':
         help='rank of the modulation matrix before ')
     parser.add_argument('--original-conv', action='store_true', default=False,
         help='Use original MAML implementation')
+    parser.add_argument('--modulation-mat-spec-norm', type=float, default=100.,
+        help='max singular value for modulation mat ')
 
     # Randomly sampled embedding vectors
     parser.add_argument('--num-sample-embedding', type=int, default=0,
@@ -687,6 +722,8 @@ if __name__ == '__main__':
                         help='slope of soft gradient clipping in the inner loop beyond')
     parser.add_argument('--num-updates', type=int, default=5,
         help='how many update steps in the inner loop')
+    parser.add_argument('--l2-inner-loop', type=float, default=0.0,
+        help='lambda for inner loop l2 loss')   
 
     # Optimization
     parser.add_argument('--num-batches-meta-train', type=int, default=60000,

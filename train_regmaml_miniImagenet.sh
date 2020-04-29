@@ -3,25 +3,25 @@ python main.py \
 --model-type regconv \
 --condition-type affine \
 --embedding-type RegConvGRU \
---embedding-hidden-size 128 \
+--embedding-hidden-size 256 \
 --no-rnn-aggregation True \
 --fast-lr .5 \
---inner-loop-grad-clip 20.0 \
+--inner-loop-grad-clip 10.0 \
 --num-updates 5 \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
---model-grad-clip 2.0 \
+--model-grad-clip 2.5 \
 --dataset miniimagenet \
 --num-classes-per-batch 5 \
 --num-train-samples-per-class 1 \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder regmaml_minim_5w1s_32chorig_128r_momentum \
+--output-folder regmaml_minim_5w1s_32ch_128r_.5_lr_momentum-l2-inner-loop_0.5_spec_norm_mod_1 \
 --device cuda \
---device-number 0 \
+--device-number 2 \
 --log-interval 50 \
 --save-interval 1000 \
 --modulation-mat-rank 128 \
@@ -29,4 +29,5 @@ python main.py \
 --val-interval 1000 \
 --momentum \
 --gamma-momentum 0.2 \
---original-conv
+--l2-inner-loop 0.5 \
+--modulation-mat-spec-norm 1.

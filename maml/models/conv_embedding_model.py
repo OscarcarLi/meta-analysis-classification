@@ -13,6 +13,27 @@ def weight_init(module):
         module.bias.data.zero_()
 
 
+def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
+    h, w = weight_mat.size()
+    # randomly initialize `u` and `v`
+    u = F.normalize(torch.randn(h), dim=0, eps=eps).to(device)
+    v = F.normalize(torch.randn(w), dim=0, eps=eps).to(device)
+    with torch.no_grad():
+        for _ in range(n_power_iterations):
+            # Spectral norm of weight equals to `u^T W v`, where `u` and `v`
+            # are the first left and right singular vectors.
+            # This power iteration produces approximations of `u` and `v`.
+            v = F.normalize(
+                torch.mv(weight_mat.t(), u), dim=0, eps=eps, out=v)
+            u = F.normalize(
+                torch.mv(weight_mat, v), dim=0, eps=eps, out=u)   
+        sigma = torch.dot(u, torch.mv(weight_mat, v))
+    if sigma > limit:
+        weight_mat = (weight_mat / sigma) * limit
+    return weight_mat
+
+
+
 # the embedding model does not take into account of the labelling task.y?
 class ConvEmbeddingModel(torch.nn.Module):
     def __init__(self, img_size, modulation_dims,
@@ -242,7 +263,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
                  rnn_aggregation=False, linear_before_rnn=False, 
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
                  num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False,
-                 img_size=(1, 28, 28), verbose=False):
+                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., verbose=False):
 
         super(RegConvEmbeddingModel, self).__init__()
         self._input_size = input_size
@@ -267,6 +288,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._avgpool_after_conv = avgpool_after_conv
         self._original_conv = original_conv
         self._reuse = False
+        self._modulation_mat_spec_norm = modulation_mat_spec_norm
         self._verbose = verbose
 
         if self._convolutional:
@@ -326,8 +348,16 @@ class RegConvEmbeddingModel(torch.nn.Module):
         # modulation_mat_size a tuple (low-rank size, feature_space_dimension)
         # bias=True as default
         # generate (low rank * feature_space_dimension) flattened vector and then reshape
-        self.modulation_mat_generator = torch.nn.Linear(
-            embedding_input_size, np.prod(modulation_mat_size))
+        # self.modulation_mat_generator = torch.nn.Sequential(
+        #     torch.nn.Linear(embedding_input_size, np.prod(modulation_mat_size) // 2),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(np.prod(modulation_mat_size) // 2, np.prod(modulation_mat_size) // 2),
+        #     torch.nn.ReLU(),
+        #     torch.nn.Linear(np.prod(modulation_mat_size) // 2, np.prod(modulation_mat_size))
+        # )
+
+        self.modulation_mat_generator = torch.nn.Linear(embedding_input_size, 
+                np.prod(modulation_mat_size))
 
         self.modulation_bias_generator = torch.nn.Linear(
             embedding_input_size, modulation_mat_size[0])
@@ -436,9 +466,12 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 modulation_bias.size()))
 
         # print("Before", torch.norm(modulation_mat, dim=1))
-        modulation_mat_norm = torch.norm(modulation_mat.detach()
-            ,dim=1, keepdim=True).clamp(min=3.)
-        modulation_mat /= modulation_mat_norm
+        # modulation_mat_norm = torch.norm(modulation_mat.detach()
+        #     ,dim=1, keepdim=True)
+        # modulation_mat_norm[modulation_mat_norm < 3.] = 1.
+        # modulation_mat /= modulation_mat_norm
+        # modulation_mat = spectral_norm(modulation_mat, device=self._device,
+        #      limit = self._modulation_mat_spec_norm)
         # print("After", torch.norm(modulation_mat, dim=1))
 
         if return_task_embedding:
