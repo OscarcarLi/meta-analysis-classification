@@ -3,8 +3,15 @@ import torch
 
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
+import torch.nn.functional as F
+import numpy as np
 
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
+from sklearn.linear_model import LogisticRegression
+
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+warnings.simplefilter("always", ConvergenceWarning)
 
 class Algorithm(object):
     def __init__(self):
@@ -534,6 +541,28 @@ class RegMAML_inner_algorithm(Algorithm):
                 'embedding_model': self._embedding_model.state_dict()}
 
 
+
+
+def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
+    h, w = weight_mat.size()
+    # randomly initialize `u` and `v`
+    u = F.normalize(torch.randn(h), dim=0, eps=eps).to(device)
+    v = F.normalize(torch.randn(w), dim=0, eps=eps).to(device)
+    with torch.no_grad():
+        for _ in range(n_power_iterations):
+            # Spectral norm of weight equals to `u^T W v`, where `u` and `v`
+            # are the first left and right singular vectors.
+            # This power iteration produces approximations of `u` and `v`.
+            v = F.normalize(
+                torch.mv(weight_mat.t(), u), dim=0, eps=eps, out=v)
+            u = F.normalize(
+                torch.mv(weight_mat, v), dim=0, eps=eps, out=u)   
+        sigma = torch.dot(u, torch.mv(weight_mat, v))
+    if sigma > limit:
+        weight_mat = (weight_mat / sigma) * limit
+    return weight_mat
+
+
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, inner_loss_func, fast_lr,
                 first_order, num_updates, inner_loop_grad_clip,
@@ -567,6 +596,8 @@ class ImpRMAML_inner_algorithm(Algorithm):
         grad = torch.autograd.grad(loss, adapted_params,
                     create_graph=True, allow_unused=False)[0]
         grad = grad.flatten()
+        # with torch.no_grad():
+        #     print(torch.norm(grad))
 
         hessian = torch.zeros((len(grad), len(grad)), 
             device=grad.device)
@@ -575,6 +606,9 @@ class ImpRMAML_inner_algorithm(Algorithm):
                     create_graph=False, allow_unused=False, retain_graph=True)[0].flatten()
                         
         hessian_inv = torch.inverse(hessian)
+        # hessian_inv = spectral_norm(hessian_inv, device=self._device,
+        #      limit = 1.)
+        # print(torch.eig(hessian_inv, eigenvectors=False))
         # can be replaced with a cholesky inverse after we compute
         # the cholesky factor of the positive definite hessian (only with l2 loss)
         # using torch.cholesky_inverse(torch.cholesky(hessian))
@@ -612,9 +646,12 @@ class ImpRMAML_inner_algorithm(Algorithm):
         clip_grad = (self._inner_loop_grad_clip > 0)
         if clip_grad:
             clip_grad_list = []
+        else:
+            grad_list = [grad]
 
         # hessian_inv = self.compute_hessian_inverse(task, model, modulation, adapted_params)
         
+        # print(torch.norm(grad))
         # grad will be torch.Tensor
         assert grad is not None
         if clip_grad:
@@ -643,8 +680,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
             grad_norm_by_step = [] # records the gradient norm at every inner loop step
             grad_quantiles_by_step = defaultdict(list)
         
-        adapted_params = model.classifier['fully_connected'].weight
-        
         if self._is_momentum:
             adapted_params_momentum = 0.
         else:
@@ -654,34 +689,86 @@ class ImpRMAML_inner_algorithm(Algorithm):
             # if num_updates is not specified
             # apply inner loop update for self._num_updates times
             num_updates = self._num_updates
-
-        for i in range(num_updates):
-            # here model is just a functional template
-            # all of the parameters are passed in through params and embeddings 
-            adapted_params, measurements, grad_list, adapted_params_momentum = \
-                self.inner_loop_one_step_gradient_descent(task=task,
-                                                          model=model,
-                                                          adapted_params=adapted_params,
-                                                          modulation=modulation,
-                                                          return_grad_list=analysis,
-                                                          adapted_params_momentum=adapted_params_momentum)
-            # add this step's measurement to its trajectory
-            for key in measurements.keys():
-                measurements_trajectory[key].append(measurements[key])
-            
-            if analysis:
-                grad_norm_by_step.append(get_grad_norm(grad_list))
-                grad_quantiles_by_step[i+1].extend(get_grad_quantiles(grad_list))
         
-        with torch.no_grad(): # compute the train loss after the last adaptation 
-            preds = model(task.x, modulation=modulation, update_params=adapted_params)
-            loss = self._inner_loss_func(preds, task.y)
-            if self._l2_lambda > 0.:
-                l2_loss = self._l2_lambda *\
-                    adapted_params.pow(2).sum()
-                loss += l2_loss
-            measurements_trajectory['loss'].append(loss.item())
-            if self.is_classification: measurements_trajectory['accu'].append(accuracy(preds, task.y))
+        adapted_params = model.classifier['fully_connected'].weight
+        preds, features = model(
+            task.x, modulation=modulation, update_params=adapted_params,
+            get_features=True)
+        loss = self._inner_loss_func(preds, task.y)
+        # if self._l2_lambda > 0.:
+        #     l2_loss = self._l2_lambda *\
+        #         adapted_params.pow(2).sum()
+        #     loss += l2_loss
+        measurements_trajectory['loss'].append(loss.item())
+        if self.is_classification: 
+            measurements_trajectory['accu'].append(accuracy(preds, task.y))
+
+        lr_features = features.detach().cpu()
+        y = (task.y).cpu()
+
+        # (1./self._l2_lambda) if self._l2_lambda else 0.
+        with warnings.catch_warnings(record=True) as w:
+            lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
+                C=1/(2*self._l2_lambda),
+                tol=1e-3, max_iter=70,
+                multi_class='multinomial', fit_intercept=False)
+            lr_model.fit(lr_features, y)
+            adapted_params = torch.autograd.Variable(torch.tensor(
+                lr_model.coef_, device=self._device, dtype=torch.float32), requires_grad=True)
+        # print(lr_model.n_iter_)
+
+        # print("features_device", features.get_device())
+        # print("device", adapted_params.get_device())
+        # print(lr_model.predict(lr_features), task.y)
+        preds = F.linear(features, weight=adapted_params)
+        # print(adapted_params.shape)
+        # print("preds from functional:", preds)
+        # print(torch.argmax(preds, 1))
+        # print(torch.argmax(F.linear(lr_features, weight=torch.tensor(lr_model.coef_, dtype=torch.float32)), 1))
+        
+        # p, f = model(task.x, modulation=modulation, update_params=adapted_params, get_features=True)
+        # print("preds from re-forward:", p)
+        
+        loss = self._inner_loss_func(preds, task.y)
+        # if self._l2_lambda > 0.:
+        #     l2_loss = self._l2_lambda *\
+        #         adapted_params.pow(2).sum()
+        #     loss += l2_loss
+        measurements_trajectory['loss'].append(loss.item())
+        if self.is_classification: 
+            measurements_trajectory['accu'].append(accuracy(preds, task.y))
+        # print(measurements_trajectory)
+        # print("***"*30)
+            
+        
+        # for i in range(num_updates):
+        #     # print(f"Grad at :{i+1}")
+        #     # here model is just a functional template
+        #     # all of the parameters are passed in through params and embeddings 
+        #     adapted_params, measurements, grad_list, adapted_params_momentum = \
+        #         self.inner_loop_one_step_gradient_descent(task=task,
+        #                                                   model=model,
+        #                                                   adapted_params=adapted_params,
+        #                                                   modulation=modulation,
+        #                                                   return_grad_list=analysis,
+        #                                                   adapted_params_momentum=adapted_params_momentum)
+        #     # add this step's measurement to its trajectory
+        #     for key in measurements.keys():
+        #         measurements_trajectory[key].append(measurements[key])
+            
+        #     if analysis:
+        #         grad_norm_by_step.append(get_grad_norm(grad_list))
+        #         grad_quantiles_by_step[i+1].extend(get_grad_quantiles(grad_list))
+        
+        # with torch.no_grad(): # compute the train loss after the last adaptation 
+        #     preds = model(task.x, modulation=modulation, update_params=adapted_params)
+        #     loss = self._inner_loss_func(preds, task.y)
+        #     if self._l2_lambda > 0.:
+        #         l2_loss = self._l2_lambda *\
+        #             adapted_params.pow(2).sum()
+        #         loss += l2_loss
+        #     measurements_trajectory['loss'].append(loss.item())
+            # if self.is_classification: measurements_trajectory['accu'].append(accuracy(preds, task.y))
 
         info_dict = None
         if analysis:

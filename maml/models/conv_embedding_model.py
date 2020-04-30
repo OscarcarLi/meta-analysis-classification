@@ -470,8 +470,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
         #     ,dim=1, keepdim=True)
         # modulation_mat_norm[modulation_mat_norm < 3.] = 1.
         # modulation_mat /= modulation_mat_norm
-        # modulation_mat = spectral_norm(modulation_mat, device=self._device,
-        #      limit = self._modulation_mat_spec_norm)
+        modulation_mat = spectral_norm(modulation_mat, device=self._device,
+             limit = self._modulation_mat_spec_norm)
+        # print(torch.svd(modulation_mat))
         # print("After", torch.norm(modulation_mat, dim=1))
 
         if return_task_embedding:

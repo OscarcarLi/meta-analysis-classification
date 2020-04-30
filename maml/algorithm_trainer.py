@@ -111,6 +111,8 @@ class Gradient_based_algorithm_trainer(object):
                 self._outer_optimizer.zero_grad()
                 avg_test_loss_after_adapt.backward() # here back prop will propagate all the way to the initialization parameters
                 outer_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
+                # for name, param in self._algorithm._model.named_parameters():
+                #     print(name, torch.norm(param.grad))
                 self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_grad_norm_before_clip, i)
                 if self._outer_loop_grad_norm > 0.:
                     clip_grad_norm_(self._algorithm._model.parameters(), self._outer_loop_grad_norm)
@@ -362,7 +364,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         outer_params = []
         for param_group in self._outer_optimizer.param_groups:
             outer_params += param_group['params']
-        
+        i=0
         for train_task, test_task, adapted_params, hessian_inv in zip(
                 batch_train_task, batch_test_task, batch_adapted_params, batch_hessian_inv):
             
@@ -376,7 +378,11 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     param.grad = (meta_grad / batch_sz)
                 else:
                     param.grad += (meta_grad / batch_sz)    
-
+        
+            # print("After", i+1)
+            # for name, param in self._model.named_parameters():
+            #     print(name, torch.norm(param.grad))
+            # i+=1
 
     
     def run(self, dataset_iterator, is_training=False, start=1, stop=1):
