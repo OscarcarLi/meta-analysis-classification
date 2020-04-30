@@ -555,14 +555,14 @@ class ImpRegConvModel(Model):
             if not self._reuse and self._verbose: print('{}: {}'.format(layer_name, x.size()))
 
         # below the conv maps are average pooled
-        x = x.view(x.size(0), self._num_channels * 8, -1)
+        x = x.view(x.size(0), self._num_channels * 8, -1) ##### should we use *8 now?
         if not self._reuse and self._verbose: print('reshape to: {}'.format(x.size()))
         x = torch.mean(x, dim=2)
         if not self._reuse and self._verbose: print('reduce mean: {}'.format(x.size()))
 
         x = F.linear(x, weight=modulation_mat,
                         bias=modulation_bias)
-        x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], -1)
+        x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], dim=-1)
         
         if update_params is None:
             logits = F.linear(x, weight=self.classifier['fully_connected'].weight)

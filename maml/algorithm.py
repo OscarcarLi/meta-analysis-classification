@@ -534,9 +534,6 @@ class RegMAML_inner_algorithm(Algorithm):
                 'embedding_model': self._embedding_model.state_dict()}
 
 
-
-
-
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, inner_loss_func, fast_lr,
                 first_order, num_updates, inner_loop_grad_clip,
@@ -555,8 +552,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self._gamma_momentum = gamma_momentum
         self._l2_lambda = l2_lambda
         print("Momentum : ", self._is_momentum, self._gamma_momentum)
-
-
 
 
     def compute_hessian_inverse(self, train_task, model, modulation, adapted_params):
@@ -618,7 +613,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         if clip_grad:
             clip_grad_list = []
 
-        hessian_inv = self.compute_hessian_inverse(task, model, modulation, adapted_params)
+        # hessian_inv = self.compute_hessian_inverse(task, model, modulation, adapted_params)
         
         # grad will be torch.Tensor
         assert grad is not None

@@ -283,12 +283,6 @@ def standard_deviation_measurement(measurements):
 
 
 
-
-
-
-
-
-
 class Implicit_Gradient_based_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer, model, embedding_model,
@@ -431,6 +425,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 with torch.no_grad():
                     test_pred_before_adapt = self._model(batch=test_task.x, modulation=modulation)
                     test_loss_before_adapt = self._outer_loss_func(test_pred_before_adapt, test_task.y)
+                    # here the test before we haven't added the squared 2-norm
                     test_measurements_before_adapt_over_batch['loss'].append(test_loss_before_adapt.item())
                     if self._algorithm.is_classification:
                         test_measurements_before_adapt_over_batch['accu'].append(
