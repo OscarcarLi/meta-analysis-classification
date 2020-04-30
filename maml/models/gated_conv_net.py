@@ -523,7 +523,7 @@ class ImpRegConvModel(Model):
         self.classifier['fully_connected'].apply(weight_init)
 
 
-    def forward(self, batch, modulation, update_params=None, training=True):
+    def forward(self, batch, modulation, update_params=None, training=True, get_features=False):
         if not self._reuse and self._verbose: print('='*10 + ' Model ' + '='*10)
         params = OrderedDict(self.named_parameters())
 
@@ -560,10 +560,15 @@ class ImpRegConvModel(Model):
         x = torch.mean(x, dim=2)
         if not self._reuse and self._verbose: print('reduce mean: {}'.format(x.size()))
 
+
+        # print("feature norm before A ", torch.norm(x, dim=1).mean(0))
+
         x = F.linear(x, weight=modulation_mat,
                         bias=modulation_bias)
         x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], -1)
         
+        # print("feature norm after A ", torch.norm(x, dim=1).mean(0))
+
         if update_params is None:
             logits = F.linear(x, weight=self.classifier['fully_connected'].weight)
                 
@@ -574,4 +579,7 @@ class ImpRegConvModel(Model):
         if not self._reuse and self._verbose: print('logits size: {}'.format(logits.size()))
         if not self._reuse and self._verbose: print('='*27)
         self._reuse = True
+
+        if get_features:
+            return logits, x
         return logits
