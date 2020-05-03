@@ -577,6 +577,8 @@ def main(args):
             l2_lambda=args.l2_inner_loop)
     elif args.algorithm == 'imp_reg_maml':
         algorithm = ImpRMAML_inner_algorithm(
+            model=model,
+            embedding_model=embedding_model,
             inner_loss_func=loss_func,
             fast_lr=args.fast_lr,
             first_order=args.first_order,
@@ -592,15 +594,17 @@ def main(args):
 
     if args.algorithm == 'imp_reg_maml':
         trainer = Implicit_Gradient_based_algorithm_trainer(
-                algorithm=algorithm, model=model, embedding_model=embedding_model, outer_loss_func=loss_func,
-                outer_optimizer=optimizers, writer=writer, device=args.device,
+                algorithm=algorithm,
+                outer_loss_func=loss_func,
+                outer_optimizer=optimizers, 
+                writer=writer,
                 log_interval=args.log_interval, save_interval=args.save_interval,
                 model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
     else:
         trainer = Gradient_based_algorithm_trainer(
             algorithm=algorithm, outer_loss_func=loss_func,
-            outer_optimizer=optimizers, writer=writer, device=args.device,
+            outer_optimizer=optimizers, writer=writer,
             log_interval=args.log_interval, save_interval=args.save_interval,
             model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
@@ -619,7 +623,7 @@ def main(args):
     
             # validation
             print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
-            val_result = trainer.run(iter(dataset['val']), is_training=False, start=iter_start+args.val_interval - 1)
+            val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
             print(val_result)
             print("\n", "=="*27, "\n Finished validation\n", "=="*27)
             

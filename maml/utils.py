@@ -1,6 +1,7 @@
 import subprocess
 
 import torch
+import torch.nn.functional as F
 
 
 def accuracy(preds, y):
@@ -8,6 +9,26 @@ def accuracy(preds, y):
     total = y.size(0)
     correct = (preds == y).sum().float()
     return (correct / total).item()
+
+
+def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
+    h, w = weight_mat.size()
+    # randomly initialize `u` and `v`
+    u = F.normalize(torch.randn(h), dim=0, eps=eps).to(device)
+    v = F.normalize(torch.randn(w), dim=0, eps=eps).to(device)
+    with torch.no_grad():
+        for _ in range(n_power_iterations):
+            # Spectral norm of weight equals to `u^T W v`, where `u` and `v`
+            # are the first left and right singular vectors.
+            # This power iteration produces approximations of `u` and `v`.
+            v = F.normalize(
+                torch.mv(weight_mat.t(), u), dim=0, eps=eps, out=v)
+            u = F.normalize(
+                torch.mv(weight_mat, v), dim=0, eps=eps, out=u)   
+        sigma = torch.dot(u, torch.mv(weight_mat, v))
+    if sigma > limit:
+        weight_mat = (weight_mat / sigma) * limit
+    return weight_mat
 
 
 def optimizer_to_device(optimizer, device):

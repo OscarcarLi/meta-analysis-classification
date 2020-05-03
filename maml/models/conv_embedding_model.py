@@ -3,7 +3,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
-
+from maml.utils import spectral_norm
 
 
 def weight_init(module):
@@ -11,27 +11,6 @@ def weight_init(module):
         or isinstance(module, torch.nn.Conv2d)):
         torch.nn.init.xavier_normal_(module.weight)
         module.bias.data.zero_()
-
-
-def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
-    h, w = weight_mat.size()
-    # randomly initialize `u` and `v`
-    u = F.normalize(torch.randn(h), dim=0, eps=eps).to(device)
-    v = F.normalize(torch.randn(w), dim=0, eps=eps).to(device)
-    with torch.no_grad():
-        for _ in range(n_power_iterations):
-            # Spectral norm of weight equals to `u^T W v`, where `u` and `v`
-            # are the first left and right singular vectors.
-            # This power iteration produces approximations of `u` and `v`.
-            v = F.normalize(
-                torch.mv(weight_mat.t(), u), dim=0, eps=eps, out=v)
-            u = F.normalize(
-                torch.mv(weight_mat, v), dim=0, eps=eps, out=u)   
-        sigma = torch.dot(u, torch.mv(weight_mat, v))
-    if sigma > limit:
-        weight_mat = (weight_mat / sigma) * limit
-    return weight_mat
-
 
 
 # the embedding model does not take into account of the labelling task.y?
@@ -439,19 +418,19 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 self._embedding_pooling, embedding_input.size()))
 
         # randomly sample embedding vectors
-        if self._num_sample_embedding != 0:
-            self._embeddings_array.append(embedding_input.cpu().clone().detach().numpy())
-            if len(self._embeddings_array) >= self._num_sample_embedding:
-                if self._sample_embedding_file.split('.')[-1] == 'hdf5':
-                    import h5py
-                    f = h5py.File(self._sample_embedding_file, 'w')
-                    f['embedding'] = np.squeeze(np.stack(self._embeddings_array))
-                    f.close()
-                elif self._sample_embedding_file.split('.')[-1] == 'pt':
-                    torch.save(np.squeeze(np.stack(self._embeddings_array)),
-                               self._sample_embedding_file)
-                else:
-                    raise NotImplementedError
+        # if self._num_sample_embedding != 0:
+        #     self._embeddings_array.append(embedding_input.cpu().clone().detach().numpy())
+        #     if len(self._embeddings_array) >= self._num_sample_embedding:
+        #         if self._sample_embedding_file.split('.')[-1] == 'hdf5':
+        #             import h5py
+        #             f = h5py.File(self._sample_embedding_file, 'w')
+        #             f['embedding'] = np.squeeze(np.stack(self._embeddings_array))
+        #             f.close()
+        #         elif self._sample_embedding_file.split('.')[-1] == 'pt':
+        #             torch.save(np.squeeze(np.stack(self._embeddings_array)),
+        #                        self._sample_embedding_file)
+        #         else:
+        #             raise NotImplementedError
 
         # squeeze remove the dimension of size 1
         modulation_mat = self.modulation_mat_generator(embedding_input).reshape(
@@ -475,16 +454,11 @@ class RegConvEmbeddingModel(torch.nn.Module):
         # print(torch.svd(modulation_mat))
         # print("After", torch.norm(modulation_mat, dim=1))
 
-        if return_task_embedding:
-            return (modulation_mat, modulation_bias), task_embedding
-        else:
-            return (modulation_mat, modulation_bias)
-
         if not self._reuse and self._verbose: print('='*27)
         self._reuse = True
 
         if return_task_embedding:
-            return (modulation_mat, modulation_bias), task_embedding
+            return (modulation_mat, modulation_bias), embedding_input
         else:
             return (modulation_mat, modulation_bias)
 

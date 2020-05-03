@@ -435,36 +435,35 @@ class ImpRegConvModel(Model):
                 ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
                 ('layer2_conv', torch.nn.Conv2d(self._num_channels,
-                                                self._num_channels,
+                                                self._num_channels * 2,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
                 ('layer2_relu', torch.nn.ReLU(inplace=True)),
-                ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels,
+                ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels * 2,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer3_conv', torch.nn.Conv2d(self._num_channels,
-                                                self._num_channels,
+                ('layer3_conv', torch.nn.Conv2d(self._num_channels * 2,
+                                                self._num_channels * 4,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
                 ('layer3_relu', torch.nn.ReLU(inplace=True)),
-                
-                ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels,
+                ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels * 4,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 
                 ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
-                ('layer4_conv', torch.nn.Conv2d(self._num_channels,
-                                                self._num_channels,
+                ('layer4_conv', torch.nn.Conv2d(self._num_channels * 4,
+                                                self._num_channels * 8,
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
                 ('layer4_relu', torch.nn.ReLU(inplace=True)),
-                ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels,
+                ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels * 8,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
                 ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
@@ -515,20 +514,19 @@ class ImpRegConvModel(Model):
 
         self.apply(weight_init)
 
-        # the following wont be part of self.parameters:
-        self.classifier = OrderedDict([
-            ('fully_connected', torch.nn.Linear(self._modulation_mat_rank + 1,
-                                                self._output_size, bias=False))
-        ])
-        self.classifier['fully_connected'].apply(weight_init)
+        # # the following wont be part of self.parameters:
+        # self.classifier = OrderedDict([
+        #     ('fully_connected', torch.nn.Linear(self._modulation_mat_rank,
+        #                                         self._output_size, bias=True))
+        # ])
+        # self.classifier['fully_connected'].apply(weight_init)
 
 
-    def forward(self, batch, modulation, update_params=None, training=True, get_features=False):
+    def forward(self, batch, modulation, training=True):
         if not self._reuse and self._verbose: print('='*10 + ' Model ' + '='*10)
         params = OrderedDict(self.named_parameters())
 
         x = batch
-        
         modulation_mat, modulation_bias = modulation
 
         if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
@@ -565,21 +563,26 @@ class ImpRegConvModel(Model):
 
         x = F.linear(x, weight=modulation_mat,
                         bias=modulation_bias)
+
         x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], dim=-1)
+
+        self._reuse = True
+
+        return x
         
         # print("feature norm after A ", torch.norm(x, dim=1).mean(0))
 
-        if update_params is None:
-            logits = F.linear(x, weight=self.classifier['fully_connected'].weight)
+        # if update_params is None:
+        #     logits = F.linear(x, weight=self.classifier['fully_connected'].weight)
                 
-        else:
-            # we have to use update_params here instead of params
-            logits = F.linear(x, weight=update_params)
+        # else:
+        #     # we have to use update_params here instead of params
+        #     logits = F.linear(x, weight=update_params)
 
-        if not self._reuse and self._verbose: print('logits size: {}'.format(logits.size()))
-        if not self._reuse and self._verbose: print('='*27)
-        self._reuse = True
+        # if not self._reuse and self._verbose: print('logits size: {}'.format(logits.size()))
+        # if not self._reuse and self._verbose: print('='*27)
 
-        if get_features:
-            return logits, x
-        return logits
+        # if get_features:
+        #     return logits, x
+        # else:
+        #     return logits
