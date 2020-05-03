@@ -580,16 +580,9 @@ def main(args):
             model=model,
             embedding_model=embedding_model,
             inner_loss_func=loss_func,
-            fast_lr=args.fast_lr,
-            first_order=args.first_order,
-            num_updates=args.num_updates,
-            inner_loop_grad_clip=args.inner_loop_grad_clip,
-            inner_loop_soft_clip_slope=args.inner_loop_soft_clip_slope,
+            l2_lambda=args.l2_inner_loop,
             device=args.device,
-            is_classification=True,
-            is_momentum=args.momentum,
-            gamma_momentum=args.gamma_momentum,
-            l2_lambda=args.l2_inner_loop)
+            is_classification=True)
 
 
     if args.algorithm == 'imp_reg_maml':

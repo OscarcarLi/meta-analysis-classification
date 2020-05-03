@@ -548,26 +548,16 @@ class RegMAML_inner_algorithm(Algorithm):
 
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
-                inner_loss_func, fast_lr,
-                first_order, num_updates, inner_loop_grad_clip,
-                inner_loop_soft_clip_slope, device, is_classification=False, 
-                is_momentum=False, gamma_momentum=0.2, l2_lambda=0.):
+                inner_loss_func, l2_lambda,
+                device, is_classification=True):
 
         self._model = model
         self._embedding_model = embedding_model
         self._inner_loss_func = inner_loss_func
-        self._fast_lr = fast_lr # per step inner loop learning rate
-        self._first_order = first_order
-        self._num_updates = num_updates
-        self._inner_loop_grad_clip = inner_loop_grad_clip
-        self._inner_loop_soft_clip_slope = inner_loop_soft_clip_slope
+        self._l2_lambda = l2_lambda
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
-        self._is_momentum = is_momentum
-        self._gamma_momentum = gamma_momentum
-        self._l2_lambda = l2_lambda
-        print("Momentum : ", self._is_momentum, self._gamma_momentum)
 
 
     def compute_hessian(self, X, y, w):
