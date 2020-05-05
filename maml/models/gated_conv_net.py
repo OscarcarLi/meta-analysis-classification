@@ -400,7 +400,7 @@ class ImpRegConvModel(Model):
     """
     def __init__(self, input_channels, output_size, modulation_mat_rank, num_channels=64,
                  kernel_size=3, padding=1, nonlinearity=F.relu,
-                 use_max_pool=False, img_side_len=28, verbose=False):
+                 use_max_pool=False, img_side_len=28, verbose=False, normalize_norm=0.):
         super(ImpRegConvModel, self).__init__()
         self._input_channels = input_channels
         self._output_size = output_size
@@ -413,6 +413,7 @@ class ImpRegConvModel(Model):
         # When affine=False the output of BatchNorm is equivalent to considering gamma=1 and beta=0 as constants.
         self._bn_affine = False
         # reuse is for checking the model architecture
+        self._normalize_norm = normalize_norm
         self._reuse = False
         self._verbose = verbose
 
@@ -527,8 +528,7 @@ class ImpRegConvModel(Model):
         params = OrderedDict(self.named_parameters())
 
         x = batch
-        modulation_mat, modulation_bias = modulation
-
+        
         if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
         for layer_name, layer in self.features.named_children():
             weight = params.get('features.' + layer_name + '.weight', None)
@@ -561,11 +561,24 @@ class ImpRegConvModel(Model):
 
         # print("feature norm before A ", torch.norm(x, dim=1).mean(0))
 
-        x = F.linear(x, weight=modulation_mat,
-                        bias=modulation_bias)
+        x = F.linear(x, weight=modulation, bias=None) # dont use modulation bias
 
-        x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], dim=-1)
+        if not self._reuse and self._verbose and self._normalize_norm:
+            print("Before Normalize")
+            print(torch.norm(x, p=2, dim=1))
 
+        if self._normalize_norm > 0.:
+            max_norm = torch.max(
+                torch.norm(x, p=2, dim=1))
+            x = x.div(max_norm) * self._normalize_norm
+
+        if not self._reuse and self._verbose and self._normalize_norm:
+            print("After Normalize")
+            print(torch.norm(x, p=2, dim=1))
+
+        x = torch.cat([x, torch.ones(x.size(0), 10, device=x.device)], dim=-1)
+        # pad with 10 to allow higher bias in inner solver
+        
         self._reuse = True
 
         return x

@@ -338,10 +338,11 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             if is_training:
                 self._outer_optimizer.zero_grad()
 
+            T = 0
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
                 adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
-                        self._algorithm.inner_loop_adapt(train_task, iter=i)
+                        self._algorithm.inner_loop_adapt(train_task, iter=i, training=is_training)
                 
                 for key, measurements in train_measurements_trajectory.items():
                     train_measurements_trajectory_over_batch[key].append(measurements)
@@ -378,11 +379,28 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
                     test_grad_features_train = test_grad_features_train.reshape(features_train.shape)
 
-                    features_train.backward(gradient=(torch.tensor(test_grad_features_train,
-                                                                      device=self._algorithm._device) / batch_size),
+                    features_train.backward(gradient=(torch.tensor(test_grad_features_train / batch_size,
+                                                                      device=self._algorithm._device)),
                                            retain_graph=True,
                                            create_graph=False)
+                    if T==0:
+                        original_grad = {}                    
+                        for name, param in self._algorithm._model.named_parameters():
+                            original_grad[name] = 0.
+                            # torch.norm(param.grad).item()
+                        #         f.write(f"run r128 5 sn 10 l adam: after first backward:  {name} : {torch.norm(param.grad).item()}")
+                        #         f.write('\n')
+
                     test_loss_after_adapt.backward(retain_graph=False, create_graph=False)
+                    
+                    if T==0:
+                        with open("grad_dump.txt", 'a') as f:                       
+                            for name, param in self._algorithm._model.named_parameters():
+                                f.write(f"run r128 10 sn 50 l adam: grad original:  {name} : {original_grad[name]}")
+                                f.write('\n')
+                                f.write(f"run r128 10 sn 50 l adam: grad diff:  {name} : {abs(torch.norm(param.grad).item() - original_grad[name])}")
+                                f.write('\n')
+                    T += 1
 
             update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
                                                train_measurements_trajectory_over_batch)
@@ -428,7 +446,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 start,
                 results['train_loss_trajectory'],
                 results['test_loss_after'],
-                write_tensorboard=True, meta_val=True)
+                write_tensorboard=False, meta_val=True)
 
         return results
 

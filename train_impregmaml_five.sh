@@ -4,14 +4,15 @@ python main.py \
 --condition-type affine \
 --embedding-type RegConvGRU \
 --embedding-hidden-size 256 \
---no-rnn-aggregation True \
+--no-rnn-aggregation False \
 --fast-lr .03 \
 --inner-loop-grad-clip 0. \
 --num-updates 30 \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
---slow-lr 0.001 \
+--slow-lr-embedding-model 0.001 \
+--slow-lr 0.0001 \
 --model-grad-clip 2. \
 --dataset multimodal_few_shot \
 --multimodal_few_shot omniglot miniimagenet cifar bird aircraft \
@@ -26,7 +27,8 @@ python main.py \
 --log-interval 50 \
 --save-interval 1000 \
 --modulation-mat-rank 32 \
---num-channels 48 \
+--num-channels 64 \
+--num-channels-embedding-model 16 \
 --val-interval 1000 \
 --l2-inner-loop 0.25 \
 --modulation-mat-spec-norm 5.

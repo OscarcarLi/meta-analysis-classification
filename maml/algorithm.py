@@ -548,8 +548,8 @@ class RegMAML_inner_algorithm(Algorithm):
 
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
-                inner_loss_func, l2_lambda,
-                device, is_classification=True):
+                inner_loss_func, l2_lambda, device, randomize_modulation_mat=False,
+                eye_modulation_mat=False, is_classification=True, modulation_mat_size=None):
 
         self._model = model
         self._embedding_model = embedding_model
@@ -558,6 +558,11 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
+        self._randomize_modulation_mat = randomize_modulation_mat
+        self._eye_modulation_mat = eye_modulation_mat
+        self._modulation_mat_size = modulation_mat_size
+        if self._randomize_modulation_mat:
+            print("We are randomizing the modulation matrix")
 
 
     def compute_hessian(self, X, y, w):
@@ -566,12 +571,21 @@ class ImpRMAML_inner_algorithm(Algorithm):
         return hessian
 
 
-    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None):
+    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None, training=True):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
 
-        modulation = self._embedding_model(task, return_task_embedding=False)
+        if self._randomize_modulation_mat:
+            modulation = self._embedding_model(task, return_task_embedding=False)
+            if training:
+                modulation += torch.randn(self._modulation_mat_size,
+                    device=self._device) * (1/np.sqrt(self._modulation_mat_size[1]))
+        elif self._eye_modulation_mat:
+            modulation = torch.eye(
+                self._modulation_mat_size[1], device=self._device)
+        else:
+            modulation = self._embedding_model(task, return_task_embedding=False)
 
         # here the features are padded with 1's at the end
         features = self._model(

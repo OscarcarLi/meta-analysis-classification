@@ -242,7 +242,8 @@ class RegConvEmbeddingModel(torch.nn.Module):
                  rnn_aggregation=False, linear_before_rnn=False, 
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
                  num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False,
-                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., verbose=False):
+                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., 
+                 tie_conv_embedding_model=None, feature_dimension=None, verbose=False):
 
         super(RegConvEmbeddingModel, self).__init__()
         self._input_size = input_size
@@ -268,7 +269,12 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._original_conv = original_conv
         self._reuse = False
         self._modulation_mat_spec_norm = modulation_mat_spec_norm
+        self._tie_conv_embedding_model = tie_conv_embedding_model
+        self._feature_dimension = feature_dimension
         self._verbose = verbose
+        self._conv_stride = 1
+        self._padding = 1
+        self._kernel_size = 3
 
         if self._convolutional:
             conv_list = OrderedDict([])
@@ -298,7 +304,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 # linearly transform the flattened conv features before feeding into rnn
                 linear_input_size = self.compute_input_size(
                     1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
-                rnn_input_size = 128
+                if self._tie_conv_embedding_model:
+                    linear_input_size = self._feature_dimension
+                rnn_input_size = 256
             elif self._avgpool_after_conv:
                 # avg pool across h and w before feeding into rnn
                     rnn_input_size = self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels
@@ -306,6 +314,8 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 # directly use the flattened conv features as input to rnn
                 rnn_input_size = self.compute_input_size(
                     1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
+                if self._tie_conv_embedding_model:
+                    rnn_input_size = self._feature_dimension   
         else:
             # do not use conv feature extractor
             rnn_input_size = int(input_size)
@@ -335,11 +345,13 @@ class RegConvEmbeddingModel(torch.nn.Module):
         #     torch.nn.Linear(np.prod(modulation_mat_size) // 2, np.prod(modulation_mat_size))
         # )
 
-        self.modulation_mat_generator = torch.nn.Linear(embedding_input_size, 
-                np.prod(modulation_mat_size))
-
-        self.modulation_bias_generator = torch.nn.Linear(
-            embedding_input_size, modulation_mat_size[0])
+        self.modulation_mat_generator = torch.nn.Sequential(
+            torch.nn.Linear(
+                embedding_input_size, embedding_input_size),
+            torch.nn.ReLU(),
+            torch.nn.Linear(
+                embedding_input_size, np.prod(modulation_mat_size))
+        )
 
         self.apply(weight_init)
 
@@ -357,21 +369,45 @@ class RegConvEmbeddingModel(torch.nn.Module):
         if self._convolutional:
             x = task.x
             if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
-            for layer_name, layer in self.conv.named_children():
-                # the first 'conv.' comes from the sequential
-                weight = params.get('conv.' + layer_name + '.weight', None)
-                bias = params.get('conv.' + layer_name + '.bias', None)
-                if 'conv' in layer_name:
-                    x = F.conv2d(x, weight=weight, bias=bias, stride=2, padding=1)
-                elif 'relu' in layer_name:
-                    x = F.relu(x)
-                elif 'bn' in layer_name:
-                    # Question: is the layer.running_mean going to be updated?
-                    x = F.batch_norm(x, weight=weight, bias=bias,
-                                     running_mean=layer.running_mean,
-                                     running_var=layer.running_var,
-                                     training=True)
-                if not self._reuse and self._verbose: print('{}: {}'.format(layer_name, x.size()))
+            if self._tie_conv_embedding_model:
+                for layer_name, layer in self.conv.named_children():
+                    weight = params.get('conv.' + layer_name + '.weight', None)
+                    bias = params.get('conv.' + layer_name + '.bias', None)
+                    if 'conv' in layer_name:
+                        x = F.conv2d(x, weight=weight, bias=bias,
+                                    stride=self._conv_stride, padding=self._padding)
+                    elif 'bn' in layer_name:
+                        x = F.batch_norm(x, weight=weight, bias=bias,
+                                        running_mean=layer.running_mean,
+                                        running_var=layer.running_var,
+                                        training=True)
+                    elif 'max_pool' in layer_name:
+                        x = F.max_pool2d(x, kernel_size=2, stride=2)
+                    elif 'relu' in layer_name:
+                        x = F.relu(x)
+                    elif 'fully_connected' in layer_name:
+                        # we have reached the last layer
+                        break
+                    else:
+                        raise ValueError('Unrecognized layer {}'.format(layer_name))
+                    if not self._reuse and self._verbose: print('{}: {}'.format(layer_name, x.size()))
+                    
+            else:
+                for layer_name, layer in self.conv.named_children():
+                    # the first 'conv.' comes from the sequential
+                    weight = params.get('conv.' + layer_name + '.weight', None)
+                    bias = params.get('conv.' + layer_name + '.bias', None)
+                    if 'conv' in layer_name:
+                        x = F.conv2d(x, weight=weight, bias=bias, stride=2, padding=1)
+                    elif 'relu' in layer_name:
+                        x = F.relu(x)
+                    elif 'bn' in layer_name:
+                        # Question: is the layer.running_mean going to be updated?
+                        x = F.batch_norm(x, weight=weight, bias=bias,
+                                        running_mean=layer.running_mean,
+                                        running_var=layer.running_var,
+                                        training=True)
+                    if not self._reuse and self._verbose: print('{}: {}'.format(layer_name, x.size()))
             if self._avgpool_after_conv:
                 # average every channel across h * w to reduce to 1 number
                 x = x.view(x.size(0), x.size(1), -1)
@@ -381,7 +417,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
 
             else:
                 # otherwise just vectorize the tensor for each example
-                x = task.x.view(task.x.size(0), -1)
+                x = x.view(x.size(0), -1)
                 if not self._reuse and self._verbose: print('flatten: {}'.format(x.size()))
         else:
             # no convolution then just flatten the image as a vector
@@ -436,21 +472,18 @@ class RegConvEmbeddingModel(torch.nn.Module):
         modulation_mat = self.modulation_mat_generator(embedding_input).reshape(
                             embedding_input.size(0), self._modulation_mat_size[0], 
                             self._modulation_mat_size[1]). squeeze()
-        modulation_bias = self.modulation_bias_generator(embedding_input).squeeze()
-
+        
         if not self._reuse and self._verbose: print('modulation mat {}'.format(
                 modulation_mat.size()))
-
-        if not self._reuse and self._verbose: print('modulation bias {}'.format(
-                modulation_bias.size()))
 
         # print("Before", torch.norm(modulation_mat, dim=1))
         # modulation_mat_norm = torch.norm(modulation_mat.detach()
         #     ,dim=1, keepdim=True)
         # modulation_mat_norm[modulation_mat_norm < 3.] = 1.
         # modulation_mat /= modulation_mat_norm
-        modulation_mat = spectral_norm(modulation_mat, device=self._device,
-             limit = self._modulation_mat_spec_norm)
+        if self._modulation_mat_spec_norm > 0.:
+            modulation_mat = spectral_norm(modulation_mat, device=self._device,
+                limit = self._modulation_mat_spec_norm)
         # print(torch.svd(modulation_mat))
         # print("After", torch.norm(modulation_mat, dim=1))
 
@@ -458,9 +491,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._reuse = True
 
         if return_task_embedding:
-            return (modulation_mat, modulation_bias), embedding_input
+            return modulation_mat, embedding_input
         else:
-            return (modulation_mat, modulation_bias)
+            return modulation_mat
 
     def to(self, device, **kwargs):
         self._device = device

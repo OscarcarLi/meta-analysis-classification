@@ -69,6 +69,11 @@ def main(args):
         'val': args.num_val_samples_per_class_meta_val, 
         'test': args.num_val_samples_per_class_meta_test
     }
+    num_classes_per_batch = {
+        'train': args.num_classes_per_batch_meta_train, 
+        'val': args.num_classes_per_batch_meta_val, 
+        'test': args.num_classes_per_batch_meta_test
+    }
     dataset = {} # dictionary of datasets, indexed by split
 
     if args.dataset == 'omniglot':
@@ -76,7 +81,7 @@ def main(args):
             dataset[split] = OmniglotMetaDataset(
                 root='data',
                 img_side_len=28, # args.img_side_len,
-                num_classes_per_batch=args.num_classes_per_batch,
+                num_classes_per_batch=num_classes_per_batch[split],
                 num_samples_per_class=args.num_train_samples_per_class,
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
@@ -92,7 +97,7 @@ def main(args):
             dataset[split] = Cifar100MetaDataset(
                 root='data',
                 img_side_len=32,
-                num_classes_per_batch=args.num_classes_per_batch,
+                num_classes_per_batch=num_classes_per_batch[split],
                 num_samples_per_class=args.num_train_samples_per_class,
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
@@ -112,7 +117,7 @@ def main(args):
                     root='data',
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
-                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_classes_per_batch=num_classes_per_batch[split],
                     num_samples_per_class=args.num_train_samples_per_class,
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
@@ -127,7 +132,7 @@ def main(args):
                     root='data',
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
-                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_classes_per_batch=num_classes_per_batch[split],
                     num_samples_per_class=args.num_train_samples_per_class,
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
@@ -141,7 +146,7 @@ def main(args):
                     root='data',
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
-                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_classes_per_batch=num_classes_per_batch[split],
                     num_samples_per_class=args.num_train_samples_per_class,
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
@@ -185,7 +190,7 @@ def main(args):
                     root='data',
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
-                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_classes_per_batch=num_classes_per_batch[split],
                     num_samples_per_class=args.num_train_samples_per_class,
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
@@ -199,7 +204,7 @@ def main(args):
                     root='data',
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
-                    num_classes_per_batch=args.num_classes_per_batch,
+                    num_classes_per_batch=num_classes_per_batch[split],
                     num_samples_per_class=args.num_train_samples_per_class,
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
@@ -256,7 +261,7 @@ def main(args):
             dataset[split] = MiniimagenetMetaDataset(
                 root='data',
                 img_side_len=84,
-                num_classes_per_batch=args.num_classes_per_batch,
+                num_classes_per_batch=num_classes_per_batch[split],
                 num_samples_per_class=args.num_train_samples_per_class,
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
@@ -417,13 +422,26 @@ def main(args):
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose)
     elif args.model_type == 'impregconv':
-        model = ImpRegConvModel(
+        if args.original_conv:
+            print("Using original MAML implementation")
+            model = gated_conv_net_original.ImpRegConvModel(
                 input_channels=dataset['train'].input_size[0],
                 output_size=dataset['train'].output_size,
                 num_channels=args.num_channels,
                 modulation_mat_rank=args.modulation_mat_rank,
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
+                normalize_norm=args.normalize_norm, 
+                verbose=args.verbose)
+        else:
+            model = gated_conv_net.ImpRegConvModel(
+                input_channels=dataset['train'].input_size[0],
+                output_size=dataset['train'].output_size,
+                num_channels=args.num_channels,
+                modulation_mat_rank=args.modulation_mat_rank,
+                img_side_len=dataset['train'].input_size[1],
+                use_max_pool=args.use_max_pool,
+                normalize_norm=args.normalize_norm,
                 verbose=args.verbose)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
@@ -474,10 +492,11 @@ def main(args):
         embedding_parameters = list(embedding_model.parameters())
     elif args.embedding_type == 'RegConvGRU':
         if args.original_conv:
-            modulation_mat_size = (args.modulation_mat_rank, args.num_channels*5*5)
-            print("modulation_mat_size", modulation_mat_size)
+            feature_dimension = args.num_channels*5*5
         else:
-            modulation_mat_size = (args.modulation_mat_rank, args.num_channels*8)
+            feature_dimension = args.num_channels*8
+        modulation_mat_size = (args.modulation_mat_rank, feature_dimension)
+        print("modulation_mat_size", modulation_mat_size)
         embedding_model = RegConvEmbeddingModel(
              input_size=np.prod(dataset['train'].input_size),
              output_size=dataset['train'].output_size,
@@ -486,7 +505,7 @@ def main(args):
              num_layers=args.embedding_num_layers,
              convolutional=args.conv_embedding,
              num_conv=args.num_conv_embedding_layer,
-             num_channels=args.num_channels,
+             num_channels=args.num_channels_embedding_model,
              rnn_aggregation=(not args.no_rnn_aggregation),
              linear_before_rnn=args.linear_before_rnn,
              embedding_pooling=args.embedding_pooling,
@@ -497,22 +516,45 @@ def main(args):
              img_size=dataset['train'].input_size,
              verbose=args.verbose,
              original_conv=args.original_conv,
-             modulation_mat_spec_norm = args.modulation_mat_spec_norm)
+             modulation_mat_spec_norm = args.modulation_mat_spec_norm,
+             tie_conv_embedding_model=args.tie_conv_embedding_model,
+             feature_dimension=feature_dimension)
         embedding_parameters = list(embedding_model.parameters())
     else:
         raise ValueError('Unrecognized embedding type {}'.format(
             args.embedding_type))
+    if args.tie_conv_embedding_model:
+        print("Same convolutional feature extractor for both embedding model and main model")
+        embedding_model.conv = model.features
     print("Model:")
     print(model)
     print("Embedding Model:")
     print(embedding_model)
     optimizers = None
     if embedding_model is None:
-        optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
+        # optimizers = torch.optim.SGD(model.parameters(), lr=.1, momentum=0.9, 
+        #             weight_decay=5e-3, nesterov=True)
+        optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr, weight_decay=5e-4)
     else:
+        if args.tie_conv_embedding_model:
+            embedding_model_params = []
+            for name, param in embedding_model.named_parameters():
+                if 'conv' not in name:
+                    print(f"Registering only {name} in emb model optimizer")
+                    embedding_model_params.append(param)
+        else:
+            embedding_model_params = embedding_model.parameters()
         optimizer_specs = \
-            [{'params': model.parameters(), 'lr': args.slow_lr},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr}]
+            [
+                # {'params': model.parameters(), 'lr': .1, 'momentum':0.9,
+                #  'weight_decay':5e-3, 'nesterov': True},
+                # {'params': embedding_model_params, 'lr': .1, 'momentum':0.9,
+                #  'weight_decay':5e-3, 'nesterov': True}
+                {'params': model.parameters(), 'lr': args.slow_lr,
+                 'weight_decay':5e-3},
+                {'params': embedding_model_params, 'lr': args.slow_lr_embedding_model,
+                 'weight_decay':5e-3} # wiggle room for proposed modulation mat
+            ]
         optimizers = torch.optim.Adam(optimizer_specs)
 
     if args.checkpoint != '':
@@ -576,12 +618,20 @@ def main(args):
             gamma_momentum=args.gamma_momentum,
             l2_lambda=args.l2_inner_loop)
     elif args.algorithm == 'imp_reg_maml':
+        if args.original_conv:
+            feature_dimension = args.num_channels*5*5
+        else:
+            feature_dimension = args.num_channels*8
+        modulation_mat_size = (args.modulation_mat_rank, feature_dimension)
         algorithm = ImpRMAML_inner_algorithm(
             model=model,
             embedding_model=embedding_model,
             inner_loss_func=loss_func,
             l2_lambda=args.l2_inner_loop,
             device=args.device,
+            randomize_modulation_mat=args.randomize_modulation_mat,
+            eye_modulation_mat=args.eye_modulation_mat,
+            modulation_mat_size=modulation_mat_size,
             is_classification=True)
 
 
@@ -605,7 +655,13 @@ def main(args):
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
+        lambda_epoch = lambda e: 1.0 if e < 15 else (0.12 if e < 30 else 0.06 if e < 45 else (0.012))
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
         for iter_start in range(1, num_batches['train'], args.val_interval):
+            lr_scheduler.step()
+            for i, param_group in enumerate(optimizers.param_groups):
+                epoch_learning_rate = param_group['lr']
+                print(f"param group {i}, lr : {param_group['lr']}")
             try:
                 train_result = trainer.run(train_iterator, is_training=True, 
                     start=iter_start, stop=iter_start+args.val_interval)
@@ -662,8 +718,12 @@ if __name__ == '__main__':
         help='choose whether to use max pooling with convolutional model')
     parser.add_argument('--num-channels', type=int, default=32,
         help='number of channels in convolutional layers')
+    parser.add_argument('--num-channels-embedding-model', type=int, default=32,
+        help='number of channels in convolutional layers')
     parser.add_argument('--disable-norm', action='store_true',
         help='disable batchnorm after linear layers in a fully connected model')
+    parser.add_argument('--normalize-norm', type=float, default=0.,
+        help='normalize post multiplication with modulation mat in a fully connected model')
     parser.add_argument('--bias-transformation-size', type=int, default=0,
         help='size of bias transformation vector that is concatenated with '
              'input')
@@ -733,6 +793,8 @@ if __name__ == '__main__':
         help='number of tasks per batch')
     parser.add_argument('--slow-lr', type=float, default=0.001,
         help='learning rate for the global update of MAML')
+    parser.add_argument('--slow-lr-embedding-model', type=float, default=0.001,
+        help='learning rate for the global update of embedding model')
     parser.add_argument('--embedding-grad-clip', type=float, default=0.0,
         help='')
     parser.add_argument('--model-grad-clip', type=float, default=0.0,
@@ -749,11 +811,15 @@ if __name__ == '__main__':
     #     help='path to store datasets')
     parser.add_argument('--num-train-classes', type=int, default=1100,
         help='how many classes for training')
-    parser.add_argument('--num-classes-per-batch', type=int, default=5,
-        help='how many classes per task')
+    parser.add_argument('--num-classes-per-batch-meta-train', type=int, default=5,
+        help='how many classes per task meta-train')
+    parser.add_argument('--num-classes-per-batch-meta-val', type=int, default=5,
+        help='how many classes per task meta-val')
+    parser.add_argument('--num-classes-per-batch-meta-test', type=int, default=5,
+        help='how many classes per task meta-test')
     parser.add_argument('--num-train-samples-per-class', type=int, default=1,
         help='how many samples per class for training')
-    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=5,
+    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=15,
         help='how many samples per class for validation (meta train)')
     parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
         help='how many samples per class for validation (meta val)')
@@ -796,6 +862,12 @@ if __name__ == '__main__':
 
 
     # Miscellaneous
+    parser.add_argument('--tie-conv-embedding-model', action='store_true', default=False,
+        help='will tie the weights for conv layers in embedding model and feature extractor')
+    parser.add_argument('--randomize-modulation-mat', action='store_true', default=False,
+        help='Randomize the modulation matrix')
+    parser.add_argument('--eye-modulation-mat', action='store_true', default=False,
+        help='Identity modulation matrix')
     parser.add_argument('--output-folder', type=str, default='maml',
         help='name of the output folder')
     parser.add_argument('--device', type=str, default='cuda',

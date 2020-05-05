@@ -12,26 +12,44 @@ python main.py \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
 --slow-lr 0.001 \
---model-grad-clip 2.0 \
+--slow-lr-embedding-model 0.001 \
+--model-grad-clip 5. \
 --dataset miniimagenet \
---num-classes-per-batch 5 \
+--num-classes-per-batch-meta-train 5 \
+--num-classes-per-batch-meta-val 5 \
 --num-train-samples-per-class 1 \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_5w1s_8r_48c \
+--output-folder impregmaml_minim_5w1s_random_mod_4 \
 --device cuda \
 --device-number 3 \
 --log-interval 50 \
---save-interval 1000 \
---modulation-mat-rank 8 \
---num-channels 48 \
---val-interval 1000 \
---l2-inner-loop 0.25
+--save-interval 500 \
+--modulation-mat-rank 64 \
+--num-channels 64 \
+--num-channels-embedding-model 32 \
+--val-interval 500 \
+--l2-inner-loop 0.25 \
+--modulation-mat-spec-norm 2. \
+--conv-embedding-avgpool-after-conv False \
+--original-conv \
+--normalize-norm 3. \
+--verbose True \
+# --eval \
+# --checkpoint train_dir/impregmaml_minim_5w1s_random_mod/maml_impregconv_25000.pt
+
+# --randomize-modulation-mat \
+# --eye-modulation-mat \
+# --tie-conv-embedding-model \
+# --checkpoint train_dir/impregmaml_minim_5w1s_103/maml_impregconv_13000.pt
 # --momentum \
 # --gamma-momentum 0.2 \
-# --original-conv
 
+# lower lambda means higher ub for hessian inv (1/x)
+# lower spec norm means higher lb for hessian inv (1/x^2)
+# lambda -> (sn^2 + lambda)    [hessian]
+# 1./(sn^2 + lambda) -> 1./lambda     [hessian inv]
 
-# Nameing convention 
+# Naming convention 
 # dataset_type_main_model_rank_training_paradigm_embedding_model
