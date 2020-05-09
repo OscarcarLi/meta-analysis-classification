@@ -4,6 +4,9 @@ import torch
 import torch.nn.functional as F
 
 from maml.models.model import Model
+import numpy as np
+
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
 
 
 def weight_init(module):
@@ -238,7 +241,7 @@ class ImpRegConvModel(Model):
         #                                         self._output_size))
         # ]))
         
-    def forward(self, batch, modulation, training=True):
+    def forward(self, batch, modulation, training=True, only_features=False):
         if not self._reuse and self._verbose: print('='*10 + ' Model ' + '='*10)
         params = OrderedDict(self.named_parameters())
 
@@ -265,15 +268,43 @@ class ImpRegConvModel(Model):
                 break
             else:
                 raise ValueError('Unrecognized layer {}'.format(layer_name))
-            if not self._reuse and self._verbose: print('{}: {}'.format(layer_name, x.size()))
+            if not self._reuse and self._verbose: print('{}: {}, norm : {}'.format(layer_name, x.size(), torch.norm(x.view(x.size(0), -1), p=2, dim=1).mean(0)))
 
+
+        if only_features:
+            return x
+            
         # below the conv maps are flattened
         x = x.view(x.size(0), -1)
 
+        
+
+        if not self._reuse:
+            print("Before Modulation")
+            print(torch.norm(x, p=2, dim=1))
+
+
         x = F.linear(x, weight=modulation, bias=None) # dont use modulation bias
 
-        if not self._reuse and self._verbose and self._normalize_norm:
-            print("Before Normalize")
+        # n_samples = x.size(0) // 5
+        # if n_samples > 1:
+        #     m = 0
+        #     print(n_samples)
+        #     for i in range(5):
+        #         m+= cosine_similarity(x.detach().cpu().numpy()[i*n_samples:(i+1)*n_samples, :]).mean()
+        #     print("avg intra class similarity:", m/5)
+
+        #     # y = x[np.random.permutation(x.size(0))]
+        #     y = x
+        #     m = []
+        #     for i in range(5):
+        #         m.append((y.detach().cpu().numpy()[i*n_samples:(i+1)*n_samples, :]).mean(0))
+        #     m = np.array(m)
+        #     print("avg inter class similarity:", cosine_similarity(m).mean())
+
+
+        if not self._reuse:
+            print("After modulation")
             print(torch.norm(x, p=2, dim=1))
 
         if self._normalize_norm > 0.:
@@ -281,11 +312,11 @@ class ImpRegConvModel(Model):
                 torch.norm(x, p=2, dim=1))
             x = x.div(max_norm) * self._normalize_norm
 
-        if not self._reuse and self._verbose and self._normalize_norm:
+        if not self._reuse and self._normalize_norm > 0.:
             print("After Normalize")
             print(torch.norm(x, p=2, dim=1))
 
-        x = torch.cat([x, torch.ones(x.size(0), 10, device=x.device)], dim=-1)
+        x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
         # pad with 10 to allow higher bias in inner solver
         
         self._reuse = True

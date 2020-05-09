@@ -20,8 +20,9 @@ from maml.models.lstm_embedding_model import LSTMEmbeddingModel
 from maml.models.gru_embedding_model import GRUEmbeddingModel
 from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddingModel
 from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm
-from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer
-from maml.utils import optimizer_to_device, get_git_revision_hash
+from maml.algorithm import OldImpRMAML_inner_algorithm
+from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer, OldImplicit_Gradient_based_algorithm_trainer
+from maml.utils import optimizer_to_device, get_git_revision_hash, primal_svm
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models.gated_conv_net import ImpRegConvModel
 import pprint
@@ -31,7 +32,7 @@ def main(args):
     is_training = not args.eval
     run_name = 'train' if is_training else 'eval'
 
-    if is_training:
+    if args.use_tboard:
         writer = SummaryWriter('./train_dir/{0}/{1}'.format(
             args.output_folder, run_name))
         with open('./train_dir/{}/config.txt'.format(
@@ -269,7 +270,19 @@ def main(args):
                 split=split,
                 num_workers=args.num_workers,
                 device=args.device)
+            adversarial_dataset = MiniimagenetMetaDataset(
+                root='data',
+                img_side_len=84,
+                num_classes_per_batch=1,
+                num_samples_per_class=5,
+                num_total_batches=num_batches[split],
+                num_val_samples=num_val_samples_per_class[split],
+                meta_batch_size=args.meta_batch_size,
+                split=split,
+                num_workers=args.num_workers,
+                device=args.device)
         loss_func = torch.nn.CrossEntropyLoss()
+        # loss_func = primal_svm
         collect_accuracies = True
     # elif args.dataset == 'sinusoid':
     #     dataset = SinusoidMetaDataset(
@@ -518,6 +531,8 @@ def main(args):
              original_conv=args.original_conv,
              modulation_mat_spec_norm = args.modulation_mat_spec_norm,
              tie_conv_embedding_model=args.tie_conv_embedding_model,
+             use_label=args.use_label,
+             num_classes=dataset['train'].output_size,
              feature_dimension=feature_dimension)
         embedding_parameters = list(embedding_model.parameters())
     else:
@@ -551,9 +566,9 @@ def main(args):
                 # {'params': embedding_model_params, 'lr': .1, 'momentum':0.9,
                 #  'weight_decay':5e-3, 'nesterov': True}
                 {'params': model.parameters(), 'lr': args.slow_lr,
-                 'weight_decay':5e-3},
+                 'weight_decay':5e-4},
                 {'params': embedding_model_params, 'lr': args.slow_lr_embedding_model,
-                 'weight_decay':5e-3} # wiggle room for proposed modulation mat
+                 'weight_decay':5e-4}
             ]
         optimizers = torch.optim.Adam(optimizer_specs)
 
@@ -633,16 +648,26 @@ def main(args):
             eye_modulation_mat=args.eye_modulation_mat,
             modulation_mat_size=modulation_mat_size,
             is_classification=True)
+        # algorithm = OldImpRMAML_inner_algorithm(
+        #     inner_loss_func=loss_func,
+        #     device=args.device,
+        #     is_classification=True,
+        #     l2_lambda=args.l2_inner_loop)
 
 
     if args.algorithm == 'imp_reg_maml':
+        # trainer = OldImplicit_Gradient_based_algorithm_trainer(
+        #     algorithm=algorithm, model=model, embedding_model=embedding_model, outer_loss_func=loss_func,
+        #     outer_optimizer=optimizers, writer=writer, device=args.device,
+        #     log_interval=args.log_interval, save_interval=args.save_interval,
+        #     model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
         trainer = Implicit_Gradient_based_algorithm_trainer(
                 algorithm=algorithm,
                 outer_loss_func=loss_func,
                 outer_optimizer=optimizers, 
                 writer=writer,
                 log_interval=args.log_interval, save_interval=args.save_interval,
-                model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
+                model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip, device=args.device)
 
     else:
         trainer = Gradient_based_algorithm_trainer(
@@ -655,10 +680,14 @@ def main(args):
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
-        lambda_epoch = lambda e: 1.0 if e < 15 else (0.12 if e < 30 else 0.06 if e < 45 else (0.012))
-        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
+        # lambda_epoch = lambda e: 1.0 if e < 20 else (0.12 if e < 40 else 0.06 if e < 50 else (0.012))
+        # lr_schedulers = [
+        #     torch.optim.lr_scheduler.LambdaLR(opt, lr_lambda=lambda_epoch, last_epoch=-1)
+        #     for opt in optimizers.values()]
         for iter_start in range(1, num_batches['train'], args.val_interval):
-            lr_scheduler.step()
+            # for lr_scheduler in lr_schedulers:
+            #     lr_scheduler.step()
+            # for opt in optimizers.values():
             for i, param_group in enumerate(optimizers.param_groups):
                 epoch_learning_rate = param_group['lr']
                 print(f"param group {i}, lr : {param_group['lr']}")
@@ -864,6 +893,8 @@ if __name__ == '__main__':
     # Miscellaneous
     parser.add_argument('--tie-conv-embedding-model', action='store_true', default=False,
         help='will tie the weights for conv layers in embedding model and feature extractor')
+    parser.add_argument('--use-tboard', action='store_true', default=False,
+        help='Use Tensorboard')
     parser.add_argument('--randomize-modulation-mat', action='store_true', default=False,
         help='Randomize the modulation matrix')
     parser.add_argument('--eye-modulation-mat', action='store_true', default=False,

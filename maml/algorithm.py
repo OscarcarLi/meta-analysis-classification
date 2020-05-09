@@ -14,6 +14,8 @@ from sklearn.linear_model import LogisticRegression
 
 import warnings
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.svm import LinearSVC
+
 warnings.simplefilter("always", ConvergenceWarning)
 
 class Algorithm(object):
@@ -579,8 +581,10 @@ class ImpRMAML_inner_algorithm(Algorithm):
         if self._randomize_modulation_mat:
             modulation = self._embedding_model(task, return_task_embedding=False)
             if training:
+                # print(torch.norm(modulation, dim=1), torch.norm(torch.randn(self._modulation_mat_size,
+                #     device=self._device) * (1/np.sqrt(10*self._modulation_mat_size[1])), dim=1))
                 modulation += torch.randn(self._modulation_mat_size,
-                    device=self._device) * (1/np.sqrt(self._modulation_mat_size[1]))
+                    device=self._device) * (1./np.sqrt(self._modulation_mat_size[1]))
         elif self._eye_modulation_mat:
             modulation = torch.eye(
                 self._modulation_mat_size[1], device=self._device)
@@ -600,6 +604,22 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 tol=1e-6, max_iter=150,
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
+            # print(lr_model.coef_)
+            # lr_model_2 = LogisticRegression(solver='liblinear', penalty='l2', 
+            #     C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
+            #     tol=1e-6, max_iter=150
+            #     , fit_intercept=False, dual=True)
+            # W = []
+            # for a in set(y):
+            #     z = np.zeros(len(y), dtype=np.int)
+            #     z[y==a] = 1
+            #     lr_model_2.fit(X, z)
+            #     W.append(np.squeeze(lr_model_2.coef_))
+            # W = np.array(W)
+            # print(W.shape)
+            # print(W)
+            # print(np.pow((lr_model.coef_ - W), 2).sum())
+            
         
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
@@ -639,3 +659,78 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # for model saving and reloading
         return {'model': self._model.state_dict(),
                 'embedding_model': self._embedding_model.state_dict()}
+
+
+
+
+
+
+
+
+
+class OldImpRMAML_inner_algorithm(Algorithm):
+    def __init__(self, inner_loss_func,
+                device, is_classification=False, 
+                l2_lambda=0.):
+        
+        self._inner_loss_func = inner_loss_func
+        self._device = device
+        self.is_classification = is_classification
+        self._l2_lambda = l2_lambda
+
+
+    def compute_hessian_inverse(self, loss, adapted_params):
+          
+        grad = torch.autograd.grad(loss, adapted_params,
+                    create_graph=True, allow_unused=False)[0]
+        grad = grad.flatten()
+        
+        hessian = torch.zeros((len(grad), len(grad)), 
+            device=grad.device)
+        for i, y in enumerate(grad):
+            hessian[i, :] = torch.autograd.grad(y, adapted_params,
+                    create_graph=False, allow_unused=False, retain_graph=True)[0].flatten()
+                        
+        hessian_inv = torch.inverse(hessian)
+        # can be replaced with a cholesky inverse after we compute
+        # the cholesky factor of the positive definite hessian (only with l2 loss)
+        # using torch.cholesky_inverse(torch.cholesky(hessian))
+        
+        return hessian_inv
+
+        
+
+    def inner_loop_adapt(self, task, model, modulation, num_updates=None, analysis=False, iter=None, training=True):
+        # adapt means doing the complete inner loop update
+        
+        measurements_trajectory = defaultdict(list)
+
+        # here the features are padded with 1's at the end
+        features = model(
+            task.x, modulation=modulation)
+
+        X = features.detach().cpu().numpy()
+        y = (task.y).cpu().numpy()
+
+        with warnings.catch_warnings(record=True) as wn:
+            svm_model = LinearSVC(penalty='l2', 
+                C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
+                tol=1e-4, max_iter=80
+                ,fit_intercept=False, loss='squared_hinge')
+            svm_model.fit(X, y)
+        
+        # print(lr_model.n_iter_)
+        adapted_params = torch.tensor(
+            svm_model.coef_, device=self._device, dtype=torch.float32, requires_grad=True)
+        preds = F.linear(features, weight=adapted_params)
+
+        loss = self._inner_loss_func(
+            preds, task.y, adapted_params, (1/self._l2_lambda), self._device)
+        measurements_trajectory['loss'].append(loss.item())
+        if self.is_classification: 
+            measurements_trajectory['accu'].append(accuracy(preds, task.y))
+
+        info_dict = None        
+        hessian_inv = self.compute_hessian_inverse(loss, adapted_params)
+
+        return adapted_params, hessian_inv, measurements_trajectory, info_dict

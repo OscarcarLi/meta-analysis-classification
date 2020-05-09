@@ -237,12 +237,12 @@ class ConvEmbeddingModel(torch.nn.Module):
 # the embedding model does not take into account of the labelling task.y?
 class RegConvEmbeddingModel(torch.nn.Module):
     def __init__(self, input_size, output_size, modulation_mat_size,
-                 hidden_size=128, num_layers=1,
+                 hidden_size=128, num_layers=1, num_classes=None,
                  convolutional=False, num_conv=4, num_channels=32, num_channels_max=256,
                  rnn_aggregation=False, linear_before_rnn=False, 
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
                  num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False,
-                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., 
+                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., use_label=False,
                  tie_conv_embedding_model=None, feature_dimension=None, verbose=False):
 
         super(RegConvEmbeddingModel, self).__init__()
@@ -275,13 +275,26 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._conv_stride = 1
         self._padding = 1
         self._kernel_size = 3
+        self._use_label = use_label
+
+        if use_label:
+            assert num_classes is not None
+            self._num_classes = num_classes
+            self._label_representations = torch.nn.Embedding(num_embeddings=num_classes,
+             embedding_dim=img_size[1] * img_size[2])
 
         if self._convolutional:
             conv_list = OrderedDict([])
             if self._original_conv:
-                num_ch = [self._img_size[0]] + [self._num_channels  for _ in range(self._num_conv)]  
+                if self._use_label:
+                    num_ch = [self._img_size[0] + 1] + [self._num_channels for i in range(self._num_conv)]
+                else:
+                    num_ch = [self._img_size[0]] + [self._num_channels  for _ in range(self._num_conv)]  
             else:  
-                num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+                if self._use_label:
+                    num_ch = [self._img_size[0] + 1] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+                else:
+                    num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
             # num_ch = [self._img_size[0]] + [self._num_channels, self._num_channels, self._num_channels*2, self._num_channels*2]
             # do not exceed num_channels_max
             num_ch = [min(num_channels_max, ch) for ch in num_ch]
@@ -366,8 +379,13 @@ class RegConvEmbeddingModel(torch.nn.Module):
         if params is None:
             params = OrderedDict(self.named_parameters())
 
-        if self._convolutional:
+        if self._use_label:
+            label_embedding = self._label_representations(task.y).view(-1, 1, self._img_size[1], self._img_size[2])
+            x = torch.cat((task.x, label_embedding), dim=1)
+        else:
             x = task.x
+
+        if self._convolutional:
             if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
             if self._tie_conv_embedding_model:
                 for layer_name, layer in self.conv.named_children():
@@ -484,6 +502,10 @@ class RegConvEmbeddingModel(torch.nn.Module):
         if self._modulation_mat_spec_norm > 0.:
             modulation_mat = spectral_norm(modulation_mat, device=self._device,
                 limit = self._modulation_mat_spec_norm)
+        # import numpy as np
+        # from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+        # print(cosine_similarity(modulation_mat.detach().cpu().numpy()))
+        # modulation_mat = F.normalize(modulation_mat, dim=1)
         # print(torch.svd(modulation_mat))
         # print("After", torch.norm(modulation_mat, dim=1))
 

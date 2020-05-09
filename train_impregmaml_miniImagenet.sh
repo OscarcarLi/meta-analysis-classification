@@ -1,4 +1,5 @@
 python main.py \
+--use-tboard \
 --algorithm imp_reg_maml \
 --model-type impregconv \
 --condition-type affine \
@@ -21,24 +22,30 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_5w1s_random_mod_4 \
+--output-folder impregmaml_minim_5w1s_32 \
 --device cuda \
 --device-number 3 \
 --log-interval 50 \
 --save-interval 500 \
---modulation-mat-rank 64 \
---num-channels 64 \
+--modulation-mat-rank 32 \
+--num-channels 32 \
 --num-channels-embedding-model 32 \
 --val-interval 500 \
 --l2-inner-loop 0.25 \
---modulation-mat-spec-norm 2. \
+--modulation-mat-spec-norm 1. \
 --conv-embedding-avgpool-after-conv False \
 --original-conv \
---normalize-norm 3. \
---verbose True \
-# --eval \
-# --checkpoint train_dir/impregmaml_minim_5w1s_random_mod/maml_impregconv_25000.pt
+--use-label \
+--verbose False \
+# --checkpoint train_dir/impregmaml_minim_5w1s_3/maml_impregconv_2000.pt
+# --eval
 
+# --randomize-modulation-mat \
+# --normalize-norm 0. \
+# --eval \
+# --checkpoint train_dir/impregmaml_minim_5w1s_normalize_2/maml_impregconv_19500.pt
+
+# --randomize-modulation-mat \
 # --randomize-modulation-mat \
 # --eye-modulation-mat \
 # --tie-conv-embedding-model \

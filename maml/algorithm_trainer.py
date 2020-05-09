@@ -6,7 +6,11 @@ import torch
 import torch.nn.functional as F
 from torch.nn.utils.clip_grad import clip_grad_norm_
 
+from scipy import spatial
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+
 import json
+from maml.datasets.task import Task
 
 from maml.grad import quantile_marks, get_grad_norm_from_parameters
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
@@ -297,7 +301,7 @@ def standard_deviation_measurement(measurements):
 class Implicit_Gradient_based_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm):
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, device):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -308,7 +312,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         self._model_type = model_type
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm
-
+        self._device = device
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
         # looping through the entire meta_dataset once
@@ -316,7 +320,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         # sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
         n_tasks = 0
-
+        given_start = start
+        self._algorithm._model._reuse = False
+            
         for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
                 dataset_iterator, start=start if is_training else 1)):
             
@@ -332,7 +338,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             test_measurements_after_adapt_over_batch = defaultdict(list)
             analysis = (i % self._log_interval == 0)
 
-
+            if analysis:
+                self._algorithm._model._reuse = False
+            
             batch_size = len(train_task_batch)
 
             if is_training:
@@ -340,6 +348,78 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
             T = 0
             for train_task, test_task in zip(train_task_batch, test_task_batch):
+
+                chance = np.random.uniform()
+                if chance < 0.05 and is_training:
+                    # poison labels
+                    max_y = torch.max(train_task.y)
+                    # print(max_y,train_task.y, test_task.y)
+                    train_task.y[train_task.y==max_y] = max_y - 1 
+                    test_task.y[test_task.y==max_y] = max_y - 1
+                    # print(train_task.y, test_task.y)
+                
+                elif chance < 0.2 and is_training:
+                    # poison labels
+                    # ind = np.argwhere(test_task.y.detach().cpu() == 0)[0]
+                    # print(ind)
+                    # print(test_task.x.shape)
+                    ind = np.random.permutation(test_task.x.shape[0])
+                    train_task_x = test_task.x[ind[:5]]
+                    train_task_x_sz = train_task_x.size(0)
+
+                    test_task_x = test_task.x[ind[5:]]
+                    test_task_x_sz = test_task_x.size(0)
+
+                    with torch.no_grad():
+                        features_train = self._algorithm._model(
+                            batch=train_task_x, only_features=True, modulation=None)
+                        features_train = features_train.view(features_train.size(0), -1)
+                        
+                        features_test = self._algorithm._model(
+                            batch=test_task_x, only_features=True, modulation=None)
+                        features_test = features_test.view(features_test.size(0), -1)
+                    
+                    # print(train_task_x.shape, test_task_x.shape)
+                    
+                    train_task_y = torch.arange(5, device=self._device)
+                    test_task_y = torch.tensor(spatial.KDTree(
+                        features_train.view(train_task_x_sz, -1).detach().cpu()).query(
+                            features_test.view(test_task_x_sz, -1).detach().cpu())[1], device=self._device)
+                    
+                    train_task = Task(train_task_x, train_task_y, train_task.task_info)
+                    test_task = Task(test_task_x, test_task_y, test_task.task_info)
+                    
+                    # print(train_task.x, train_task.y, test_task.x, test_task.y)
+                    # print(euclidean_distances(features_train.detach().cpu().view(train_task_x_sz, -1), 
+                    #     features_test.detach().cpu().view(test_task_x_sz, -1)))
+                
+
+                if T==0 and not is_training:
+                    with torch.no_grad():
+                        features_train = self._algorithm._model(
+                            batch=train_task.x, only_features=True, modulation=None)
+                        features_train = features_train.view(
+                            features_train.size(0), self._algorithm._model._num_channels, -1)
+                        features_train = features_train.mean(2)
+                        
+                        features_test = self._algorithm._model(
+                            batch=test_task.x, only_features=True, modulation=None)
+                        features_test = features_test.view(
+                            features_test.size(0), self._algorithm._model._num_channels, -1)
+                        features_test = features_test.mean(2)
+                        
+                        self._writer.add_embedding(
+                            features_test, global_step=given_start+i, metadata=test_task.y.cpu().numpy(), tag='val_task')
+
+                    
+                for param in self._algorithm._model.parameters():
+                        param.requires_grad = True    
+
+                # if using poisoning dont prop gradients to model feat_exc
+                if chance < 0.2 and is_training:
+                    for param in self._algorithm._model.parameters():
+                        param.requires_grad = False
+
                 # adapt according train_task
                 adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
                         self._algorithm.inner_loop_adapt(train_task, iter=i, training=is_training)
@@ -352,6 +432,11 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 else:
                     with torch.no_grad():
                         features_test = self._algorithm._model(batch=test_task.x, modulation=modulation_train)
+                    if T==0:
+                        self._writer.add_embedding(
+                                features_test.view(
+                                    features_test.size(0), -1),
+                                    global_step=given_start+i, metadata=test_task.y.cpu().numpy(), tag='post_mod_val_task')
 
                 test_pred_after_adapt = F.linear(features_test, weight=adapted_params)
                 test_loss_after_adapt = self._outer_loss_func(test_pred_after_adapt, test_task.y)
@@ -396,11 +481,12 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     if T==0:
                         with open("grad_dump.txt", 'a') as f:                       
                             for name, param in self._algorithm._model.named_parameters():
-                                f.write(f"run r128 10 sn 50 l adam: grad original:  {name} : {original_grad[name]}")
-                                f.write('\n')
-                                f.write(f"run r128 10 sn 50 l adam: grad diff:  {name} : {abs(torch.norm(param.grad).item() - original_grad[name])}")
-                                f.write('\n')
-                    T += 1
+                                if param.grad is not None:
+                                    f.write(f"run r128 10 sn 50 l adam: grad original:  {name} : {original_grad[name]}")
+                                    f.write('\n')
+                                    f.write(f"run r128 10 sn 50 l adam: grad diff:  {name} : {abs(torch.norm(param.grad).item() - original_grad[name])}")
+                                    f.write('\n')
+                T += 1
 
             update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
                                                train_measurements_trajectory_over_batch)
@@ -411,6 +497,8 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             n_tasks += batch_size
 
             if is_training:
+                for param in self._algorithm._model.parameters():
+                        param.requires_grad = True    
                 outer_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
                 self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_model_grad_norm_before_clip, i)
                 outer_embedding_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._embedding_model.parameters())
@@ -540,3 +628,249 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 tag=f'embedding_layer_{layer}',
                 global_step=iteration
             )
+
+
+
+
+
+
+class OldImplicit_Gradient_based_algorithm_trainer(object):
+
+    def __init__(self, algorithm, outer_loss_func, outer_optimizer, model, embedding_model,
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, device):
+
+        self._algorithm = algorithm
+        self._outer_loss_func = outer_loss_func
+        self._outer_optimizer = outer_optimizer
+        self._writer = writer
+        self._log_interval = log_interval # at log_interval will do gradient analysis
+        self._save_interval = save_interval
+        self._model_type = model_type
+        self._save_folder = save_folder
+        self._outer_loop_grad_norm = outer_loop_grad_norm
+        self._model = model
+        self._embedding_model = embedding_model
+        self._device = device
+        self.to(self._device)
+        
+
+
+    def compute_meta_gradient(self, train_task, test_task, modulation, 
+                adapted_params, hessian_inv, outer_params, batch_size):
+        """
+        param_dict -> theta
+        adapted_params -> phi
+        """
+
+        adapted_params = torch.autograd.Variable(adapted_params.detach(),
+                            requires_grad=True) 
+        # test
+        features_test = self._model(test_task.x, modulation)
+        preds_test = F.linear(
+            features_test, weight=adapted_params)
+        loss_test = self._outer_loss_func(
+            preds_test, test_task.y, adapted_params, (1/self._algorithm._l2_lambda), self._device)
+        
+        # train
+        features_train = self._model(train_task.x, modulation)
+        preds_train = F.linear(
+            features_train, weight=adapted_params)
+        loss_train = self._outer_loss_func(
+            preds_train, train_task.y, adapted_params, (1/self._algorithm._l2_lambda), self._device)
+        
+        # meta gradient computation
+        grad_phi_test = torch.autograd.grad(loss_test, adapted_params,
+                    retain_graph=True, create_graph=False, allow_unused=False)[0]
+        grad_phi_test = grad_phi_test.flatten()
+        
+        grad_phi_train = torch.autograd.grad(loss_train, adapted_params,
+                    retain_graph=True, create_graph=True, allow_unused=False)[0]
+        grad_phi_train = grad_phi_train.flatten()
+        
+        grad_theta_test_1 =  torch.autograd.grad(loss_test, outer_params,
+                    retain_graph=True, create_graph=False, allow_unused=False)
+
+        grad_theta_test_2 = torch.autograd.grad(grad_phi_train.unsqueeze(1), outer_params,
+            torch.mm(hessian_inv.t(), grad_phi_test.unsqueeze(1)), create_graph=True)
+
+        meta_grad_list = []
+        for grad_1, grad_2 in zip(grad_theta_test_1, grad_theta_test_2):
+            meta_grad_list.append(grad_1 - grad_2)
+
+        return meta_grad_list
+
+
+
+    def compute_meta_grad(self, batch_train_task, batch_test_task,
+        batch_adapted_params, batch_hessian_inv):
+
+        assert len(batch_train_task) == len(batch_test_task) == len(batch_adapted_params)\
+                == len(batch_hessian_inv)
+
+        batch_sz = len(batch_train_task)
+        outer_params = []
+        for param_group in self._outer_optimizer.param_groups:
+            outer_params += param_group['params']
+        
+        for train_task, test_task, adapted_params, hessian_inv in zip(
+                batch_train_task, batch_test_task, batch_adapted_params, batch_hessian_inv):
+            
+            modulation = self._embedding_model(train_task, 
+                return_task_embedding=False)
+            meta_grads = self.compute_meta_gradient(train_task, test_task,
+                modulation, adapted_params, hessian_inv, outer_params, batch_sz)
+
+            for param, meta_grad in zip(outer_params, meta_grads):
+                if param.grad is None:
+                    param.grad = (meta_grad / batch_sz)
+                else:
+                    param.grad += (meta_grad / batch_sz)    
+        
+            
+    def run(self, dataset_iterator, is_training=False, start=1, stop=1):
+        # looping through the entire meta_dataset once
+        sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
+        sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
+        sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
+        n_tasks = 0
+
+        for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
+                dataset_iterator, start=start if is_training else 1)):
+            
+            if is_training and i == stop:
+                return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
+                    'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
+                    'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
+
+    
+            # _meta_dataset yields data iteration
+            train_measurements_trajectory_over_batch = defaultdict(list)
+            test_measurements_before_adapt_over_batch = defaultdict(list)
+            test_measurements_after_adapt_over_batch = defaultdict(list)
+            analysis = (i % self._log_interval == 0)
+            modulation_analysis = hasattr(self, '_embedding_model') and \
+                                       isinstance(self._embedding_model,
+                                                  LSTMAttentionEmbeddingModel)
+
+            if analysis and is_training:
+                grad_norm_by_step_over_batch = []
+                grad_quantiles_by_step_over_batch = defaultdict(list)
+                if modulation_analysis:
+                    task_modulation_params_over_batch = []
+
+            batch_size = len(train_task_batch)
+            sum_test_loss_after_adapt = 0.0
+            if is_training:
+                batch_adapted_params = []
+                batch_hessian_inv = []
+
+            for train_task, test_task in zip(train_task_batch, test_task_batch):
+
+                # get modulation
+                modulation = self._embedding_model(train_task, return_task_embedding=False)
+
+                # adapt according train_task
+                adapted_params, hessian_inv, train_measurements_trajectory, info_dict = \
+                        self._algorithm.inner_loop_adapt(train_task, self._model, modulation, analysis=analysis and is_training, iter=i)
+                if is_training:
+                    batch_adapted_params.append(adapted_params)
+                    batch_hessian_inv.append(hessian_inv)
+                
+                for key, measurements in train_measurements_trajectory.items():
+                    train_measurements_trajectory_over_batch[key].append(measurements)
+
+                with torch.no_grad():
+                    features_test = self._model(batch=test_task.x, modulation=modulation)
+                    preds_test = test_pred_after_adapt = F.linear(
+                        features_test, weight=adapted_params)
+                    test_loss_after_adapt = self._outer_loss_func(
+                        preds_test, test_task.y, adapted_params, (1/self._algorithm._l2_lambda), self._device)
+                    sum_test_loss_after_adapt += test_loss_after_adapt.item()
+                
+                test_measurements_after_adapt_over_batch['loss'].append(test_loss_after_adapt.item())
+                if self._algorithm.is_classification:
+                    test_measurements_after_adapt_over_batch['accu'].append(
+                        accuracy(test_pred_after_adapt, test_task.y)
+                    )
+
+            update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
+                                               train_measurements_trajectory_over_batch)
+            update_sum_measurements(sum_test_measurements_after_adapt_over_meta_set,
+                                    test_measurements_after_adapt_over_batch)
+            n_tasks += batch_size
+
+            if is_training:
+                avg_test_loss_after_adapt = sum_test_loss_after_adapt / batch_size
+                self._outer_optimizer.zero_grad()
+                self.compute_meta_grad(train_task_batch, test_task_batch, 
+                    batch_adapted_params, batch_hessian_inv)
+                outer_grad_norm_before_clip = get_grad_norm_from_parameters(self._model.parameters())
+                self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_grad_norm_before_clip, i)
+                if self._outer_loop_grad_norm > 0.:
+                    clip_grad_norm_(self._model.parameters(), self._outer_loop_grad_norm)
+                    clip_grad_norm_(self._embedding_model.parameters(), self._outer_loop_grad_norm)
+                self._outer_optimizer.step()
+
+            # logging
+            # (i % self._log_interval == 0 or i == 1)
+            if analysis and is_training:
+                self.log_output(i,
+                                train_measurements_trajectory_over_batch,
+                                test_measurements_after_adapt_over_batch,
+                                write_tensorboard=is_training)
+
+            # Save model
+            if (i % self._save_interval == 0 or i ==1) and is_training:
+                save_name = 'maml_{0}_{1}.pt'.format(self._model_type, i)
+                save_path = os.path.join(self._save_folder, save_name)
+                with open(save_path, 'wb') as f:
+                    torch.save(self.state_dict(), f)
+        
+        results = {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
+               'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
+        
+        return results
+
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict(),
+                'embedding_model': self._embedding_model.state_dict()}
+
+    def to(self, device, **kwargs):
+        # called in __init__
+        self._device = device
+        self._model.to(device, **kwargs)
+        self._embedding_model.to(device, **kwargs)
+
+    def log_output(self, iteration,
+                train_measurements_trajectory_over_batch,
+                test_measurements_after_adapt_over_batch,
+                write_tensorboard=False, meta_val=False):
+
+        log_array = ['\nIteration: {}'.format(iteration)]
+        key_list = ['loss']
+        if self._algorithm.is_classification: key_list.append('accu')
+        for key in key_list:
+            if not meta_val:
+                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
+            else:
+                avg_train_trajectory = train_measurements_trajectory_over_batch[key]
+                avg_test_after = test_measurements_after_adapt_over_batch[key]
+                avg_train_before = avg_train_trajectory[0]
+                avg_train_after = avg_train_trajectory[-1]
+
+            if key == 'accu':
+                log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
+                log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
+            else:
+                log_array.append('train {} after: \t{:.3f}'.format(key, avg_train_after))
+                log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
+
+            log_array.append('\n') 
+
+        if not meta_val:
+            print('\n'.join(log_array))

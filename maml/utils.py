@@ -40,3 +40,17 @@ def optimizer_to_device(optimizer, device):
 
 def get_git_revision_hash():
     return str(subprocess.check_output(['git', 'rev-parse', 'HEAD']))
+
+
+def primal_svm(preds, true_y, w, C, device):
+
+    loss = 0.5 * w.pow(2).sum()
+    n_classes = len(torch.unique(true_y))
+    assert preds.shape == (len(true_y), n_classes)
+    mask = torch.empty(
+        preds.shape, dtype=torch.bool, device=device).fill_(False)
+    mask[torch.arange(len(true_y), device=device), true_y] = True
+    penalty = torch.sum(F.relu(1.-preds.masked_select(mask))**2) +\
+                torch.sum(F.relu(1.+preds.masked_select(~mask))**2)
+    loss = loss + C*penalty
+    return loss

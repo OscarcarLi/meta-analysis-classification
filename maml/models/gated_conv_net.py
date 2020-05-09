@@ -561,8 +561,13 @@ class ImpRegConvModel(Model):
 
         # print("feature norm before A ", torch.norm(x, dim=1).mean(0))
 
-        x = F.linear(x, weight=modulation, bias=None) # dont use modulation bias
+        if not self._reuse and self._verbose and self._normalize_norm:
+            print("Before Modulation")
+            print(torch.norm(x, p=2, dim=1))
 
+
+        x = F.linear(x, weight=modulation, bias=None) # dont use modulation bias
+        
         if not self._reuse and self._verbose and self._normalize_norm:
             print("Before Normalize")
             print(torch.norm(x, p=2, dim=1))
