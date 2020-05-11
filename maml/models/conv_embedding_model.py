@@ -237,12 +237,12 @@ class ConvEmbeddingModel(torch.nn.Module):
 # the embedding model does not take into account of the labelling task.y?
 class RegConvEmbeddingModel(torch.nn.Module):
     def __init__(self, input_size, output_size, modulation_mat_size,
-                 hidden_size=128, num_layers=1,
+                 hidden_size=128, num_layers=1, num_classes=None, use_label=False,
                  convolutional=False, num_conv=4, num_channels=32, num_channels_max=256,
-                 rnn_aggregation=False, linear_before_rnn=False, 
+                 rnn_aggregation=False, linear_before_rnn=False, from_detached_features=False,
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
                  num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False,
-                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., verbose=False):
+                 img_size=(1, 28, 28), modulation_mat_spec_norm=5., verbose=False, detached_features_size=None):
 
         super(RegConvEmbeddingModel, self).__init__()
         self._input_size = input_size
@@ -270,70 +270,114 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._modulation_mat_spec_norm = modulation_mat_spec_norm
         self._verbose = verbose
 
-        if self._convolutional:
-            conv_list = OrderedDict([])
-            if self._original_conv:
-                num_ch = [self._img_size[0]] + [self._num_channels  for _ in range(self._num_conv)]  
-            else:  
-                num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
-            # num_ch = [self._img_size[0]] + [self._num_channels, self._num_channels, self._num_channels*2, self._num_channels*2]
-            # do not exceed num_channels_max
-            num_ch = [min(num_channels_max, ch) for ch in num_ch]
-            for i in range(self._num_conv):
-                conv_list.update({
-                    'conv{}'.format(i+1): 
-                        torch.nn.Conv2d(num_ch[i], num_ch[i+1], 
-                                        (3, 3), stride=2, padding=1)})
-                if self._batch_norm:
-                    # here they uses an extremely small momentum 0.001 as opposed to 0.1
-                    conv_list.update({
-                        'bn{}'.format(i+1):
-                            torch.nn.BatchNorm2d(num_ch[i+1], momentum=0.001)})
-                conv_list.update({'relu{}'.format(i+1): torch.nn.ReLU(inplace=True)})
-            self.conv = torch.nn.Sequential(conv_list)
-            self._num_layer_per_conv = len(conv_list) // self._num_conv
+        self._use_label = use_label
+        self._from_detached_features = from_detached_features
+        self._detached_features_size = detached_features_size 
+        
 
-            # vectorize the tensor need to know the number of dimensions as rnn input
+        if self._from_detached_features:
+            
+            if self._use_label:
+                self._label_representations = torch.nn.Embedding(num_embeddings=num_classes,
+                    embedding_dim=self._detached_features_size)
+                self._combine_label = torch.nn.Linear(
+                    self._detached_features_size*2, self._detached_features_size)
+
             if self._linear_before_rnn:
-                # linearly transform the flattened conv features before feeding into rnn
-                linear_input_size = self.compute_input_size(
-                    1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
+                linear_input_size = self._detached_features_size
                 rnn_input_size = 128
-            elif self._avgpool_after_conv:
-                # avg pool across h and w before feeding into rnn
-                    rnn_input_size = self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels
             else:
-                # directly use the flattened conv features as input to rnn
-                rnn_input_size = self.compute_input_size(
-                    1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
-        else:
-            # do not use conv feature extractor
-            rnn_input_size = int(input_size)
-
-        # whether to use rnn to combine the individual examples' feature
-        if self._rnn_aggregation:
-            if self._linear_before_rnn:
-                self.linear = torch.nn.Linear(linear_input_size, rnn_input_size)
+                rnn_input_size = self._detached_features_size
+            
+            if self._rnn_aggregation:
+                if self._linear_before_rnn:
+                    self.linear = torch.nn.Linear(linear_input_size, rnn_input_size)
+                    self.relu_after_linear = torch.nn.ReLU(inplace=True)
+                self.rnn = torch.nn.GRU(rnn_input_size, hidden_size,
+                                        num_layers, bidirectional=self._bidirectional)
+                embedding_input_size = hidden_size*(2 if self._bidirectional else 1)
+            else:
+                self.rnn = None
+                embedding_input_size = hidden_size
+                self.linear = torch.nn.Linear(rnn_input_size, embedding_input_size)
                 self.relu_after_linear = torch.nn.ReLU(inplace=True)
-            self.rnn = torch.nn.GRU(rnn_input_size, hidden_size,
-                                    num_layers, bidirectional=self._bidirectional)
-            embedding_input_size = hidden_size*(2 if self._bidirectional else 1)
-        else:
-            self.rnn = None
-            embedding_input_size = hidden_size
-            self.linear = torch.nn.Linear(rnn_input_size, embedding_input_size)
-            self.relu_after_linear = torch.nn.ReLU(inplace=True)
 
-        # modulation_mat_size a tuple (low-rank size, feature_space_dimension)
-        # bias=True as default
-        # generate (low rank * feature_space_dimension) flattened vector and then reshape
-        # self.modulation_mat_generator = torch.nn.Sequential(
-        #     torch.nn.Linear(embedding_input_size, np.prod(modulation_mat_size) // 2),
-        #     torch.nn.ReLU(),
-        #     torch.nn.Linear(np.prod(modulation_mat_size) // 2, np.prod(modulation_mat_size) // 2),
-        #     torch.nn.ReLU(),
-        #     torch.nn.Linear(np.prod(modulation_mat_size) // 2, np.prod(modulation_mat_size))
-        # )
+            self.modulation_mat_generator = torch.nn.Linear(embedding_input_size, 
+                    np.prod(modulation_mat_size))
+
+            self.modulation_bias_generator = torch.nn.Linear(
+                embedding_input_size, modulation_mat_size[0])
+
+
+
+        else:
+
+            if use_label:
+                assert num_classes is not None
+                self._num_classes = num_classes
+                self._label_representations = torch.nn.Embedding(num_embeddings=num_classes,
+                embedding_dim=img_size[1] * img_size[2])
+            
+
+            if self._convolutional:
+
+                conv_list = OrderedDict([])
+                if self._original_conv:
+                    num_ch = [self._img_size[0]] + [self._num_channels  for _ in range(self._num_conv)]  
+                    if self._use_label:
+                        num_ch = [self._img_size[0] + 1] + [self._num_channels for i in range(self._num_conv)]
+                else:  
+                    num_ch = [self._img_size[0]] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+                    if self._use_label:
+                        num_ch = [self._img_size[0] + 1] + [self._num_channels * (2**i) for i in range(self._num_conv)]
+                
+                # num_ch = [self._img_size[0]] + [self._num_channels, self._num_channels, self._num_channels*2, self._num_channels*2]
+                # do not exceed num_channels_max
+                num_ch = [min(num_channels_max, ch) for ch in num_ch]
+                for i in range(self._num_conv):
+                    conv_list.update({
+                        'conv{}'.format(i+1): 
+                            torch.nn.Conv2d(num_ch[i], num_ch[i+1], 
+                                            (3, 3), stride=2, padding=1)})
+                    if self._batch_norm:
+                        # here they uses an extremely small momentum 0.001 as opposed to 0.1
+                        conv_list.update({
+                            'bn{}'.format(i+1):
+                                torch.nn.BatchNorm2d(num_ch[i+1], momentum=0.001)})
+                    conv_list.update({'relu{}'.format(i+1): torch.nn.ReLU(inplace=True)})
+                self.conv = torch.nn.Sequential(conv_list)
+                self._num_layer_per_conv = len(conv_list) // self._num_conv
+
+                # vectorize the tensor need to know the number of dimensions as rnn input
+                if self._linear_before_rnn:
+                    # linearly transform the flattened conv features before feeding into rnn
+                    linear_input_size = self.compute_input_size(
+                        1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
+                    rnn_input_size = 128
+                elif self._avgpool_after_conv:
+                    # avg pool across h and w before feeding into rnn
+                        rnn_input_size = self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels
+                else:
+                    # directly use the flattened conv features as input to rnn
+                    rnn_input_size = self.compute_input_size(
+                        1, 3, 2, self.conv[self._num_layer_per_conv*(self._num_conv-1)].out_channels)
+            else:
+                # do not use conv feature extractor
+                rnn_input_size = int(input_size)
+
+            # whether to use rnn to combine the individual examples' feature
+            if self._rnn_aggregation:
+                if self._linear_before_rnn:
+                    self.linear = torch.nn.Linear(linear_input_size, rnn_input_size)
+                    self.relu_after_linear = torch.nn.ReLU(inplace=True)
+                self.rnn = torch.nn.GRU(rnn_input_size, hidden_size,
+                                        num_layers, bidirectional=self._bidirectional)
+                embedding_input_size = hidden_size*(2 if self._bidirectional else 1)
+            else:
+                self.rnn = None
+                embedding_input_size = hidden_size
+                self.linear = torch.nn.Linear(rnn_input_size, embedding_input_size)
+                self.relu_after_linear = torch.nn.ReLU(inplace=True)
 
         self.modulation_mat_generator = torch.nn.Linear(embedding_input_size, 
                 np.prod(modulation_mat_size))
@@ -349,10 +393,85 @@ class RegConvEmbeddingModel(torch.nn.Module):
             current_img_size = (current_img_size+2*p-k)//s+1
         return ch * int(current_img_size) ** 2
 
-    def forward(self, task, params=None, return_task_embedding=False):
+
+    def randomize(self, matrix):
+        rank = matrix.shape[0]
+        noise = torch.randn(rank, rank, device=matrix.device) * (1 / np.sqrt(rank))
+        return noise @ matrix
+
+    def forward(self, task, params=None, return_task_embedding=False, detached_features=None, is_training=True):
         if not self._reuse and self._verbose: print('='*8 + ' Emb Model ' + '='*8)
         if params is None:
             params = OrderedDict(self.named_parameters())
+
+        if self._from_detached_features:
+
+            assert detached_features is not None
+            x = detached_features
+            
+            if self._use_label:
+                label_embedding = self._label_representations(task.y)
+                x = torch.cat((x, label_embedding), dim=-1)
+                x = self._combine_label(x)
+
+            if self._rnn_aggregation:
+                # LSTM input dimensions are seq_len, batch, input_size
+                batch_size = x.size(0)
+                h0 = torch.zeros(self._num_layers*(2 if self._bidirectional else 1),
+                                batch_size, self._hidden_size, device=self._device)
+                if self._linear_before_rnn: 
+                    x = F.relu(self.linear(x))
+                inputs = x.view(1, x.size(0), -1)
+                output, hn = self.rnn(inputs, h0)
+                # print(output.size(), hn.size())
+                output = output.squeeze()
+                B, H = output.shape
+                output = output.view(B, 2, H // 2)
+                # print(output.shape)
+                embedding_input = torch.cat(
+                    [output[-1, 0, :], output[-1, 1, :]], dim=-1).unsqueeze(0)
+                # print(embedding_input.size())
+
+            else:
+                # every example is now represented as a vector
+                # average across examples to produce the representation of the dataset
+
+                embedding_input = F.relu(self.linear(x.mean(0, keepdim=True)))
+            
+            # print(embedding_input.size())
+            modulation_mat = self.modulation_mat_generator(embedding_input).reshape(
+                                embedding_input.size(0), self._modulation_mat_size[0], 
+                                self._modulation_mat_size[1]).squeeze()
+            modulation_bias = self.modulation_bias_generator(embedding_input).squeeze()
+
+            # print(modulation_mat.size())
+
+            if not self._reuse and self._verbose: print('modulation mat {}'.format(
+                    modulation_mat.size()))
+
+            if not self._reuse and self._verbose: print('modulation bias {}'.format(
+                    modulation_bias.size()))
+
+            modulation_mat = spectral_norm(modulation_mat, device=self._device,
+                limit = self._modulation_mat_spec_norm)
+            
+            if not self._reuse and self._verbose: print('='*27)
+            self._reuse = True
+
+            if is_training:
+                modulation_mat = self.randomize(modulation_mat)
+
+            if return_task_embedding:
+                return (modulation_mat, modulation_bias), embedding_input
+            else:
+                return (modulation_mat, modulation_bias)
+
+        if self._use_label:
+            label_embedding = self._label_representations(task.y).view(-1, 1, self._img_size[1], self._img_size[2])
+            x = torch.cat((task.x, label_embedding), dim=1)
+        else:
+            x = task.x
+
 
         if self._convolutional:
             x = task.x
@@ -397,6 +516,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 x = F.relu(self.linear(x))
             inputs = x.view(x.size(0), 1, -1)
             output, hn = self.rnn(inputs, h0)
+            print(output.shape)
+            import sys
+            sys.exit(0)
             if self._bidirectional:
                 N, B, H = output.shape
                 output = output.view(N, B, 2, H // 2)

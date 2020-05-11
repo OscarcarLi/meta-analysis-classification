@@ -23,7 +23,8 @@ from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_
 from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
-from maml.models.gated_conv_net import ImpRegConvModel
+from maml.models.gated_conv_net_original import ImpRegConvModel
+from maml import implicit_algorithm, implicit_algorithm_trainer 
 import pprint
 
 
@@ -69,6 +70,11 @@ def main(args):
         'val': args.num_val_samples_per_class_meta_val, 
         'test': args.num_val_samples_per_class_meta_test
     }
+    num_train_samples_per_class = {
+        'train': args.num_train_samples_per_class_meta_train, 
+        'val': args.num_train_samples_per_class_meta_val, 
+        'test': args.num_train_samples_per_class_meta_test
+    }
     dataset = {} # dictionary of datasets, indexed by split
 
     if args.dataset == 'omniglot':
@@ -77,7 +83,7 @@ def main(args):
                 root='data',
                 img_side_len=28, # args.img_side_len,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -93,7 +99,7 @@ def main(args):
                 root='data',
                 img_side_len=32,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -113,7 +119,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -128,7 +134,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -142,7 +148,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -186,7 +192,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -200,7 +206,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -257,7 +263,7 @@ def main(args):
                 root='data',
                 img_side_len=84,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -497,7 +503,11 @@ def main(args):
              img_size=dataset['train'].input_size,
              verbose=args.verbose,
              original_conv=args.original_conv,
-             modulation_mat_spec_norm = args.modulation_mat_spec_norm)
+             modulation_mat_spec_norm = args.modulation_mat_spec_norm,
+             from_detached_features=True,
+             use_label=args.use_label,
+             detached_features_size=modulation_mat_size[1],
+             num_classes=dataset['train'].output_size)
         embedding_parameters = list(embedding_model.parameters())
     else:
         raise ValueError('Unrecognized embedding type {}'.format(
@@ -510,9 +520,10 @@ def main(args):
     if embedding_model is None:
         optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
     else:
-        optimizer_specs = \
-            [{'params': model.parameters(), 'lr': args.slow_lr},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr}]
+        optimizer_specs = [
+            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 5e-3},
+             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 5e-3}
+        ]
         optimizers = torch.optim.Adam(optimizer_specs)
 
     if args.checkpoint != '':
@@ -751,7 +762,11 @@ if __name__ == '__main__':
         help='how many classes for training')
     parser.add_argument('--num-classes-per-batch', type=int, default=5,
         help='how many classes per task')
-    parser.add_argument('--num-train-samples-per-class', type=int, default=1,
+    parser.add_argument('--num-train-samples-per-class-meta-train', type=int, default=5,
+        help='how many samples per class for training')
+    parser.add_argument('--num-train-samples-per-class-meta-val', type=int, default=1,
+        help='how many samples per class for training')
+    parser.add_argument('--num-train-samples-per-class-meta-test', type=int, default=1,
         help='how many samples per class for training')
     parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=5,
         help='how many samples per class for validation (meta train)')

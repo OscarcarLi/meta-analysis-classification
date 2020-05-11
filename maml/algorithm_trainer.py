@@ -5,6 +5,10 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.clip_grad import clip_grad_norm_
+from scipy import spatial
+from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+
+from maml.datasets.task import Task
 
 import json
 
@@ -307,7 +311,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         self._save_interval = save_interval
         self._model_type = model_type
         self._save_folder = save_folder
-        self._outer_loop_grad_norm = outer_loop_grad_norm
+        self._outer_loop_grad_norm = outer_loop_grad_norm 
+        self._lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self._outer_optimizer, mode='min', factor=0.2, patience=3, min_lr=1e-5)
 
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
@@ -340,8 +346,51 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
+
+                chance = np.random.uniform()
+
+                if chance < 0.0 and is_training:
+                    # poison labels
+                    ind = np.random.permutation(test_task.x.shape[0])
+                    train_task_x = test_task.x[ind[:5]]
+                    train_task_x_sz = train_task_x.size(0)
+
+                    test_task_x = test_task.x[ind[5:]]
+                    test_task_x_sz = test_task_x.size(0)
+
+                    with torch.no_grad():
+                        features_train = self._algorithm._model(
+                            batch=train_task_x, only_features=True, modulation=None)
+                        features_train = features_train.view(features_train.size(0), -1)
+                        
+                        features_test = self._algorithm._model(
+                            batch=test_task_x, only_features=True, modulation=None)
+                        features_test = features_test.view(features_test.size(0), -1)
+                    
+                    # print(train_task_x.shape, test_task_x.shape)
+                    
+                    train_task_y = torch.arange(5, device=self._algorithm._device)
+                    test_task_y = torch.tensor(spatial.KDTree(
+                        features_train.view(train_task_x_sz, -1).detach().cpu()).query(
+                            features_test.view(test_task_x_sz, -1).detach().cpu())[1], device=self._algorithm._device)
+                    
+                    train_task = Task(train_task_x, train_task_y, train_task.task_info)
+                    test_task = Task(test_task_x, test_task_y, test_task.task_info)
+                    
+                    # print(train_task.x, train_task.y, test_task.x, test_task.y)
+                    # print(euclidean_distances(features_train.detach().cpu().view(train_task_x_sz, -1), 
+                    #     features_test.detach().cpu().view(test_task_x_sz, -1)))
+
+                for param in self._algorithm._model.parameters():
+                        param.requires_grad = True    
+
+                # if using poisoning dont prop gradients to model feat_exc
+                if chance < 0.0 and is_training:
+                    for param in self._algorithm._model.parameters():
+                        param.requires_grad = False
+
                 adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
-                        self._algorithm.inner_loop_adapt(train_task, iter=i)
+                        self._algorithm.inner_loop_adapt(train_task, iter=i, is_training=is_training)
                 
                 for key, measurements in train_measurements_trajectory.items():
                     train_measurements_trajectory_over_batch[key].append(measurements)
@@ -429,6 +478,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 results['train_loss_trajectory'],
                 results['test_loss_after'],
                 write_tensorboard=True, meta_val=True)
+            self._lr_scheduler.step(results['test_loss_after']['loss'])
 
         return results
 

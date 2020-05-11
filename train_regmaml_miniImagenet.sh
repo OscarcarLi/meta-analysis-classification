@@ -1,6 +1,7 @@
 python main.py \
 --algorithm reg_maml \
 --model-type regconv \
+--original-conv \
 --condition-type affine \
 --embedding-type RegConvGRU \
 --embedding-hidden-size 256 \
@@ -19,15 +20,13 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder regmaml_minim_5w1s_32ch_128r_.5_lr_momentum-l2-inner-loop_0.5_spec_norm_mod_1 \
+--output-folder  \
 --device cuda \
 --device-number 2 \
 --log-interval 50 \
 --save-interval 1000 \
---modulation-mat-rank 128 \
---num-channels 32 \
---val-interval 1000 \
---momentum \
---gamma-momentum 0.2 \
---l2-inner-loop 0.5 \
+--val-interval 1000
+--num-channels 64 \
+--modulation-mat-rank 32 \
+--l2-inner-loop 10 \
 --modulation-mat-spec-norm 1.

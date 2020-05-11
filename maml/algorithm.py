@@ -566,17 +566,39 @@ class ImpRMAML_inner_algorithm(Algorithm):
         return hessian
 
 
-    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None):
+    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None, is_training=True):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
 
-        modulation = self._embedding_model(task, return_task_embedding=False)
+        # modulation = self._embedding_model(task, return_task_embedding=False)
 
         # here the features are padded with 1's at the end
         features = self._model(
-            task.x, modulation=modulation)
+            task.x, modulation=None, only_features=True)
 
+        modulation = self._embedding_model(task, detached_features=features.detach(), 
+                             return_task_embedding=False, is_training=is_training)
+
+        features = F.linear(features, weight=modulation[0], bias=None) # dont use modulation bias
+
+        if not self._model._reuse:
+            print("After modulation")
+            print(torch.norm(features, p=2, dim=1))
+
+        if self._model._normalize_norm > 0.:
+            max_norm = torch.max(
+                torch.norm(features, p=2, dim=1))
+            features = features.div(max_norm) * self._normalize_norm
+
+        if not self._model._reuse and self._model._normalize_norm > 0.:
+            print("After Normalize")
+            print(torch.norm(features, p=2, dim=1))
+        
+        self._model._reuse = True
+
+        features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
+        
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
 

@@ -12,6 +12,8 @@ def accuracy(preds, y):
 
 
 def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
+    if limit <= 0.:
+        return weight_mat
     h, w = weight_mat.size()
     # randomly initialize `u` and `v`
     u = F.normalize(torch.randn(h), dim=0, eps=eps).to(device)
