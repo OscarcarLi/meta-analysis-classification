@@ -25,6 +25,7 @@ from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models.gated_conv_net_original import ImpRegConvModel
 from maml import implicit_algorithm, implicit_algorithm_trainer 
+from maml.models import simplified_conv_embedding_model
 import pprint
 
 
@@ -32,15 +33,15 @@ def main(args):
     is_training = not args.eval
     run_name = 'train' if is_training else 'eval'
 
-    if is_training:
-        writer = SummaryWriter('./train_dir/{0}/{1}'.format(
-            args.output_folder, run_name))
-        with open('./train_dir/{}/config.txt'.format(
-            args.output_folder), 'w') as config_txt:
-            for k, v in sorted(vars(args).items()):
-                config_txt.write('{}: {}\n'.format(k, v))
-    else:
-        writer = None
+    # if is_training:
+    writer = SummaryWriter('./train_dir/{0}/{1}'.format(
+        args.output_folder, run_name))
+    with open('./train_dir/{}/config.txt'.format(
+        args.output_folder), 'w') as config_txt:
+        for k, v in sorted(vars(args).items()):
+            config_txt.write('{}: {}\n'.format(k, v))
+    # else:
+    #     writer = None
 
     save_folder = './train_dir/{0}'.format(args.output_folder)
     if not os.path.exists(save_folder):
@@ -484,7 +485,31 @@ def main(args):
             print("modulation_mat_size", modulation_mat_size)
         else:
             modulation_mat_size = (args.modulation_mat_rank, args.num_channels*8)
-        embedding_model = RegConvEmbeddingModel(
+        # embedding_model = RegConvEmbeddingModel(
+        #      input_size=np.prod(dataset['train'].input_size),
+        #      output_size=dataset['train'].output_size,
+        #      modulation_mat_size=modulation_mat_size,
+        #      hidden_size=args.embedding_hidden_size,
+        #      num_layers=args.embedding_num_layers,
+        #      convolutional=args.conv_embedding,
+        #      num_conv=args.num_conv_embedding_layer,
+        #      num_channels=args.num_channels,
+        #      rnn_aggregation=(not args.no_rnn_aggregation),
+        #      linear_before_rnn=args.linear_before_rnn,
+        #      embedding_pooling=args.embedding_pooling,
+        #      batch_norm=args.conv_embedding_batch_norm,
+        #      avgpool_after_conv=args.conv_embedding_avgpool_after_conv,
+        #      num_sample_embedding=args.num_sample_embedding,
+        #      sample_embedding_file=args.sample_embedding_file+'.'+args.sample_embedding_file_type,
+        #      img_size=dataset['train'].input_size,
+        #      verbose=args.verbose,
+        #      original_conv=args.original_conv,
+        #      modulation_mat_spec_norm = args.modulation_mat_spec_norm,
+        #      from_detached_features=True,
+        #      use_label=args.use_label,
+        #      detached_features_size=modulation_mat_size[1],
+        #      num_classes=dataset['train'].output_size)
+        embedding_model = simplified_conv_embedding_model.RegConvEmbeddingModel(
              input_size=np.prod(dataset['train'].input_size),
              output_size=dataset['train'].output_size,
              modulation_mat_size=modulation_mat_size,
@@ -521,8 +546,8 @@ def main(args):
         optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
     else:
         optimizer_specs = [
-            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 5e-3},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 5e-3}
+            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 5e-4},
+             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 1e-2}
         ]
         optimizers = torch.optim.Adam(optimizer_specs)
 

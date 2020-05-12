@@ -281,13 +281,13 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 self._label_representations = torch.nn.Embedding(num_embeddings=num_classes,
                     embedding_dim=self._detached_features_size)
                 self._combine_label = torch.nn.Linear(
-                    self._detached_features_size*2, self._detached_features_size)
+                    self._detached_features_size*3, self._detached_features_size)
 
             if self._linear_before_rnn:
-                linear_input_size = self._detached_features_size
+                linear_input_size = 3 * self._detached_features_size
                 rnn_input_size = 128
             else:
-                rnn_input_size = self._detached_features_size
+                rnn_input_size = 3 * self._detached_features_size
             
             if self._rnn_aggregation:
                 if self._linear_before_rnn:
@@ -412,7 +412,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
             if self._use_label:
                 label_embedding = self._label_representations(task.y)
                 x = torch.cat((x, label_embedding), dim=-1)
-                x = self._combine_label(x)
+                # x = self._combine_label(x)
 
             if self._rnn_aggregation:
                 # LSTM input dimensions are seq_len, batch, input_size
@@ -458,9 +458,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
             if not self._reuse and self._verbose: print('='*27)
             self._reuse = True
 
-            if is_training:
-                modulation_mat = self.randomize(modulation_mat)
-
+            # if is_training:
+            modulation_mat = self.randomize(modulation_mat)
+            # modulation_mat = torch.randn(modulation_mat.size(), device=modulation_mat.device)
             if return_task_embedding:
                 return (modulation_mat, modulation_bias), embedding_input
             else:

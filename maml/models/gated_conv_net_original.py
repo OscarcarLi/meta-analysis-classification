@@ -231,6 +231,15 @@ class ImpRegConvModel(Model):
                                                 momentum=0.001)),
             ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=1)), 
+            ('layer5_conv', torch.nn.Conv2d(self._num_channels,
+                                            self._num_channels,
+                                            self._kernel_size,
+                                            stride=self._conv_stride,
+                                            padding=self._padding)),
+            ('layer5_relu', torch.nn.ReLU(inplace=True)),
+            ('layer5_bn', torch.nn.BatchNorm2d(self._num_channels,
+                                                affine=self._bn_affine,
+                                                momentum=0.001)),
         ]))
         
         self.apply(weight_init)
@@ -245,9 +254,10 @@ class ImpRegConvModel(Model):
         params = OrderedDict(self.named_parameters())
 
         x = batch
-        
+        prev_x = None
         if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
         for layer_name, layer in self.features.named_children():
+            prev_x = x
             weight = params.get('features.' + layer_name + '.weight', None)
             bias = params.get('features.' + layer_name + '.bias', None)
             if 'conv' in layer_name:
@@ -272,11 +282,13 @@ class ImpRegConvModel(Model):
 
             
         # below the conv maps are flattened
+        # x = x.view(x.size(0), self._num_channels, -1).mean(2)
+        # prev_x = prev_x.view(prev_x.size(0), self._num_channels, -1).mean(2)
         x = x.view(x.size(0), -1)
-
+        prev_x = prev_x.view(prev_x.size(0), -1)
+        # print(x.size(), prev_x.size())
         if only_features:
-            return x
-        
+            return torch.cat([prev_x, x], dim=-1)
         
         if not self._reuse:
             print("Before Modulation")

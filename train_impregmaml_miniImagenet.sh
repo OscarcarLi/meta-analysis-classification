@@ -1,10 +1,10 @@
 python main.py \
 --algorithm imp_reg_maml \
---use-label \
 --model-type impregconv \
 --original-conv \
---condition-type affine \
 --embedding-type RegConvGRU \
+--conv-embedding-avgpool-after-conv True \
+--use-label \
 --embedding-hidden-size 256 \
 --no-rnn-aggregation False \
 --num-batches-meta-train 60000 \
@@ -19,18 +19,18 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder imp_minim_5w1s_8_random_no_poison \
+--output-folder imp_minim_5w1s_4p_2 \
 --device cuda \
 --device-number 1 \
 --log-interval 50 \
 --val-interval 500 \
 --save-interval 1000 \
 --num-channels 64 \
---modulation-mat-rank 8 \
---l2-inner-loop 0.25 \
---modulation-mat-spec-norm 5.
-# --checkpoint train_dir/imp_minim_5w1s_64_random_no_poison/maml_impregconv_5000.pt
-
+--modulation-mat-rank 128 \
+--l2-inner-loop 15.0 \
+--modulation-mat-spec-norm 0. \
+--checkpoint train_dir/imp_minim_5w1s_4p_2/maml_impregconv_22000.pt \
+--eval
 
 # Nameing convention 
 # dataset_type_main_model_rank_training_paradigm_embedding_model

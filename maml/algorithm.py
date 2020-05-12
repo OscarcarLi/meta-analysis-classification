@@ -5,6 +5,7 @@ from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
 from maml.logistic_regression_utils import logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 from maml.utils import spectral_norm
+from sklearn.metrics.pairwise import cosine_similarity
 
 import torch.nn.functional as F
 import numpy as np
@@ -571,33 +572,34 @@ class ImpRMAML_inner_algorithm(Algorithm):
         
         measurements_trajectory = defaultdict(list)
 
-        # modulation = self._embedding_model(task, return_task_embedding=False)
+        modulation = self._embedding_model(task, return_task_embedding=False)
 
         # here the features are padded with 1's at the end
         features = self._model(
-            task.x, modulation=None, only_features=True)
+            task.x, modulation=modulation, only_features=False)
 
-        modulation = self._embedding_model(task, detached_features=features.detach(), 
-                             return_task_embedding=False, is_training=is_training)
+        # modulation = self._embedding_model(task, detached_features=features.detach(), 
+        #                      return_task_embedding=False, is_training=is_training)
 
-        features = F.linear(features, weight=modulation[0], bias=None) # dont use modulation bias
+        # features = features[:, features.shape[1] // 2:]
+        # features = F.linear(features, weight=modulation[0], bias=None) # dont use modulation bias
 
-        if not self._model._reuse:
-            print("After modulation")
-            print(torch.norm(features, p=2, dim=1))
+        # if not self._model._reuse:
+        #     print("After modulation")
+        #     print(torch.norm(features, p=2, dim=1))
 
-        if self._model._normalize_norm > 0.:
-            max_norm = torch.max(
-                torch.norm(features, p=2, dim=1))
-            features = features.div(max_norm) * self._normalize_norm
+        # if self._model._normalize_norm > 0.:
+        #     max_norm = torch.max(
+        #         torch.norm(features, p=2, dim=1))
+        #     features = features.div(max_norm) * self._normalize_norm
 
-        if not self._model._reuse and self._model._normalize_norm > 0.:
-            print("After Normalize")
-            print(torch.norm(features, p=2, dim=1))
+        # if not self._model._reuse and self._model._normalize_norm > 0.:
+        #     print("After Normalize")
+        #     print(torch.norm(features, p=2, dim=1))
         
-        self._model._reuse = True
+        # self._model._reuse = True
 
-        features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
+        # features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
         
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
@@ -612,6 +614,9 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
         preds = F.linear(features, weight=adapted_params)
+        # print(modulation[0].detach().cpu().shape, adapted_params[:, :-1].detach().cpu().shape)
+        # print((cosine_similarity(adapted_params[:, :-1].detach().cpu(), modulation[0].detach().cpu().t())).max(1))
+
 
         # print(adapted_params.shape)
         # print("preds from functional:", preds)

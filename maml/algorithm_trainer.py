@@ -313,16 +313,19 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm 
         self._lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self._outer_optimizer, mode='min', factor=0.2, patience=3, min_lr=1e-5)
+            self._outer_optimizer, mode='min', factor=0.2, patience=2, min_lr=1e-5)
 
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
+        for param_group in self._outer_optimizer.param_groups:
+            print("lr:", param_group['lr'])
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
         # sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
         n_tasks = 0
-
+        given_start = start
+        
         for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
                 dataset_iterator, start=start if is_training else 1)):
             
@@ -344,12 +347,13 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             if is_training:
                 self._outer_optimizer.zero_grad()
 
+            T=0
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
 
                 chance = np.random.uniform()
 
-                if chance < 0.0 and is_training:
+                if chance < .25 and is_training:
                     # poison labels
                     ind = np.random.permutation(test_task.x.shape[0])
                     train_task_x = test_task.x[ind[:5]]
@@ -385,13 +389,34 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                         param.requires_grad = True    
 
                 # if using poisoning dont prop gradients to model feat_exc
-                if chance < 0.0 and is_training:
+                if chance < 0.25 and is_training:
                     for param in self._algorithm._model.parameters():
                         param.requires_grad = False
 
                 adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
                         self._algorithm.inner_loop_adapt(train_task, iter=i, is_training=is_training)
                 
+
+                if T==0 and not is_training:
+                    
+                    with torch.no_grad():
+                        features_train = self._algorithm._model(
+                            batch=train_task.x, only_features=True, modulation=None)
+                        # features_train = features_train.view(
+                            # features_train.size(0), self._algorithm._model._num_channels, -1)
+                        # features_train = features_train.mean(2)
+                        
+                        features_test = self._algorithm._model(
+                            batch=test_task.x, only_features=True, modulation=None)
+                        # features_test = features_test.view(
+                            # features_test.size(0), self._algorithm._model._num_channels, -1)
+                        # features_test = features_test.mean(2)
+                        
+                        self._writer.add_embedding(
+                            features_test, global_step=given_start+i, metadata=test_task.y.cpu().numpy(), tag='post_mod_val_task')
+
+
+
                 for key, measurements in train_measurements_trajectory.items():
                     train_measurements_trajectory_over_batch[key].append(measurements)
 
@@ -432,6 +457,8 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                                            retain_graph=True,
                                            create_graph=False)
                     test_loss_after_adapt.backward(retain_graph=False, create_graph=False)
+
+                T+=1
 
             update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
                                                train_measurements_trajectory_over_batch)
