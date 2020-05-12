@@ -100,6 +100,7 @@ class Gradient_based_algorithm_trainer(object):
                 test_loss_after_adapt = self._outer_loss_func(test_pred_after_adapt, test_task.y)
 
                 test_measurements_after_adapt_over_batch['loss'].append(test_loss_after_adapt.item())
+                test_loss_after_adapt /= batch_size # now we are doing this one by one so need to divide individually
                 if self._algorithm.is_classification:
                     test_measurements_after_adapt_over_batch['accu'].append(
                         accuracy(test_pred_after_adapt, test_task.y)
@@ -297,7 +298,7 @@ def standard_deviation_measurement(measurements):
 class Implicit_Gradient_based_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm):
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, hessian_inverse=False):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -308,6 +309,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         self._model_type = model_type
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm
+        self._hessian_inverse = hessian_inverse
 
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
@@ -341,7 +343,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
                 adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
-                        self._algorithm.inner_loop_adapt(train_task, iter=i)
+                        self._algorithm.inner_loop_adapt(train_task, hessian_inverse=self._hessian_inverse, iter=i) # if hessian_inverse is True then train_hessian is in face train_hessian_inv
                 
                 for key, measurements in train_measurements_trajectory.items():
                     train_measurements_trajectory_over_batch[key].append(measurements)
@@ -371,7 +373,11 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
                     # train_hessian_inverse = np.linalg.inv(train_hessian)
                     # train_hessian_inv_test_grad = np.matmul(train_hessian_inverse, test_grad_w)
-                    train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
+                    if not self._hessian_inverse:
+                        train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
+                    else:
+                        # in this case train_hessian in actually train_hessian_inv
+                        train_hessian_inv_test_grad = np.matmul(train_hessian, test_grad_w)
 
                     # test loss's gradient with respect to training set's feature
                     test_grad_features_train = - np.matmul(train_mixed_partials.T, train_hessian_inv_test_grad)

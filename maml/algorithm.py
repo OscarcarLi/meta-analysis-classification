@@ -3,7 +3,7 @@ import torch
 
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
-from maml.logistic_regression_utils import logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
+from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 from maml.utils import spectral_norm
 
 import torch.nn.functional as F
@@ -564,9 +564,15 @@ class ImpRMAML_inner_algorithm(Algorithm):
         lr_hessian = logistic_regression_hessian_with_respect_to_w(X, y, w)
         hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
+    
+    def compute_inverse_hessian(self, X, y, w):
+        diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
+        pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
+        inv = np.linalg.inv(pre_inv)
+        return 1 / self._l2_lambda * (np.eye(Xbar.shape[1]) - np.matmul(np.matmul(Xbar.T, inv), Xbar))
 
 
-    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None):
+    def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
@@ -608,10 +614,14 @@ class ImpRMAML_inner_algorithm(Algorithm):
         #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
         #     info_dict['modulation'] = modulation
 
-        hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+        if not hessian_inverse:
+            h = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+        else:
+            h = self.compute_inverse_hessian(X=X, y=y, w=lr_model.coef_)
+        
         mixed_partials = logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X(X=X, y=y, w=lr_model.coef_)
 
-        return adapted_params, features, modulation, hessian, mixed_partials, measurements_trajectory, info_dict
+        return adapted_params, features, modulation, h, mixed_partials, measurements_trajectory, info_dict
 
 
     def to(self, device, **kwargs):

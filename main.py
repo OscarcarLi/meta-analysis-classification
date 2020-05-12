@@ -592,7 +592,8 @@ def main(args):
                 outer_optimizer=optimizers, 
                 writer=writer,
                 log_interval=args.log_interval, save_interval=args.save_interval,
-                model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
+                model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
+                hessian_inverse=args.hessian_inverse)
 
     else:
         trainer = Gradient_based_algorithm_trainer(
@@ -741,6 +742,9 @@ if __name__ == '__main__':
         help='momentum update')
     parser.add_argument('--gamma-momentum', type=float, default=0.2,
         help='momentum param gamma')
+    parser.add_argument('--hessian-inverse', type=str2bool, default=False,
+        help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
+    
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='multimodal_few_shot',
