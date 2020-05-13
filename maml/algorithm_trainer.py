@@ -377,7 +377,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                         train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
                     else:
                         # in this case train_hessian in actually train_hessian_inv
-                        train_hessian_inv_test_grad = np.matmul(train_hessian, test_grad_w)
+                        train_hessian_inv_args = train_hessian
+                        train_hessian_inv_test_grad = self._algorithm.compute_inverse_hessian_test_grad(
+                            train_hessian_inv_args + [test_grad_w])
 
                     # test loss's gradient with respect to training set's feature
                     test_grad_features_train = - np.matmul(train_mixed_partials.T, train_hessian_inv_test_grad)
@@ -401,11 +403,13 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             if is_training:
                 outer_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
                 self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_model_grad_norm_before_clip, i)
-                outer_embedding_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._embedding_model.parameters())
-                self._writer.add_scalar('outer_grad/embedding_model_norm/before_clip', outer_embedding_model_grad_norm_before_clip, i)
+                if self._algorithm._embedding_model:
+                    outer_embedding_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._embedding_model.parameters())
+                    self._writer.add_scalar('outer_grad/embedding_model_norm/before_clip', outer_embedding_model_grad_norm_before_clip, i)
                 if self._outer_loop_grad_norm > 0.:
                     clip_grad_norm_(self._algorithm._model.parameters(), self._outer_loop_grad_norm)
-                    clip_grad_norm_(self._algorithm._embedding_model.parameters(), self._outer_loop_grad_norm)
+                    if self._algorithm._embedding_model:
+                        clip_grad_norm_(self._algorithm._embedding_model.parameters(), self._outer_loop_grad_norm)
                 self._outer_optimizer.step()
 
             # logging

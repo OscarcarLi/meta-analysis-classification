@@ -24,6 +24,7 @@ from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gr
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models.gated_conv_net import ImpRegConvModel
+from maml.models import gated_conv_net_original
 import pprint
 
 
@@ -417,11 +418,14 @@ def main(args):
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose)
     elif args.model_type == 'impregconv':
+        if args.original_conv:
+            ImpRegConvModel = gated_conv_net_original.ImpRegConvModel
         model = ImpRegConvModel(
                 input_channels=dataset['train'].input_size[0],
                 output_size=dataset['train'].output_size,
                 num_channels=args.num_channels,
-                modulation_mat_rank=args.modulation_mat_rank,
+                modulation_mat_rank=args.modulation_mat_rank\
+                     if not(args.no_modulation) else (args.num_channels*5*5 if args.original_conv else args.num_channels*8),
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose)
@@ -582,7 +586,8 @@ def main(args):
             inner_loss_func=loss_func,
             l2_lambda=args.l2_inner_loop,
             device=args.device,
-            is_classification=True)
+            is_classification=True,
+            no_modulation=args.no_modulation)
 
 
     if args.algorithm == 'imp_reg_maml':
@@ -616,10 +621,10 @@ def main(args):
                 print("Starting final validation.")
     
             # validation
-            print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
-            val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
-            print(val_result)
-            print("\n", "=="*27, "\n Finished validation\n", "=="*27)
+            # print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
+            # val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
+            # print(val_result)
+            # print("\n", "=="*27, "\n Finished validation\n", "=="*27)
             
     else:
         results = trainer.run(iter(dataset['val']), is_training=False, start=0)
@@ -744,7 +749,8 @@ if __name__ == '__main__':
         help='momentum param gamma')
     parser.add_argument('--hessian-inverse', type=str2bool, default=False,
         help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
-    
+    parser.add_argument('--no-modulation', type=str2bool, default=False,
+        help='dont propose any modulation matrix')
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='multimodal_few_shot',

@@ -527,7 +527,8 @@ class ImpRegConvModel(Model):
         params = OrderedDict(self.named_parameters())
 
         x = batch
-        modulation_mat, modulation_bias = modulation
+        if modulation is not None:
+            modulation_mat, modulation_bias = modulation
 
         if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
         for layer_name, layer in self.features.named_children():
@@ -560,9 +561,9 @@ class ImpRegConvModel(Model):
 
 
         # print("feature norm before A ", torch.norm(x, dim=1).mean(0))
-
-        x = F.linear(x, weight=modulation_mat,
-                        bias=modulation_bias)
+        if modulation is not None:
+            x = F.linear(x, weight=modulation_mat,
+                            bias=modulation_bias)
 
         x = torch.cat([x, torch.ones(x.size(0), 1, device=x.device)], dim=-1)
 

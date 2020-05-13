@@ -549,7 +549,7 @@ class RegMAML_inner_algorithm(Algorithm):
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
                 inner_loss_func, l2_lambda,
-                device, is_classification=True):
+                device, is_classification=True, no_modulation=False):
 
         self._model = model
         self._embedding_model = embedding_model
@@ -558,6 +558,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
+        self.no_modulation = no_modulation
 
 
     def compute_hessian(self, X, y, w):
@@ -565,20 +566,24 @@ class ImpRMAML_inner_algorithm(Algorithm):
         hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
     
-    def compute_inverse_hessian(self, X, y, w):
+    def compute_inverse_hessian_test_grad(self, args):
+        X, y, w, v = args
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
         pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / self._l2_lambda * (np.eye(Xbar.shape[1]) - np.matmul(np.matmul(Xbar.T, inv), Xbar))
+        return 1 / self._l2_lambda * (np.matmul(np.eye(Xbar.shape[1]), v) -\
+             np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
     def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
-
-        modulation = self._embedding_model(task, return_task_embedding=False)
-
+        if self.no_modulation:     
+            modulation = None
+        else:
+            modulation = self._embedding_model(task, return_task_embedding=False)
+        
         # here the features are padded with 1's at the end
         features = self._model(
             task.x, modulation=modulation)
@@ -589,7 +594,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         with warnings.catch_warnings(record=True) as wn:
             lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
                 C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
-                tol=1e-6, max_iter=150,
+                tol=1e-6, max_iter=50,
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
         
@@ -617,7 +622,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         if not hessian_inverse:
             h = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
         else:
-            h = self.compute_inverse_hessian(X=X, y=y, w=lr_model.coef_)
+            h = [X, y, lr_model.coef_]
         
         mixed_partials = logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X(X=X, y=y, w=lr_model.coef_)
 
@@ -628,10 +633,11 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # called in __init__
         self._device = device
         self._model.to(device, **kwargs)
-        self._embedding_model.to(device, **kwargs)
+        if self._embedding_model:
+            self._embedding_model.to(device, **kwargs)
 
 
     def state_dict(self):
         # for model saving and reloading
         return {'model': self._model.state_dict(),
-                'embedding_model': self._embedding_model.state_dict()}
+                'embedding_model': self._embedding_model.state_dict() if self._embedding_model else None}
