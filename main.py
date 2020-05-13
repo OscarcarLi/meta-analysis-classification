@@ -620,7 +620,7 @@ def main(args):
                 print(train_result)
                 print("Starting final validation.")
     
-            validation
+            # validation
             print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
             val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
             print(val_result)
