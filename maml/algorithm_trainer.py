@@ -342,7 +342,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
-                adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
+                adapted_params, features_train, modulation_train, train_hessian_inv_multiply, train_mixed_partials_left_multiply, train_measurements_trajectory, info_dict = \
                         self._algorithm.inner_loop_adapt(train_task, hessian_inverse=self._hessian_inverse, iter=i) # if hessian_inverse is True then train_hessian is in face train_hessian_inv
                 
                 for key, measurements in train_measurements_trajectory.items():
@@ -373,16 +373,18 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
                     # train_hessian_inverse = np.linalg.inv(train_hessian)
                     # train_hessian_inv_test_grad = np.matmul(train_hessian_inverse, test_grad_w)
-                    if not self._hessian_inverse:
-                        train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
-                    else:
-                        # in this case train_hessian in actually train_hessian_inv
-                        train_hessian_inv_args = train_hessian
-                        train_hessian_inv_test_grad = self._algorithm.compute_inverse_hessian_test_grad(
-                            train_hessian_inv_args + [test_grad_w])
+                    # if not self._hessian_inverse:
+                    #     train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
+                    # else:
+                    #     # in this case train_hessian in actually train_hessian_inv
+                    #     train_hessian_inv_args = train_hessian
+                    #     train_hessian_inv_test_grad = self._algorithm.compute_inverse_hessian_test_grad(
+                    #         train_hessian_inv_args + [test_grad_w])
+                    train_hessian_inv_test_grad = train_hessian_inv_multiply(test_grad_w)
 
                     # test loss's gradient with respect to training set's feature
-                    test_grad_features_train = - np.matmul(train_mixed_partials.T, train_hessian_inv_test_grad)
+                    # test_grad_features_train = - np.matmul(train_mixed_partials.T, train_hessian_inv_test_grad)
+                    test_grad_features_train = - train_mixed_partials_left_multiply(train_hessian_inv_test_grad)
 
                     test_grad_features_train = test_grad_features_train.reshape(features_train.shape)
 

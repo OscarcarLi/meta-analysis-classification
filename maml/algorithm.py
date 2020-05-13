@@ -3,7 +3,7 @@ import torch
 
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
-from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
+from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from maml.utils import spectral_norm
 
 import torch.nn.functional as F
@@ -566,12 +566,18 @@ class ImpRMAML_inner_algorithm(Algorithm):
         hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
     
-    def compute_inverse_hessian_test_grad(self, args):
-        X, y, w, v = args
+    def compute_inverse_hessian_multiply_vector(self, X, y, w, v):
+        '''
+        X  N, (d+1) last dimension the bias
+        y  N integer class identity
+        w  C, (d+1) number of classes
+        v  C(d+1), 1
+        '''
+        
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
         pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / self._l2_lambda * (np.matmul(np.eye(Xbar.shape[1]), v) -\
+        return 1 / self._l2_lambda * (v -\
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
@@ -619,14 +625,17 @@ class ImpRMAML_inner_algorithm(Algorithm):
         #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
         #     info_dict['modulation'] = modulation
 
+        # h_func, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
         if not hessian_inverse:
-            h = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+            h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
         else:
-            h = [X, y, lr_model.coef_]
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, v=v)
         
-        mixed_partials = logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X(X=X, y=y, w=lr_model.coef_)
+        # mixed_partials_func given a vector v of shape C(d+1), 1
+        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)
 
-        return adapted_params, features, modulation, h, mixed_partials, measurements_trajectory, info_dict
+        return adapted_params, features, modulation, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
 
 
     def to(self, device, **kwargs):
