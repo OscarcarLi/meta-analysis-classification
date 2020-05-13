@@ -19,15 +19,15 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder imp_minim_5w1s_l10_400cs_nopoison_modrank32_l5_redwd \
+--output-folder imp_minim_5w1s_l20_400cs_modrank32_redwd \
 --device cuda \
---device-number 0 \
+--device-number 1 \
 --log-interval 50 \
 --val-interval 500 \
 --save-interval 1000 \
 --num-channels 64 \
 --modulation-mat-rank 32 \
---l2-inner-loop 5 \
+--l2-inner-loop 20 \
 --modulation-mat-spec-norm 0.
 # --checkpoint train_dir/imp_minim_5w1s/maml_impregconv_22000.pt \
 # --eval
