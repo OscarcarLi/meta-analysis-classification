@@ -3,7 +3,7 @@ import torch
 
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
-from maml.logistic_regression_utils import logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
+from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from maml.utils import spectral_norm
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -550,7 +550,7 @@ class RegMAML_inner_algorithm(Algorithm):
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
                 inner_loss_func, l2_lambda,
-                device, is_classification=True):
+                device, is_classification=True, no_modulation=False):
 
         self._model = model
         self._embedding_model = embedding_model
@@ -559,48 +559,41 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
-
+        self.no_modulation = no_modulation
 
     def compute_hessian(self, X, y, w):
         lr_hessian = logistic_regression_hessian_with_respect_to_w(X, y, w)
         hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
+    
+    def compute_inverse_hessian_multiply_vector(self, X, y, w, v):
+        '''
+        X  N, (d+1) last dimension the bias
+        y  N integer class identity
+        w  C, (d+1) number of classes
+        v  C(d+1), 1
+        '''
+        
+        diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
+        pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
+        inv = np.linalg.inv(pre_inv)
+        return 1 / self._l2_lambda * (v -\
+             np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
-    def inner_loop_adapt(self, task, num_updates=None, analysis=False, iter=None, is_training=True):
+    def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
-
-        modulation = self._embedding_model(task, return_task_embedding=False)
-
+        if self.no_modulation:     
+            modulation = None
+        else:
+            modulation = self._embedding_model(task, return_task_embedding=False)
+        
         # here the features are padded with 1's at the end
         features = self._model(
-            task.x, modulation=modulation, only_features=False)
+            task.x, modulation=modulation)
 
-        # modulation = self._embedding_model(task, detached_features=features.detach(), 
-        #                      return_task_embedding=False, is_training=is_training)
-
-        # features = features[:, features.shape[1] // 2:]
-        # features = F.linear(features, weight=modulation[0], bias=None) # dont use modulation bias
-
-        # if not self._model._reuse:
-        #     print("After modulation")
-        #     print(torch.norm(features, p=2, dim=1))
-
-        # if self._model._normalize_norm > 0.:
-        #     max_norm = torch.max(
-        #         torch.norm(features, p=2, dim=1))
-        #     features = features.div(max_norm) * self._normalize_norm
-
-        # if not self._model._reuse and self._model._normalize_norm > 0.:
-        #     print("After Normalize")
-        #     print(torch.norm(features, p=2, dim=1))
-        
-        # self._model._reuse = True
-
-        # features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
-        
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
 
@@ -614,9 +607,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
         preds = F.linear(features, weight=adapted_params)
-        # print(modulation[0].detach().cpu().shape, adapted_params[:, :-1].detach().cpu().shape)
-        # print((cosine_similarity(adapted_params[:, :-1].detach().cpu(), modulation[0].detach().cpu().t())).max(1))
-
 
         # print(adapted_params.shape)
         # print("preds from functional:", preds)
@@ -635,20 +625,28 @@ class ImpRMAML_inner_algorithm(Algorithm):
         #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
         #     info_dict['modulation'] = modulation
 
-        hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
-        mixed_partials = logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X(X=X, y=y, w=lr_model.coef_)
+        # h_func, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
+        if not hessian_inverse:
+            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+            h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
+        else:
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, v=v)
+        
+        # mixed_partials_func given a vector v of shape C(d+1), 1
+        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)
 
-        return adapted_params, features, modulation, hessian, mixed_partials, measurements_trajectory, info_dict
+        return adapted_params, features, modulation, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
 
 
     def to(self, device, **kwargs):
         # called in __init__
         self._device = device
         self._model.to(device, **kwargs)
-        self._embedding_model.to(device, **kwargs)
+        if self._embedding_model:
+            self._embedding_model.to(device, **kwargs)
 
 
     def state_dict(self):
         # for model saving and reloading
         return {'model': self._model.state_dict(),
-                'embedding_model': self._embedding_model.state_dict()}
+                'embedding_model': self._embedding_model.state_dict() if self._embedding_model else None}

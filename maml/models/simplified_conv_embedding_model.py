@@ -20,7 +20,7 @@ class RegConvEmbeddingModel(torch.nn.Module):
                  convolutional=False, num_conv=4, num_channels=32, num_channels_max=256,
                  rnn_aggregation=False, linear_before_rnn=False, from_detached_features=False,
                  embedding_pooling='max', batch_norm=True, avgpool_after_conv=True,
-                 num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False, common_subspace_dim=128,
+                 num_sample_embedding=0, sample_embedding_file='embedding.hdf5', original_conv=False, common_subspace_dim=400,
                  img_size=(1, 28, 28), modulation_mat_spec_norm=5., verbose=False, detached_features_size=None):
 
         super(RegConvEmbeddingModel, self).__init__()
@@ -208,7 +208,8 @@ class RegConvEmbeddingModel(torch.nn.Module):
 
         # if is_training:
         modulation_mat = self.randomize(modulation_mat)
-        
+        modulation_mat = torch.svd(modulation_mat)[-1].t()
+
         if return_task_embedding:
             return (modulation_mat, None), embedding_input
         else:

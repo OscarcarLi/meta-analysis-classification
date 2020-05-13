@@ -19,18 +19,18 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder imp_minim_5w1s_4p_2 \
+--output-folder imp_minim_5w1s_l10_400cs_nopoison_modrank32_l5_redwd \
 --device cuda \
---device-number 1 \
+--device-number 0 \
 --log-interval 50 \
 --val-interval 500 \
 --save-interval 1000 \
 --num-channels 64 \
---modulation-mat-rank 128 \
---l2-inner-loop 15.0 \
---modulation-mat-spec-norm 0. \
---checkpoint train_dir/imp_minim_5w1s_4p_2/maml_impregconv_22000.pt \
---eval
+--modulation-mat-rank 32 \
+--l2-inner-loop 5 \
+--modulation-mat-spec-norm 0.
+# --checkpoint train_dir/imp_minim_5w1s/maml_impregconv_22000.pt \
+# --eval
 
 # Nameing convention 
 # dataset_type_main_model_rank_training_paradigm_embedding_model

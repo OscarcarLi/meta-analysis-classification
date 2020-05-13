@@ -301,7 +301,7 @@ def standard_deviation_measurement(measurements):
 class Implicit_Gradient_based_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm):
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, hessian_inverse=False):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -313,7 +313,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm 
         self._lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self._outer_optimizer, mode='min', factor=0.2, patience=2, min_lr=1e-5)
+            self._outer_optimizer, mode='min', factor=0.2, patience=5, min_lr=1e-5)
+        self._hessian_inverse = hessian_inverse
+
 
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
@@ -353,7 +355,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
                 chance = np.random.uniform()
 
-                if chance < .25 and is_training:
+                if chance < .0 and is_training:
                     # poison labels
                     ind = np.random.permutation(test_task.x.shape[0])
                     train_task_x = test_task.x[ind[:5]]
@@ -389,13 +391,12 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                         param.requires_grad = True    
 
                 # if using poisoning dont prop gradients to model feat_exc
-                if chance < 0.25 and is_training:
+                if chance < 0. and is_training:
                     for param in self._algorithm._model.parameters():
                         param.requires_grad = False
 
-                adapted_params, features_train, modulation_train, train_hessian, train_mixed_partials, train_measurements_trajectory, info_dict = \
-                        self._algorithm.inner_loop_adapt(train_task, iter=i, is_training=is_training)
-                
+                adapted_params, features_train, modulation_train, train_hessian_inv_multiply, train_mixed_partials_left_multiply, train_measurements_trajectory, info_dict = \
+                        self._algorithm.inner_loop_adapt(train_task, hessian_inverse=self._hessian_inverse, iter=i) # if hessian_inverse is True then train_hessian is in face train_hessian_inv
 
                 if T==0 and not is_training:
                     
@@ -443,12 +444,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     w = adapted_params.detach().cpu().numpy()
                     test_grad_w = logistic_regression_grad_with_respect_to_w(X_test, y_test, w)
 
-                    # train_hessian_inverse = np.linalg.inv(train_hessian)
-                    # train_hessian_inv_test_grad = np.matmul(train_hessian_inverse, test_grad_w)
-                    train_hessian_inv_test_grad = np.linalg.solve(train_hessian, test_grad_w)
+                    train_hessian_inv_test_grad = train_hessian_inv_multiply(test_grad_w)
 
-                    # test loss's gradient with respect to training set's feature
-                    test_grad_features_train = - np.matmul(train_mixed_partials.T, train_hessian_inv_test_grad)
+                    test_grad_features_train = - train_mixed_partials_left_multiply(train_hessian_inv_test_grad)
 
                     test_grad_features_train = test_grad_features_train.reshape(features_train.shape)
 
@@ -457,6 +455,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                                            retain_graph=True,
                                            create_graph=False)
                     test_loss_after_adapt.backward(retain_graph=False, create_graph=False)
+
 
                 T+=1
 
