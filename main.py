@@ -532,7 +532,8 @@ def main(args):
              from_detached_features=True,
              use_label=args.use_label,
              detached_features_size=modulation_mat_size[1],
-             num_classes=dataset['train'].output_size)
+             num_classes=dataset['train'].output_size,
+             common_subspace_dim=args.embedding_common_dim)
         embedding_parameters = list(embedding_model.parameters())
     else:
         raise ValueError('Unrecognized embedding type {}'.format(
@@ -734,6 +735,8 @@ if __name__ == '__main__':
         help='Use original MAML implementation')
     parser.add_argument('--modulation-mat-spec-norm', type=float, default=100.,
         help='max singular value for modulation mat ')
+    parser.add_argument('--embedding-common-dim', type=int, default=400,
+        help='dimension of param search space ')
 
     # Randomly sampled embedding vectors
     parser.add_argument('--num-sample-embedding', type=int, default=0,

@@ -10,7 +10,8 @@ def weight_init(module):
     if (isinstance(module, torch.nn.Linear)
         or isinstance(module, torch.nn.Conv2d)):
         torch.nn.init.xavier_normal_(module.weight)
-        module.bias.data.zero_()
+        if module.bias is not None:
+            module.bias.data.zero_()
 
 
 # the embedding model does not take into account of the labelling task.y?
@@ -116,10 +117,17 @@ class RegConvEmbeddingModel(torch.nn.Module):
                 modulation_mat_size[0] * self._common_subspace_dim)
 
         self._modulation_mat_projection = torch.nn.Linear(self._common_subspace_dim, 
-                modulation_mat_size[1])
+                modulation_mat_size[1], bias=False)
+
+        self._reg_strength = torch.nn.Linear(embedding_input_size, 1)
 
         self.apply(weight_init)
 
+        torch.nn.init.orthogonal_(
+            self._modulation_mat_projection.weight)
+
+        # for param in self._modulation_mat_projection.parameters():
+        #     param.requires_grad = False
 
     def randomize(self, matrix):
         rank = matrix.shape[0]
@@ -190,8 +198,8 @@ class RegConvEmbeddingModel(torch.nn.Module):
 
             embedding_input = F.relu(self.linear(x.mean(0, keepdim=True)))
             
-        modulation_mat = self._modulation_mat_generator(embedding_input).reshape(
-                            self._modulation_mat_size[0], self._common_subspace_dim)
+        modulation_mat = torch.sigmoid(self._modulation_mat_generator(embedding_input).reshape(
+                            self._modulation_mat_size[0], self._common_subspace_dim))
         
         modulation_mat = self._modulation_mat_projection(modulation_mat)
 
@@ -200,20 +208,23 @@ class RegConvEmbeddingModel(torch.nn.Module):
         if not self._reuse and self._verbose: print('modulation mat {}'.format(
                 modulation_mat.size()))
 
-        modulation_mat = spectral_norm(modulation_mat, device=self._device,
-            limit = self._modulation_mat_spec_norm)
+        # modulation_mat = spectral_norm(modulation_mat, device=self._device,
+        #     limit = self._modulation_mat_spec_norm)
         
         if not self._reuse and self._verbose: print('='*27)
         self._reuse = True
 
         # if is_training:
-        modulation_mat = self.randomize(modulation_mat)
+        # modulation_mat = self.randomize(modulation_mat)
         modulation_mat = torch.svd(modulation_mat)[-1].t()
-
+        reg_strength = torch.sigmoid(self._reg_strength(embedding_input)).squeeze()
+        modulation_mat = np.sqrt(modulation_mat.shape[1] / modulation_mat.shape[0]) * modulation_mat            
+        modulation_mat *=reg_strength
+        
         if return_task_embedding:
-            return (modulation_mat, None), embedding_input
+            return (modulation_mat, reg_strength.item()), embedding_input
         else:
-            return (modulation_mat, None)
+            return (modulation_mat, reg_strength.item())
 
 
     def to(self, device, **kwargs):

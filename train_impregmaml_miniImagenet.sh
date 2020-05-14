@@ -5,7 +5,7 @@ python main.py \
 --embedding-type RegConvGRU \
 --conv-embedding-avgpool-after-conv True \
 --use-label \
---embedding-hidden-size 256 \
+--embedding-hidden-size 128 \
 --no-rnn-aggregation False \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
@@ -19,17 +19,18 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder imp_minim_5w1s_l0.25_400cs_modrank32_redwd \
+--output-folder imp_minim_5w1s_2 \
 --device cuda \
---device-number 0 \
+--device-number 3 \
 --log-interval 50 \
 --val-interval 500 \
 --save-interval 1000 \
 --num-channels 64 \
---modulation-mat-rank 32 \
---l2-inner-loop 0.25 \
---modulation-mat-spec-norm 0.
-# --checkpoint train_dir/imp_minim_5w1s/maml_impregconv_22000.pt \
+--modulation-mat-rank 16 \
+--embedding-common-dim 20 \
+--l2-inner-loop 50 \
+--modulation-mat-spec-norm 0. \
+# --checkpoint train_dir/imp_minim_5w1s_l30_200cs_modrank100/maml_impregconv_4000.pt
 # --eval
 
 # Nameing convention 

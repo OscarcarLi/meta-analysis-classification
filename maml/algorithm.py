@@ -6,12 +6,14 @@ from maml.utils import accuracy
 from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from maml.utils import spectral_norm
 from sklearn.metrics.pairwise import cosine_similarity
+from scipy.linalg import block_diag
 
 import torch.nn.functional as F
 import numpy as np
 
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
 from sklearn.linear_model import LogisticRegression
+import cvxpy as cp
 
 import warnings
 from sklearn.exceptions import ConvergenceWarning
@@ -561,12 +563,27 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self.is_classification = is_classification
         self.no_modulation = no_modulation
 
-    def compute_hessian(self, X, y, w):
+    def compute_hessian(self, X, y, w, reg_strength):
         lr_hessian = logistic_regression_hessian_with_respect_to_w(X, y, w)
-        hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
+        hessian = lr_hessian + self._l2_lambda * reg_strength * np.eye(lr_hessian.shape[0])
         return hessian
+
+
+    def solve_inner_loop(self, X, y, A):
+
+        m, n = X.shape
+        c = len(set(y))
+        beta = cp.Variable((c, n))
+        cY = np.zeros((m, c))
+        cY[np.arange(m),y] = 1. 
+        log_likelihood = cp.sum(cp.multiply(cY, X @ beta.T)) -cp.sum(cp.log_sum_exp(
+            X @ beta.T, axis=1))
+        beta_hat = beta
+        problem = cp.Problem(cp.Maximize(log_likelihood - 0.5 * self._l2_lambda * cp.sum_squares(beta_hat)))
+        problem.solve(verbose=False)
+        return beta.value
     
-    def compute_inverse_hessian_multiply_vector(self, X, y, w, v):
+    def compute_inverse_hessian_multiply_vector(self, X, y, w, reg_strength, v):
         '''
         X  N, (d+1) last dimension the bias
         y  N integer class identity
@@ -577,18 +594,18 @@ class ImpRMAML_inner_algorithm(Algorithm):
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
         pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / self._l2_lambda * (v -\
+        return 1 / (self._l2_lambda * reg_strength) (v -\
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
     def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
-        
         measurements_trajectory = defaultdict(list)
         if self.no_modulation:     
             modulation = None
         else:
-            modulation = self._embedding_model(task, return_task_embedding=False)
+            modulation, reg_strength = self._embedding_model(task, return_task_embedding=False)
+            modulation = [modulation]
         
         # here the features are padded with 1's at the end
         features = self._model(
@@ -596,7 +613,9 @@ class ImpRMAML_inner_algorithm(Algorithm):
 
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
-
+        # A = modulation[0].detach().cpu().numpy()
+        
+       
         with warnings.catch_warnings(record=True) as wn:
             lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
                 C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
@@ -627,10 +646,10 @@ class ImpRMAML_inner_algorithm(Algorithm):
 
         # h_func, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
         if not hessian_inverse:
-            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_, reg_strength=reg_strength)
             h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
         else:
-            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, v=v)
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, reg_strength=reg_strength, v=v)
         
         # mixed_partials_func given a vector v of shape C(d+1), 1
         mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)
