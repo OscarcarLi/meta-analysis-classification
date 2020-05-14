@@ -217,9 +217,9 @@ class RegConvEmbeddingModel(torch.nn.Module):
         # if is_training:
         # modulation_mat = self.randomize(modulation_mat)
         modulation_mat = torch.svd(modulation_mat)[-1].t()
-        reg_strength = torch.sigmoid(self._reg_strength(embedding_input)).squeeze()
-        modulation_mat = np.sqrt(modulation_mat.shape[1] / modulation_mat.shape[0]) * modulation_mat            
-        modulation_mat *=reg_strength
+        reg_strength = np.sqrt(modulation_mat.shape[1] / modulation_mat.shape[0]) * torch.sigmoid(self._reg_strength(embedding_input)).squeeze()
+        # modulation_mat = np.sqrt(modulation_mat.shape[1] / modulation_mat.shape[0]) * modulation_mat            
+        modulation_mat = reg_strength * modulation_mat
         
         if return_task_embedding:
             return (modulation_mat, reg_strength.item()), embedding_input

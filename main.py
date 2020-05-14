@@ -547,8 +547,8 @@ def main(args):
         optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
     else:
         optimizer_specs = [
-            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 1e-3},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 1e-3}
+            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 2e-3},
+             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 2e-3}
         ]
         optimizers = torch.optim.Adam(optimizer_specs)
 

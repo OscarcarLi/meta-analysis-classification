@@ -26,9 +26,9 @@ python main.py \
 --val-interval 500 \
 --save-interval 1000 \
 --num-channels 64 \
---modulation-mat-rank 16 \
---embedding-common-dim 20 \
---l2-inner-loop 50 \
+--modulation-mat-rank 64 \
+--embedding-common-dim 100 \
+--l2-inner-loop 1. \
 --modulation-mat-spec-norm 0. \
 # --checkpoint train_dir/imp_minim_5w1s_l30_200cs_modrank100/maml_impregconv_4000.pt
 # --eval
