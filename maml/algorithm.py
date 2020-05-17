@@ -10,7 +10,7 @@ import torch.nn.functional as F
 import numpy as np
 
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 
 import warnings
 from sklearn.exceptions import ConvergenceWarning
@@ -549,24 +549,27 @@ class RegMAML_inner_algorithm(Algorithm):
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
                 inner_loss_func, l2_lambda,
-                device, is_classification=True, no_modulation=False):
+                device, is_classification=True):
 
         self._model = model
         self._embedding_model = embedding_model
         self._inner_loss_func = inner_loss_func
         self._l2_lambda = l2_lambda
+        # self._Cs = [1 / lambda_ for lambda_ in self._l2_lambda]
+        # print('l2_lambda', self._l2_lambda)
+        # print('C_s', self._Cs)
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
-        self.no_modulation = no_modulation
 
-
-    def compute_hessian(self, X, y, w):
+    @staticmethod
+    def compute_hessian(X, y, w, l2_lambda):
         lr_hessian = logistic_regression_hessian_with_respect_to_w(X, y, w)
-        hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
+        hessian = lr_hessian + l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
     
-    def compute_inverse_hessian_multiply_vector(self, X, y, w, v):
+    @staticmethod
+    def compute_inverse_hessian_multiply_vector(X, y, w, l2_lambda, v):
         '''
         X  N, (d+1) last dimension the bias
         y  N integer class identity
@@ -575,9 +578,9 @@ class ImpRMAML_inner_algorithm(Algorithm):
         '''
         
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
-        pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
+        pre_inv = np.matmul(Xbar, Xbar.T) + l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / self._l2_lambda * (v -\
+        return 1 / l2_lambda * (v -\
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
@@ -585,10 +588,11 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
-        if self.no_modulation:     
-            modulation = None
-        else:
+        if self._embedding_model:
             modulation = self._embedding_model(task, return_task_embedding=False)
+        else:
+            modulation = None
+
         
         # here the features are padded with 1's at the end
         features = self._model(
@@ -603,6 +607,19 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 tol=1e-6, max_iter=50,
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
+
+            # lr_model = LogisticRegressionCV(Cs=self._Cs,
+            #                                 fit_intercept=False,
+            #                                 cv=5,
+            #                                 penalty='l2',
+            #                                 scoring='accuracy', #'neg_log_loss', # could be accuracy
+            #                                 solver='lbfgs',   
+            #                                 tol=1e-6,
+            #                                 max_iter=150,
+            #                                 n_jobs=-1,
+            #                                 refit=True,
+            #                                 multi_class='multinomial')
+            # lr_model.fit(X, y)
         
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
@@ -625,12 +642,17 @@ class ImpRMAML_inner_algorithm(Algorithm):
         #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
         #     info_dict['modulation'] = modulation
 
-        # h_func, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
+        l2_lambda_chosen = self._l2_lambda
+        # assert np.all(lr_model.C_ == lr_model.C_[0]) # when using multinomial all the chosen C should be the same for each class
+        # l2_lambda_chosen = 1 / lr_model.C_[0]
+        # print(l2_lambda_chosen)
+
+        # h_inv_multiply, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
         if not hessian_inverse:
-            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_)
+            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_, l2_lambda=l2_lambda_chosen)
             h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
         else:
-            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, v=v)
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, l2_lambda=l2_lambda_chosen, v=v)
         
         # mixed_partials_func given a vector v of shape C(d+1), 1
         mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)

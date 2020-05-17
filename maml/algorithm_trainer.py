@@ -1,4 +1,5 @@
 import os
+import sys
 from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
@@ -227,9 +228,9 @@ class Gradient_based_algorithm_trainer(object):
             # log_array.append('std train {} after: \t{:.3f}'.format(key, std_train_after))
             # log_array.append('std test {} before: \t{:.3f}'.format(key, std_test_before))
             # log_array.append('std test {} after: \t{:.3f}'.format(key, std_test_after))
-            log_array.append('\n') 
+            log_array.append(' ') 
         if not meta_val:
-            print('\n'.join(log_array))
+            tqdm.write('\n'.join(log_array))
 
     def write_gradient_info_to_board(self, iteration,
                                      grad_norm_by_step_over_batch,
@@ -319,9 +320,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
         n_tasks = 0
 
-        for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
-                dataset_iterator, start=start if is_training else 1)):
-            
+        iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
+                        leave=False, file=sys.stdout, initial=start, position=0)
+        for i, (train_task_batch, test_task_batch) in iterator:
             if is_training and i == stop:
                 return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
                     # 'test_loss_before': divide_measurements(sum_test_measurements_before_adapt_over_meta_set, n=n_tasks),
@@ -441,7 +442,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 results['train_loss_trajectory'],
                 results['test_loss_after'],
                 write_tensorboard=True, meta_val=True)
-
+        
         return results
 
 
@@ -451,7 +452,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 test_measurements_after_adapt_over_batch,
                 write_tensorboard=False, meta_val=False):
 
-        log_array = ['\nIteration: {}'.format(iteration)]
+        log_array = ['Iteration: {}'.format(iteration)]
         key_list = ['loss']
         if self._algorithm.is_classification: key_list.append('accu')
         for key in key_list:
@@ -502,9 +503,9 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             # log_array.append('std train {} after: \t{:.3f}'.format(key, std_train_after))
             # log_array.append('std test {} before: \t{:.3f}'.format(key, std_test_before))
             # log_array.append('std test {} after: \t{:.3f}'.format(key, std_test_after))
-            log_array.append('\n') 
+            log_array.append(' ') 
         if not meta_val:
-            print('\n'.join(log_array))
+            tqdm.write('\n'.join(log_array))
 
     def write_gradient_info_to_board(self, iteration,
                                      grad_norm_by_step_over_batch,

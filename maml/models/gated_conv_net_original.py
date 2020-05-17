@@ -157,13 +157,12 @@ class ImpRegConvModel(Model):
     TODO: enable 'non-transductive' setting as per
           https://arxiv.org/abs/1803.02999
     """
-    def __init__(self, input_channels, output_size, modulation_mat_rank, num_channels=64,
+    def __init__(self, input_channels, output_size, num_channels=64,
                  kernel_size=3, padding=1, nonlinearity=F.relu,
                  use_max_pool=False, img_side_len=28, verbose=False, normalize_norm=0.):
         super(ImpRegConvModel, self).__init__()
         self._input_channels = input_channels
         self._output_size = output_size
-        self._modulation_mat_rank = modulation_mat_rank
         self._num_channels = num_channels
         self._kernel_size = kernel_size
         self._nonlinearity = nonlinearity
