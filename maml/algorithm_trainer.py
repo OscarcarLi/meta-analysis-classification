@@ -301,7 +301,7 @@ def standard_deviation_measurement(measurements):
 class Implicit_Gradient_based_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, hessian_inverse=False):
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, hessian_inverse=True):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func

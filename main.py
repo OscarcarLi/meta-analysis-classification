@@ -26,6 +26,7 @@ from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models.gated_conv_net_original import ImpRegConvModel
 from maml import implicit_algorithm, implicit_algorithm_trainer 
 from maml.models import simplified_conv_embedding_model
+from maml.models.simplified_conv_embedding_model import DualRegConvEmbeddingModel
 import pprint
 
 
@@ -509,7 +510,7 @@ def main(args):
         #      use_label=args.use_label,
         #      detached_features_size=modulation_mat_size[1],
         #      num_classes=dataset['train'].output_size)
-        embedding_model = simplified_conv_embedding_model.RegConvEmbeddingModel(
+        embedding_model = simplified_conv_embedding_model.DualRegConvEmbeddingModel(
              input_size=np.prod(dataset['train'].input_size),
              output_size=dataset['train'].output_size,
              modulation_mat_size=modulation_mat_size,
@@ -547,8 +548,8 @@ def main(args):
         optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
     else:
         optimizer_specs = [
-            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 2e-3},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 2e-3}
+            {'params': model.parameters(), 'lr': args.slow_lr, 'weight_decay': 1e-3},
+             {'params': embedding_model.parameters(), 'lr': args.slow_lr, 'weight_decay': 1e-3}
         ]
         optimizers = torch.optim.Adam(optimizer_specs)
 

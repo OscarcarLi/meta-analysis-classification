@@ -28,8 +28,8 @@ def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device
             u = F.normalize(
                 torch.mv(weight_mat, v), dim=0, eps=eps, out=u)   
         sigma = torch.dot(u, torch.mv(weight_mat, v))
-    if sigma > limit:
-        weight_mat = (weight_mat / sigma) * limit
+    # if sigma > limit:
+    weight_mat = (weight_mat / sigma)
     return weight_mat
 
 

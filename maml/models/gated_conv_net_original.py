@@ -9,7 +9,7 @@ from maml.models.model import Model
 def weight_init(module):
     if (isinstance(module, torch.nn.Linear)
         or isinstance(module, torch.nn.Conv2d)):
-        torch.nn.init.kaiming_normal_(module.weight)
+        torch.nn.init.kaiming_uniform_(module.weight)
         module.bias.data.zero_()
 
 
@@ -230,16 +230,7 @@ class ImpRegConvModel(Model):
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
             ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
-                                                    stride=1)), 
-            ('layer5_conv', torch.nn.Conv2d(self._num_channels,
-                                            self._num_channels,
-                                            self._kernel_size,
-                                            stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer5_relu', torch.nn.ReLU(inplace=True)),
-            ('layer5_bn', torch.nn.BatchNorm2d(self._num_channels,
-                                                affine=self._bn_affine,
-                                                momentum=0.001)),
+                                                    stride=1))
         ]))
         
         self.apply(weight_init)
@@ -248,7 +239,7 @@ class ImpRegConvModel(Model):
         #     ('fully_connected', torch.nn.Linear(self._modulation_mat_rank + 1,
         #                                         self._output_size))
         # ]))
-        
+
     def forward(self, batch, modulation, training=True, only_features=False):
         if not self._reuse and self._verbose: print('='*10 + ' Model ' + '='*10)
         params = OrderedDict(self.named_parameters())
@@ -288,7 +279,7 @@ class ImpRegConvModel(Model):
         prev_x = prev_x.view(prev_x.size(0), -1)
         # print(x.size(), prev_x.size())
         if only_features:
-            return torch.cat([prev_x, x], dim=-1)
+            return x
         
         if not self._reuse:
             print("Before Modulation")
@@ -300,11 +291,12 @@ class ImpRegConvModel(Model):
         if not self._reuse:
             print("After modulation")
             print(torch.norm(x, p=2, dim=1))
+            print(torch.norm(modulation[0], p=2))
 
-        if self._normalize_norm > 0.:
-            max_norm = torch.max(
-                torch.norm(x, p=2, dim=1))
-            x = x.div(max_norm) * self._normalize_norm
+        # if self._normalize_norm > 0.:
+        max_norm = torch.max(
+            torch.norm(x, p=2, dim=1))
+        x = x.div(max_norm)
 
         if not self._reuse and self._normalize_norm > 0.:
             print("After Normalize")

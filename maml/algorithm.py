@@ -590,27 +590,39 @@ class ImpRMAML_inner_algorithm(Algorithm):
         w  C, (d+1) number of classes
         v  C(d+1), 1
         '''
-        
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
         pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / (self._l2_lambda * reg_strength) (v -\
+        return 1 / (self._l2_lambda * reg_strength) * (v -\
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
     def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
         measurements_trajectory = defaultdict(list)
-        if self.no_modulation:     
-            modulation = None
-        else:
-            modulation, reg_strength = self._embedding_model(task, return_task_embedding=False)
-            modulation = [modulation]
         
         # here the features are padded with 1's at the end
         features = self._model(
-            task.x, modulation=modulation)
+            task.x, modulation=None, only_features=True)
+        
+        if self.no_modulation:     
+            modulation = None
+        else:
+            modulation, reg_strength = self._embedding_model(task, return_task_embedding=False, features=features)
+            modulation = [modulation]
+        
+        # print("bef:", features, torch.norm(features, dim=1))
+        features = F.linear(features, weight=modulation[0], bias=None)
+        # print("aft:", features, torch.norm(features, dim=1))
+        # print(modulation[0].shape, torch.norm(modulation[0], dim=1))
+        max_norm = torch.max(
+            torch.norm(features, p=2, dim=1))
+        features = features.div(max_norm)
+        
 
+        features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
+
+        
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
         # A = modulation[0].detach().cpu().numpy()
