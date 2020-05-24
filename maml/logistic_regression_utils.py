@@ -93,6 +93,7 @@ def logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multi
     a  C(d+1), 1 (column vector)
     return a^T @ mixed partial matrix of shape N(d+1)
     '''
+    # print("X, y, w, a", X.shape, y.shape, w.shape, a.shape)
     preds = np.matmul(X, w.T)
     p = softmax(preds, axis=1) # the probability matrix N, C
     
@@ -129,6 +130,7 @@ def logistic_regression_hessian_pieces_with_respect_to_w(X, y, w):
     X    N(C+1), C(d+1)
     the final hessian can be computed as X.T @ np.diag(diag) @ X
     '''
+    
     preds = np.matmul(X, w.T)
     p = softmax(preds, axis=1) # the probability matrix N, C
 

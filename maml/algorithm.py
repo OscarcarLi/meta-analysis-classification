@@ -552,7 +552,8 @@ class RegMAML_inner_algorithm(Algorithm):
 class ImpRMAML_inner_algorithm(Algorithm):
     def __init__(self, model, embedding_model,
                 inner_loss_func, l2_lambda,
-                device, is_classification=True, no_modulation=False):
+                device, is_classification=True, n_projections=4, 
+                modulation_mat_size=(64, 1600)):
 
         self._model = model
         self._embedding_model = embedding_model
@@ -561,11 +562,16 @@ class ImpRMAML_inner_algorithm(Algorithm):
         self._device = device
         self.to(self._device)
         self.is_classification = is_classification
-        self.no_modulation = no_modulation
+        self._n_projections = n_projections
+        self._modulation_mat_size = modulation_mat_size
+        # self._modulation = []
+        # for _ in range(self._n_projections):
+        #     self._modulation.append(
+        #         torch.tensor(np.linalg.qr(np.random.randn(*(self._modulation_mat_size)[::-1]))[0].T, device=self._device, dtype=torch.float32))
 
-    def compute_hessian(self, X, y, w, reg_strength):
+    def compute_hessian(self, X, y, w):
         lr_hessian = logistic_regression_hessian_with_respect_to_w(X, y, w)
-        hessian = lr_hessian + self._l2_lambda * reg_strength * np.eye(lr_hessian.shape[0])
+        hessian = lr_hessian + self._l2_lambda * np.eye(lr_hessian.shape[0])
         return hessian
 
 
@@ -583,7 +589,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         problem.solve(verbose=False)
         return beta.value
     
-    def compute_inverse_hessian_multiply_vector(self, X, y, w, reg_strength, v):
+    def compute_inverse_hessian_multiply_vector(self, X, y, w, v):
         '''
         X  N, (d+1) last dimension the bias
         y  N integer class identity
@@ -593,78 +599,71 @@ class ImpRMAML_inner_algorithm(Algorithm):
         diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
         pre_inv = np.matmul(Xbar, Xbar.T) + self._l2_lambda * np.diag(np.reciprocal(diag))
         inv = np.linalg.inv(pre_inv)
-        return 1 / (self._l2_lambda * reg_strength) * (v -\
+        return 1 / (self._l2_lambda) * (v -\
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
+    def generate_random_modulation(self, n_modulation, size):
+
+        # return self._modulation
+
+        modulation = []
+        for _ in range(n_modulation):
+            modulation.append(
+                torch.tensor(np.linalg.qr(np.random.randn(*(size)[::-1]))[0].T, device=self._device, dtype=torch.float32))
+        
+        return modulation
 
     def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
         # adapt means doing the complete inner loop update
         measurements_trajectory = defaultdict(list)
-        
+            
+        modulation = self.generate_random_modulation(n_modulation=self._n_projections,
+            size=self._modulation_mat_size)
+
         # here the features are padded with 1's at the end
         features = self._model(
-            task.x, modulation=None, only_features=True)
+            task.x, modulation=modulation)
         
-        if self.no_modulation:     
-            modulation = None
-        else:
-            modulation, reg_strength = self._embedding_model(task, return_task_embedding=False, features=features)
-            modulation = [modulation]
-        
-        # print("bef:", features, torch.norm(features, dim=1))
-        features = F.linear(features, weight=modulation[0], bias=None)
-        # print("aft:", features, torch.norm(features, dim=1))
-        # print(modulation[0].shape, torch.norm(modulation[0], dim=1))
-        max_norm = torch.max(
-            torch.norm(features, p=2, dim=1))
-        features = features.div(max_norm)
-        
-
-        features = torch.cat([features, 10.*torch.ones((features.size(0), 1), device=features.device)], dim=-1)
-
-        
-        X = features.detach().cpu().numpy()
+        X = [z.detach().cpu().numpy() for z in features]
         y = (task.y).cpu().numpy()
-        # A = modulation[0].detach().cpu().numpy()
         
-       
+        lr_models = []
         with warnings.catch_warnings(record=True) as wn:
-            lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
-                C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
-                tol=1e-6, max_iter=150,
-                multi_class='multinomial', fit_intercept=False)
-            lr_model.fit(X, y)
+            for z in X:
+                lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
+                    C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
+                    tol=1e-6, max_iter=150,
+                    multi_class='multinomial', fit_intercept=False)
+                lr_model.fit(z, y)
+                lr_models.append(lr_model)
         
-        # print(lr_model.n_iter_)
-        adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
-        preds = F.linear(features, weight=adapted_params)
-
-        # print(adapted_params.shape)
-        # print("preds from functional:", preds)
-        # print(torch.argmax(preds, 1))
-        # print(torch.argmax(F.linear(lr_features, weight=torch.tensor(lr_model.coef_, dtype=torch.float32)), 1))
+        lr_model_coefs = np.concatenate([lr_model.coef_ for lr_model in lr_models], axis=-1)
+        adapted_params = [torch.tensor(lr_model.coef_, device=self._device, 
+            dtype=torch.float32, requires_grad=False) for lr_model in lr_models]
         
-        loss = self._inner_loss_func(preds, task.y)
+        preds = []
+        for feature, adapted_param in zip(features, adapted_params):
+            preds.append(F.linear(feature, weight=adapted_param))
+        
+        loss = sum([self._inner_loss_func(z, task.y) for z in preds]) / len(preds)
         measurements_trajectory['loss'].append(loss.item())
         if self.is_classification: 
             measurements_trajectory['accu'].append(accuracy(preds, task.y))
 
-        info_dict = None
-        # if analysis:
-        #     info_dict = {}
-        #     info_dict['grad_norm_by_step'] = grad_norm_by_step
-        #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
-        #     info_dict['modulation'] = modulation
-
+        
+        X = block_diag(*X)
+        y = np.concatenate([y for _ in range(self._n_projections)], axis=-1)
+        
         # h_func, given a vector v of shape C(d+1), 1 returns hessian^-1 @ v
         if not hessian_inverse:
-            hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_, reg_strength=reg_strength)
+            hessian = self.compute_hessian(X=X, y=y, w=lr_model_coefs)
             h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
         else:
-            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, reg_strength=reg_strength, v=v)
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model_coefs, v=v)
         
         # mixed_partials_func given a vector v of shape C(d+1), 1
-        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)
+        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model_coefs, a=v)
+        info_dict = None
 
         return adapted_params, features, modulation, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
 

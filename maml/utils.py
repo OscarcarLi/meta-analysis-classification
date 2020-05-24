@@ -5,7 +5,10 @@ import torch.nn.functional as F
 
 
 def accuracy(preds, y):
-    _, preds = torch.max(preds.data, 1)
+    if type(preds) == list:
+        preds, _ = torch.mode(torch.stack([torch.max(z.data, 1)[1].view(-1) for z in preds], dim =1))
+    else:
+        _, preds = torch.max(preds.data, 1)
     total = y.size(0)
     correct = (preds == y).sum().float()
     return (correct / total).item()

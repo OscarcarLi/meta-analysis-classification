@@ -2,15 +2,23 @@ from collections import OrderedDict
 
 import torch
 import torch.nn.functional as F
+import numpy as np
 
 from maml.models.model import Model
-
+from torch.nn.utils import spectral_norm
 
 def weight_init(module):
+
     if (isinstance(module, torch.nn.Linear)
         or isinstance(module, torch.nn.Conv2d)):
-        torch.nn.init.kaiming_uniform_(module.weight)
-        module.bias.data.zero_()
+        torch.nn.init.kaiming_normal_(module.weight)
+        if module.bias:
+            module.bias.data.zero_()
+
+    # elif isinstance(module, torch.nn.BatchNorm2d):
+    #     module.weight.data.fill_(1)
+    #     module.bias.data.zero_()
+    
 
 
 class RegConvModel(Model):
@@ -48,10 +56,10 @@ class RegConvModel(Model):
                                             self._kernel_size,
                                             stride=self._conv_stride,
                                             padding=self._padding)),
-            ('layer1_relu', torch.nn.ReLU(inplace=True)),
             ('layer1_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
+            ('layer1_relu', torch.nn.ReLU(inplace=True)),
             ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer2_conv', torch.nn.Conv2d(self._num_channels,
@@ -59,23 +67,21 @@ class RegConvModel(Model):
                                             self._kernel_size,
                                             stride=self._conv_stride,
                                             padding=self._padding)),
-            ('layer2_relu', torch.nn.ReLU(inplace=True)),
             ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
+            ('layer2_relu', torch.nn.ReLU(inplace=True)),
             ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer3_conv', torch.nn.Conv2d(self._num_channels,
                                             self._num_channels,
                                             self._kernel_size,
                                             stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer3_relu', torch.nn.ReLU(inplace=True)),
-            
+                                            padding=self._padding)), 
             ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
-            
+            ('layer3_relu', torch.nn.ReLU(inplace=True)),
             ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer4_conv', torch.nn.Conv2d(self._num_channels,
@@ -83,12 +89,11 @@ class RegConvModel(Model):
                                             self._kernel_size,
                                             stride=self._conv_stride,
                                             padding=self._padding)),
-            ('layer4_relu', torch.nn.ReLU(inplace=True)),
             ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
             ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
-                                                    stride=1)), 
+                                                    stride=2)), 
         ]))
         
         self.classifier = torch.nn.Sequential(OrderedDict([
@@ -189,122 +194,105 @@ class ImpRegConvModel(Model):
                                             self._num_channels,
                                             self._kernel_size,
                                             stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer1_relu', torch.nn.ReLU(inplace=True)),
+                                            padding=self._padding,
+                                            bias=False)),
             ('layer1_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
+            ('layer1_relu', torch.nn.ReLU(inplace=True)),
             ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer2_conv', torch.nn.Conv2d(self._num_channels,
                                             self._num_channels,
                                             self._kernel_size,
                                             stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer2_relu', torch.nn.ReLU(inplace=True)),
+                                            padding=self._padding,
+                                            bias=False)),
             ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
+            ('layer2_relu', torch.nn.ReLU(inplace=True)),
             ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer3_conv', torch.nn.Conv2d(self._num_channels,
                                             self._num_channels,
                                             self._kernel_size,
                                             stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer3_relu', torch.nn.ReLU(inplace=True)),
-            
+                                            padding=self._padding,
+                                            bias=False)),
             ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
-            
+            ('layer3_relu', torch.nn.ReLU(inplace=True)),
             ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer4_conv', torch.nn.Conv2d(self._num_channels,
                                             self._num_channels,
                                             self._kernel_size,
                                             stride=self._conv_stride,
-                                            padding=self._padding)),
-            ('layer4_relu', torch.nn.ReLU(inplace=True)),
+                                            padding=self._padding,
+                                            bias=False)),
             ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                 affine=self._bn_affine,
                                                 momentum=0.001)),
             ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
-                                                    stride=1))
+                                                    stride=2)),
         ]))
         
         self.apply(weight_init)
 
-        # self.classifier = torch.nn.Sequential(OrderedDict([
-        #     ('fully_connected', torch.nn.Linear(self._modulation_mat_rank + 1,
-        #                                         self._output_size))
-        # ]))
+        
 
-    def forward(self, batch, modulation, training=True, only_features=False):
+        
+    def compute_kernel_matrix(self, X, Y, sigma_list=[]):
+        
+        assert(X.size(1) == Y.size(1))
+        Z = torch.cat((X, Y), 0)
+        ZZT = torch.mm(Z, Z.t())
+        diag_ZZT = torch.diag(ZZT).unsqueeze(1)
+        Z_norm_sqr = diag_ZZT.expand_as(ZZT)
+        exponent = Z_norm_sqr - 2 * ZZT + Z_norm_sqr.t()
+
+        kernel_matrices = [X @ Y.T]
+        for sigma in sigma_list:
+            gamma = 1.0 / (2 * sigma**2)
+            kernel_matrices.append(torch.exp(-gamma * exponent)[:X.size(0), X.size(0):])
+
+        return kernel_matrices
+        
+
+    def forward(self, batch, modulation, training=True, features=None, only_features=False):
+        
         if not self._reuse and self._verbose: print('='*10 + ' Model ' + '='*10)
-        params = OrderedDict(self.named_parameters())
-
+        
         x = batch
-        prev_x = None
         if not self._reuse and self._verbose: print('input size: {}'.format(x.size()))
-        for layer_name, layer in self.features.named_children():
-            prev_x = x
-            weight = params.get('features.' + layer_name + '.weight', None)
-            bias = params.get('features.' + layer_name + '.bias', None)
-            if 'conv' in layer_name:
-                x = F.conv2d(x, weight=weight, bias=bias,
-                             stride=self._conv_stride, padding=self._padding)
-            elif 'bn' in layer_name:
-                x = F.batch_norm(x, weight=weight, bias=bias,
-                                 running_mean=layer.running_mean,
-                                 running_var=layer.running_var,
-                                 training=training)
-            elif 'max_pool' in layer_name:
-                x = F.max_pool2d(x, kernel_size=2, stride=2)
-            elif 'relu' in layer_name:
-                x = F.relu(x)
-            elif 'fully_connected' in layer_name:
-                # we have reached the last layer
-                break
-            else:
-                raise ValueError('Unrecognized layer {}'.format(layer_name))
-            if not self._reuse and self._verbose: print('{}: {}, norm : {}'.format(layer_name, x.size(), torch.norm(x.view(x.size(0), -1), p=2, dim=1).mean(0)))
-
-
-            
-        # below the conv maps are flattened
-        # x = x.view(x.size(0), self._num_channels, -1).mean(2)
-        # prev_x = prev_x.view(prev_x.size(0), self._num_channels, -1).mean(2)
+    
+        x = self.features(x) 
         x = x.view(x.size(0), -1)
-        prev_x = prev_x.view(prev_x.size(0), -1)
-        # print(x.size(), prev_x.size())
-        if only_features:
-            return x
+        if not self._reuse and self._verbose: print('features size: {}'.format(x.size()))
+
+        # if not self._reuse:
+        #     print("Before Modulation")
+        #     print(x.shape, torch.norm(x, p=2, dim=1))
+    
+        # x_post_mod = []
+        # d = modulation[0].size(1) // len(kernel_matrices)
+        # for i in range(len(modulation)):
+        #     x_post_mod.append(kernel_matrices[i] @ modulation[0][:, i*d:(i+1)*d])
+        # x = torch.cat(x_post_mod, dim=-1)
+
+
+        x_post_mod = []
+        for mod in modulation:
+            x_post_mod.append(x @ mod.T)
+        x = x_post_mod
         
-        if not self._reuse:
-            print("Before Modulation")
-            print(torch.norm(x, p=2, dim=1))
+        # if not self._reuse:
+        #     print("After modulation")
+        #     print([(z.shape, torch.norm(z, p=2, dim=1)) for z in x])
 
-
-        x = F.linear(x, weight=modulation[0], bias=None) # dont use modulation bias
-
-        if not self._reuse:
-            print("After modulation")
-            print(torch.norm(x, p=2, dim=1))
-            print(torch.norm(modulation[0], p=2))
-
-        # if self._normalize_norm > 0.:
-        max_norm = torch.max(
-            torch.norm(x, p=2, dim=1))
-        x = x.div(max_norm)
-
-        if not self._reuse and self._normalize_norm > 0.:
-            print("After Normalize")
-            print(torch.norm(x, p=2, dim=1))
-
-        x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
-        # pad with 10 to allow higher bias in inner solver
-        
-        self._reuse = True
+        x = [torch.cat([z, 10.*torch.ones((z.size(0), 1), device=z.device)], dim=-1)
+                for z in x]
 
         return x

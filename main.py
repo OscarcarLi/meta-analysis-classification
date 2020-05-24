@@ -620,7 +620,9 @@ def main(args):
             inner_loss_func=loss_func,
             l2_lambda=args.l2_inner_loop,
             device=args.device,
-            is_classification=True)
+            is_classification=True,
+            modulation_mat_size = (args.modulation_mat_rank, args.num_channels*5*5),
+            n_projections=args.n_projections)
 
 
     if args.algorithm == 'imp_reg_maml':
@@ -639,7 +641,12 @@ def main(args):
             log_interval=args.log_interval, save_interval=args.save_interval,
             model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
-    
+    # lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(
+    #     optimizers, gamma=0.965)
+
+    lambda_epoch = lambda e: 1.0 if e < 20 else (0.1 if e < 80 else 0.01 if e < 200 else (0.005))
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
+
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
@@ -651,13 +658,14 @@ def main(args):
                 print("Finished training iterations.")
                 print(train_result)
                 print("Starting final validation.")
-    
+
             # validation
             print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
             val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
             print(val_result)
             print("\n", "=="*27, "\n Finished validation\n", "=="*27)
-            
+            lr_scheduler.step()
+
     else:
         results = trainer.run(iter(dataset['val']), is_training=False, start=0)
         pp = pprint.PrettyPrinter(indent=4)
@@ -761,6 +769,9 @@ if __name__ == '__main__':
         help='how many update steps in the inner loop')
     parser.add_argument('--l2-inner-loop', type=float, default=0.0,
         help='lambda for inner loop l2 loss')   
+
+    parser.add_argument('--n-projections', type=int, default=4,
+        help='no of random projections in the inner loop.')   
 
     # Optimization
     parser.add_argument('--num-batches-meta-train', type=int, default=60000,

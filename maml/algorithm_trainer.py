@@ -7,6 +7,7 @@ import torch.nn.functional as F
 from torch.nn.utils.clip_grad import clip_grad_norm_
 from scipy import spatial
 from sklearn.metrics.pairwise import cosine_similarity, euclidean_distances
+from scipy.linalg import block_diag
 
 from maml.datasets.task import Task
 
@@ -327,6 +328,8 @@ class Implicit_Gradient_based_algorithm_trainer(object):
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
         n_tasks = 0
         given_start = start
+                
+        # self._algorithm._model._reuse = False
         
         for i, (train_task_batch, test_task_batch) in tqdm(enumerate(
                 dataset_iterator, start=start if is_training else 1)):
@@ -342,8 +345,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             # test_measurements_before_adapt_over_batch = defaultdict(list)
             test_measurements_after_adapt_over_batch = defaultdict(list)
             analysis = (i % self._log_interval == 0)
-
-
+            
             batch_size = len(train_task_batch)
 
             if is_training:
@@ -353,70 +355,10 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             for train_task, test_task in zip(train_task_batch, test_task_batch):
                 # adapt according train_task
 
-                chance = np.random.uniform()
 
-                if chance < .0 and is_training:
-                    # poison labels
-                    ind = np.random.permutation(test_task.x.shape[0])
-                    train_task_x = test_task.x[ind[:5]]
-                    train_task_x_sz = train_task_x.size(0)
-
-                    test_task_x = test_task.x[ind[5:]]
-                    test_task_x_sz = test_task_x.size(0)
-
-                    with torch.no_grad():
-                        features_train = self._algorithm._model(
-                            batch=train_task_x, only_features=True, modulation=None)
-                        features_train = features_train.view(features_train.size(0), -1)
-                        
-                        features_test = self._algorithm._model(
-                            batch=test_task_x, only_features=True, modulation=None)
-                        features_test = features_test.view(features_test.size(0), -1)
-                    
-                    # print(train_task_x.shape, test_task_x.shape)
-                    
-                    train_task_y = torch.arange(5, device=self._algorithm._device)
-                    test_task_y = torch.tensor(spatial.KDTree(
-                        features_train.view(train_task_x_sz, -1).detach().cpu()).query(
-                            features_test.view(test_task_x_sz, -1).detach().cpu())[1], device=self._algorithm._device)
-                    
-                    train_task = Task(train_task_x, train_task_y, train_task.task_info)
-                    test_task = Task(test_task_x, test_task_y, test_task.task_info)
-                    
-                    # print(train_task.x, train_task.y, test_task.x, test_task.y)
-                    # print(euclidean_distances(features_train.detach().cpu().view(train_task_x_sz, -1), 
-                    #     features_test.detach().cpu().view(test_task_x_sz, -1)))
-
-                for param in self._algorithm._model.parameters():
-                        param.requires_grad = True    
-
-                # if using poisoning dont prop gradients to model feat_exc
-                if chance < 0. and is_training:
-                    for param in self._algorithm._model.parameters():
-                        param.requires_grad = False
-
-                adapted_params, features_train, modulation_train, train_hessian_inv_multiply, train_mixed_partials_left_multiply, train_measurements_trajectory, info_dict = \
-                        self._algorithm.inner_loop_adapt(train_task, hessian_inverse=self._hessian_inverse, iter=i) # if hessian_inverse is True then train_hessian is in face train_hessian_inv
-
-                if T==0 and not is_training:
-                    
-                    with torch.no_grad():
-                        features_train = self._algorithm._model(
-                            batch=train_task.x, only_features=True, modulation=None)
-                        # features_train = features_train.view(
-                            # features_train.size(0), self._algorithm._model._num_channels, -1)
-                        # features_train = features_train.mean(2)
-                        
-                        features_test = self._algorithm._model(
-                            batch=test_task.x, only_features=True, modulation=None)
-                        # features_test = features_test.view(
-                            # features_test.size(0), self._algorithm._model._num_channels, -1)
-                        # features_test = features_test.mean(2)
-                        
-                        self._writer.add_embedding(
-                            features_test, global_step=given_start+i, metadata=test_task.y.cpu().numpy(), tag='post_mod_val_task')
-
-
+                adapted_params, features_train, modulation_train, train_hessian_inv_multiply,\
+                 train_mixed_partials_left_multiply, train_measurements_trajectory, info_dict = \
+                    self._algorithm.inner_loop_adapt(train_task, hessian_inverse=self._hessian_inverse, iter=i) 
 
                 for key, measurements in train_measurements_trajectory.items():
                     train_measurements_trajectory_over_batch[key].append(measurements)
@@ -427,8 +369,16 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     with torch.no_grad():
                         features_test = self._algorithm._model(batch=test_task.x, modulation=modulation_train)
 
-                test_pred_after_adapt = F.linear(features_test, weight=adapted_params)
-                test_loss_after_adapt = self._outer_loss_func(test_pred_after_adapt, test_task.y)
+                test_pred_after_adapt = []
+                for feature, adapted_param in zip(features_test, adapted_params):
+                    test_pred_after_adapt.append(F.linear(feature, weight=adapted_param))
+        
+                # if not self._algorithm._model._reuse:
+                #     print([(i+1, z[:10]) for i, z in enumerate(test_pred_after_adapt)])
+                # test_pred_after_adapt = torch.stack(test_pred_after_adapt, dim=-1).mean(-1)
+
+                test_loss_after_adapt = sum([self._outer_loss_func(z, test_task.y) 
+                        for z in test_pred_after_adapt])/len(test_pred_after_adapt)
                 
                 test_measurements_after_adapt_over_batch['loss'].append(test_loss_after_adapt.item())
                 test_loss_after_adapt /= batch_size # now we are doing this one by one so need to divide individually
@@ -439,17 +389,34 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     )
                 
                 if is_training:
-                    X_test = features_test.detach().cpu().numpy()
+                    X_test = [z.detach().cpu().numpy() for z in features_test]
                     y_test = (test_task.y).cpu().numpy()
-                    w = adapted_params.detach().cpu().numpy()
-                    test_grad_w = logistic_regression_grad_with_respect_to_w(X_test, y_test, w)
+                    y_test = np.concatenate([y_test for _ in range(self._algorithm._n_projections)], axis=-1)
+                    w = np.concatenate([adapted_param.detach().cpu().numpy() 
+                        for adapted_param in adapted_params], axis=-1)
+                    # print([z.detach().cpu().numpy().shape for z in features_test])
+                    # print(block_diag(*X_test).shape, y_test.shape, w.shape)
+                    test_grad_w = logistic_regression_grad_with_respect_to_w(block_diag(*X_test), y_test, w) 
 
                     train_hessian_inv_test_grad = train_hessian_inv_multiply(test_grad_w)
 
                     test_grad_features_train = - train_mixed_partials_left_multiply(train_hessian_inv_test_grad)
 
-                    test_grad_features_train = test_grad_features_train.reshape(features_train.shape)
+                    sz = np.array(features_train[0].shape)
+                    test_grad_features_train = test_grad_features_train.reshape(sz * self._algorithm._n_projections)
+                    
+                    test_grad_features_train = np.concatenate([
+                        test_grad_features_train[sz[0]*k:sz[0]*(k+1), sz[1]*k:sz[1]*(k+1)] for k in range(self._algorithm._n_projections)],
+                            axis=1)
 
+                    features_train = torch.cat(features_train, dim=1) 
+                    # print("features_train", features_train.shape)
+                    # print("test_grad_features_train", test_grad_features_train.shape)
+                    
+                    
+                    # print(features_train.shape)
+                    # print([z.shape for z in test_grad_features_trains])
+                    
                     features_train.backward(gradient=(torch.tensor(test_grad_features_train,
                                                                       device=self._algorithm._device) / batch_size),
                                            retain_graph=True,
@@ -470,11 +437,13 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             if is_training:
                 outer_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
                 self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_model_grad_norm_before_clip, i)
-                outer_embedding_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._embedding_model.parameters())
-                self._writer.add_scalar('outer_grad/embedding_model_norm/before_clip', outer_embedding_model_grad_norm_before_clip, i)
+                if self._algorithm._embedding_model:
+                    outer_embedding_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._embedding_model.parameters())
+                    self._writer.add_scalar('outer_grad/embedding_model_norm/before_clip', outer_embedding_model_grad_norm_before_clip, i)
                 if self._outer_loop_grad_norm > 0.:
                     clip_grad_norm_(self._algorithm._model.parameters(), self._outer_loop_grad_norm)
-                    clip_grad_norm_(self._algorithm._embedding_model.parameters(), self._outer_loop_grad_norm)
+                    if self._algorithm._embedding_model:
+                        clip_grad_norm_(self._algorithm._embedding_model.parameters(), self._outer_loop_grad_norm)
                 self._outer_optimizer.step()
 
             # logging

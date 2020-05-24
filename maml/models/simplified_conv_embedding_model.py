@@ -119,7 +119,12 @@ class RegConvEmbeddingModel(torch.nn.Module):
         self._modulation_mat_projection = torch.nn.Linear(self._modulation_mat_size[0], 
                 modulation_mat_size[1], bias=False)
 
-        self._reg_strength = torch.nn.Linear(embedding_input_size, 1)
+        self._reg_strength = torch.nn.Sequential(
+            torch.nn.Linear(embedding_input_size, 128),
+            torch.nn.Tanh(),
+            torch.nn.Linear(128, 1),
+            torch.nn.Sigmoid()
+        )
 
         self.apply(weight_init)
 
@@ -289,6 +294,8 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
         self._use_label = use_label
         self._from_detached_features = from_detached_features
         self._detached_features_size = detached_features_size 
+        self._use_features_directly = True
+
 
         if use_label:
             assert num_classes is not None
@@ -349,6 +356,11 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
             self.linear = torch.nn.Linear(rnn_input_size, embedding_input_size)
             self.relu_after_linear = torch.nn.ReLU(inplace=True)
 
+        if self._use_features_directly:
+            rnn_input_size = 1600
+            embedding_input_size = 1600
+            self.linear = torch.nn.Linear(rnn_input_size, embedding_input_size)
+
         self._modulation_mat_generator = torch.nn.Sequential(
                 torch.nn.Linear(embedding_input_size + rnn_input_size, 512),
                 torch.nn.ReLU(), 
@@ -359,37 +371,25 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
                 torch.nn.Linear(256, 128),
                 torch.nn.ReLU(), 
                 torch.nn.BatchNorm1d(128),
-                torch.nn.Linear(128, modulation_mat_size[0]),
+                torch.nn.Linear(128, modulation_mat_size[0])
             )
 
                 
         self._reg_strength = torch.nn.Sequential(
             torch.nn.Linear(embedding_input_size, 128),
-            torch.nn.sigmoid()
+            torch.nn.Tanh(),
+            torch.nn.Linear(128, 3),
+            torch.nn.Sigmoid()
         )
 
         self.apply(weight_init)
-
+        
         # torch.nn.init.orthogonal_(
         #     self._modulation_mat_projection.weight)
 
         # for param in self._modulation_mat_projection.parameters():
         #     param.requires_grad = False
 
-    def compute_kernel_matrix(self, X, Y, sigma):
-    
-        assert(X.size() == Y.size())
-        XYT = X@Y.T
-        X_norm_sqr = X@X.T
-        Y_norm_sqr = Y@Y.T
-        X_norm_sqr = torch.diag(X_norm_sqr).unsqueeze(1).expand_as(X_norm_sqr)
-        Y_norm_sqr = torch.diag(Y_norm_sqr).unsqueeze(1).expand_as(Y_norm_sqr)
-        exponent = X_norm_sqr - 2 * XYT + Y_norm_sqr.T
-        gamma = 1.0 / (2 * sigma**2)
-        kernel_matrix = torch.exp(-gamma * exponent)
-
-        return kernel_matrix
-    
     def compute_input_size(self, p, k, s, ch):
         current_img_size = self._img_size[1]
         for _ in range(self._num_conv):
@@ -401,7 +401,7 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
         noise = torch.randn(rank, rank, device=matrix.device) * (1 / np.sqrt(rank))
         return noise @ matrix
 
-    def forward(self, task, params=None, return_task_embedding=False, features=None, is_training=True):
+    def forward_old(self, task, params=None, return_task_embedding=False, features=None, is_training=True):
         if not self._reuse and self._verbose: print('='*8 + ' Emb Model ' + '='*8)
         if params is None:
             params = OrderedDict(self.named_parameters())
@@ -506,10 +506,26 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
             return (modulation_mat, 1.)
 
 
-    def forward_new(self, task, params=None, return_task_embedding=False, features=None, is_training=True):
+    def forward(self, task=None, params=None, return_task_embedding=False, features=None, is_training=True):
         if not self._reuse and self._verbose: print('='*8 + ' Emb Model ' + '='*8)
         if params is None:
             params = OrderedDict(self.named_parameters())
+
+        # cant run with use label info or rnn aggregation
+        if self._use_features_directly:
+            x = features
+            embedding_input = F.relu(self.linear(x.mean(0, keepdim=True)))
+            modulation_mat = self._modulation_mat_generator(torch.cat(
+            [embedding_input.repeat(x.size(0), 1), x], dim=1))
+            # 5x32 
+            # sigma = torch.pow(2, self._reg_strength(embedding_input) * 8).view(-1)
+        
+            if return_task_embedding:
+                return (modulation_mat, None), embedding_input
+            else:
+                return (modulation_mat, None)
+
+        
 
         if self._use_label:
             label_embedding = self._label_representations(task.y).view(-1, 1, self._img_size[1], self._img_size[2])
@@ -587,8 +603,11 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
         modulation_mat = self._modulation_mat_generator(torch.cat(
             [embedding_input.repeat(x.size(0), 1), x], dim=1))
         # 5x32 
-        sigma = self.reg_strength(embedding_input) / 10.
-        
+        sigma = torch.pow(2, self._reg_strength(embedding_input) * 8).view(-1)
+        # sigma = 16.
+        # print("pass sigma:", sigma)
+        # for name, param in self._reg_strength.named_parameters():
+        #     print(name, param.grad)
         
         if return_task_embedding:
             return (modulation_mat, sigma), embedding_input
@@ -604,15 +623,14 @@ class DualRegConvEmbeddingModel(torch.nn.Module):
 if __name__ == '__main__':
 
     X = torch.randn(5, 25)
-    Y = torch.randn(5, 25)
+    Y = torch.randn(10, 25)
     sigma = 1.0
 
-    assert(X.size() == Y.size())
-    XYT = X@Y.T
-    X_norm_sqr = X@X.T
-    Y_norm_sqr = Y@Y.T
-    X_norm_sqr = torch.diag(X_norm_sqr).unsqueeze(1).expand_as(X_norm_sqr)
-    Y_norm_sqr = torch.diag(Y_norm_sqr).unsqueeze(1).expand_as(Y_norm_sqr)
-    exponent = X_norm_sqr - 2 * XYT + Y_norm_sqr.T
-    gamma = 1.0 / (2 * sigma**2)
-    kernel_matrix = torch.exp(-gamma * exponent)
+    assert(X.size(1) == Y.size(1))
+    assert(X.size(1) == Y.size(1))
+    
+    Z = torch.cat((X, Y), 0)
+    ZZT = torch.mm(Z, Z.t())
+    diag_ZZT = torch.diag(ZZT).unsqueeze(1)
+    Z_norm_sqr = diag_ZZT.expand_as(ZZT)
+    exponent = Z_norm_sqr - 2 * ZZT + Z_norm_sqr.t()
