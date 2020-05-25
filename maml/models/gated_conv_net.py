@@ -400,7 +400,7 @@ class ImpRegConvModel(Model):
     """
     def __init__(self, input_channels, output_size, modulation_mat_rank, num_channels=64,
                  kernel_size=3, padding=1, nonlinearity=F.relu,
-                 use_max_pool=False, img_side_len=28, verbose=False):
+                 use_max_pool=False, img_side_len=28, verbose=False, retain_activation=False):
         super(ImpRegConvModel, self).__init__()
         self._input_channels = input_channels
         self._output_size = output_size
@@ -415,6 +415,7 @@ class ImpRegConvModel(Model):
         # reuse is for checking the model architecture
         self._reuse = False
         self._verbose = verbose
+        self._retain_activation = retain_activation
 
         if self._use_max_pool:
             # use 2 by 2 max_pool then use conv_stride = 1
@@ -428,10 +429,10 @@ class ImpRegConvModel(Model):
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer1_relu', torch.nn.ReLU(inplace=True)),
                 ('layer1_bn', torch.nn.BatchNorm2d(self._num_channels,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
+                ('layer1_relu', torch.nn.ReLU(inplace=True)),
                 ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
                 ('layer2_conv', torch.nn.Conv2d(self._num_channels,
@@ -439,10 +440,10 @@ class ImpRegConvModel(Model):
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer2_relu', torch.nn.ReLU(inplace=True)),
                 ('layer2_bn', torch.nn.BatchNorm2d(self._num_channels * 2,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
+                ('layer2_relu', torch.nn.ReLU(inplace=True)),
                 ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
                 ('layer3_conv', torch.nn.Conv2d(self._num_channels * 2,
@@ -450,11 +451,10 @@ class ImpRegConvModel(Model):
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer3_relu', torch.nn.ReLU(inplace=True)),
                 ('layer3_bn', torch.nn.BatchNorm2d(self._num_channels * 4,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
-                
+                ('layer3_relu', torch.nn.ReLU(inplace=True)),
                 ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                        stride=2)),
                 ('layer4_conv', torch.nn.Conv2d(self._num_channels * 4,
@@ -462,14 +462,15 @@ class ImpRegConvModel(Model):
                                                 self._kernel_size,
                                                 stride=self._conv_stride,
                                                 padding=self._padding)),
-                ('layer4_relu', torch.nn.ReLU(inplace=True)),
                 ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels * 8,
                                                    affine=self._bn_affine,
-                                                   momentum=0.001)),
-                ('layer4_max_pool', torch.nn.MaxPool2d(kernel_size=2,
-                                                       stride=2)),
-                
+                                                   momentum=0.001))
             ]))
+            if self._retain_activation:
+                self.features.add_module('layer4_relu', torch.nn.ReLU(inplace=True))
+            
+            self.features.add_module('layer4_max_pool', 
+                    torch.nn.MaxPool2d(kernel_size=2, stride=2))
         else:
             self._conv_stride = 2
             # self._features_size = (img_side_len // 14) ** 2
@@ -509,9 +510,11 @@ class ImpRegConvModel(Model):
                 ('layer4_bn', torch.nn.BatchNorm2d(self._num_channels*8,
                                                    affine=self._bn_affine,
                                                    momentum=0.001)),
-                ('layer4_relu', torch.nn.ReLU(inplace=True)),
             ]))
-
+            if self._retain_activation:
+                self.features.add_module('layer4_relu', torch.nn.ReLU(inplace=True))
+        
+            
         self.apply(weight_init)
 
         # # the following wont be part of self.parameters:

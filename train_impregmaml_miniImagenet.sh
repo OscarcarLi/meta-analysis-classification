@@ -24,7 +24,8 @@ python main.py \
 --original-conv \
 --l2-inner-loop 10.0 \
 --hessian-inverse True \
---no-modulation True
+--no-modulation True \
+--verbose True
 
 
 # --momentum \

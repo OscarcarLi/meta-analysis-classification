@@ -428,7 +428,8 @@ def main(args):
                      if not(args.no_modulation) else (args.num_channels*5*5 if args.original_conv else args.num_channels*8),
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
-                verbose=args.verbose)
+                verbose=args.verbose,
+                retain_activation=args.retain_activation)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -751,6 +752,8 @@ if __name__ == '__main__':
         help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
     parser.add_argument('--no-modulation', type=str2bool, default=False,
         help='dont propose any modulation matrix')
+    parser.add_argument('--retain-activation', type=str2bool, default=False,
+        help='dont use activation in last layer')
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='multimodal_few_shot',
