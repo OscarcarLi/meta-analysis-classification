@@ -1,4 +1,5 @@
 import os
+from tqdm import tqdm
 import json
 import argparse
 import pickle
@@ -424,8 +425,6 @@ def main(args):
                 input_channels=dataset['train'].input_size[0],
                 output_size=dataset['train'].output_size,
                 num_channels=args.num_channels,
-                modulation_mat_rank=args.modulation_mat_rank\
-                     if not(args.no_modulation) else (args.num_channels*5*5 if args.original_conv else args.num_channels*8),
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose,
@@ -587,8 +586,7 @@ def main(args):
             inner_loss_func=loss_func,
             l2_lambda=args.l2_inner_loop,
             device=args.device,
-            is_classification=True,
-            no_modulation=args.no_modulation)
+            is_classification=True)
 
 
     if args.algorithm == 'imp_reg_maml':
@@ -622,13 +620,13 @@ def main(args):
                 print("Starting final validation.")
     
             # validation
-            print("\n\n", "=="*27, "\n Starting validation\n", "=="*27)
+            tqdm.write("=="*27+"\nStarting validation")
             val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
-            print(val_result)
-            print("\n", "=="*27, "\n Finished validation\n", "=="*27)
+            tqdm.write(str(val_result))
+            tqdm.write("Finished validation\n" + "=="*27)
             
     else:
-        results = trainer.run(iter(dataset['val']), is_training=False, start=0)
+        results = trainer.run(iter(dataset['test']), is_training=False, start=0)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         name = args.checkpoint[0:args.checkpoint.rfind('.')]
@@ -655,11 +653,11 @@ if __name__ == '__main__':
     #     help='conv')
 
     # Model
-    parser.add_argument('--hidden-sizes', type=int,
-        default=[256, 128, 64, 64], nargs='+',
-        help='number of hidden units per layer')
     parser.add_argument('--model-type', type=str, default='gatedconv',
         help='type of the model')
+    # parser.add_argument('--hidden-sizes', type=int,
+    #     default=[256, 128, 64, 64], nargs='+',
+    #     help='number of hidden units per layer')
     parser.add_argument('--condition-type', type=str, default='affine',
         choices=['affine', 'sigmoid', 'softmax'],
         help='type of the conditional layers')
@@ -669,11 +667,13 @@ if __name__ == '__main__':
         help='choose whether to use max pooling with convolutional model')
     parser.add_argument('--num-channels', type=int, default=32,
         help='number of channels in convolutional layers')
+    parser.add_argument('--original-conv', action='store_true', default=False,
+        help='Use original MAML implementation')
     parser.add_argument('--disable-norm', action='store_true',
         help='disable batchnorm after linear layers in a fully connected model')
-    parser.add_argument('--bias-transformation-size', type=int, default=0,
-        help='size of bias transformation vector that is concatenated with '
-             'input')
+    # parser.add_argument('--bias-transformation-size', type=int, default=0,
+    #     help='size of bias transformation vector that is concatenated with '
+    #          'input')
 
     # Embedding model
     parser.add_argument('--embedding-type', type=str, default='',
@@ -701,19 +701,17 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--modulation-mat-rank', type=int, default=128,
         help='rank of the modulation matrix before ')
-    parser.add_argument('--original-conv', action='store_true', default=False,
-        help='Use original MAML implementation')
     parser.add_argument('--modulation-mat-spec-norm', type=float, default=100.,
         help='max singular value for modulation mat ')
 
-    # Randomly sampled embedding vectors
-    parser.add_argument('--num-sample-embedding', type=int, default=0,
-        help='number of randomly sampled embedding vectors')
-    parser.add_argument(
-        '--sample-embedding-file', type=str, default='embeddings',
-        help='the file name of randomly sampled embedding vectors')
-    parser.add_argument(
-        '--sample-embedding-file-type', type=str, default='hdf5')
+    # # Randomly sampled embedding vectors
+    # parser.add_argument('--num-sample-embedding', type=int, default=0,
+    #     help='number of randomly sampled embedding vectors')
+    # parser.add_argument(
+    #     '--sample-embedding-file', type=str, default='embeddings',
+    #     help='the file name of randomly sampled embedding vectors')
+    # parser.add_argument(
+    #     '--sample-embedding-file-type', type=str, default='hdf5')
 
     # Inner loop
     parser.add_argument('--first-order', action='store_true',
@@ -726,10 +724,21 @@ if __name__ == '__main__':
                         help='slope of soft gradient clipping in the inner loop beyond')
     parser.add_argument('--num-updates', type=int, default=5,
         help='how many update steps in the inner loop')
-    parser.add_argument('--l2-inner-loop', type=float, default=0.0,
-        help='lambda for inner loop l2 loss')   
+    parser.add_argument('--l2-inner-loop', type=float, default=1.0, help='lambda for inner loop l2 loss')
+    # parser.add_argument('--l2-inner-loop', type=float, default=[1.0],
+    #     nargs='+', help='lambda for inner loop l2 loss') # a list of l2_lambda for inner loop tuning
+    parser.add_argument('--momentum', action='store_true', default=False,
+        help='momentum update')
+    parser.add_argument('--gamma-momentum', type=float, default=0.2,
+        help='momentum param gamma')
 
     # Optimization
+    parser.add_argument('--slow-lr', type=float, default=0.001,
+        help='learning rate for the global update of MAML')
+    parser.add_argument('--model-grad-clip', type=float, default=0.0,
+                        help='')
+    parser.add_argument('--embedding-grad-clip', type=float, default=0.0,
+        help='')
     parser.add_argument('--num-batches-meta-train', type=int, default=60000,
         help='number of batches (meta-train)')
     parser.add_argument('--num-batches-meta-val', type=int, default=100,
@@ -738,22 +747,16 @@ if __name__ == '__main__':
         help='number of batches (meta-test)')
     parser.add_argument('--meta-batch-size', type=int, default=10,
         help='number of tasks per batch')
-    parser.add_argument('--slow-lr', type=float, default=0.001,
-        help='learning rate for the global update of MAML')
-    parser.add_argument('--embedding-grad-clip', type=float, default=0.0,
-        help='')
-    parser.add_argument('--model-grad-clip', type=float, default=0.0,
-                        help='')
-    parser.add_argument('--momentum', action='store_true', default=False,
-        help='momentum update')
-    parser.add_argument('--gamma-momentum', type=float, default=0.2,
-        help='momentum param gamma')
+
+
     parser.add_argument('--hessian-inverse', type=str2bool, default=False,
         help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
     parser.add_argument('--no-modulation', type=str2bool, default=False,
         help='dont propose any modulation matrix')
     parser.add_argument('--retain-activation', type=str2bool, default=False,
         help='dont use activation in last layer')
+    # parser.add_argument('--no-modulation', type=str2bool, default=False,
+    #     help='dont propose any modulation matrix')
 
     # Dataset
     parser.add_argument('--dataset', type=str, default='multimodal_few_shot',
@@ -774,22 +777,22 @@ if __name__ == '__main__':
         help='how many samples per class for validation (meta test)')
     parser.add_argument('--img-side-len', type=int, default=28,
         help='width and height of the input images')
-    parser.add_argument('--input-range', type=float, default=[-5.0, 5.0],
-        nargs='+', help='input range of simple functions')
-    parser.add_argument('--phase-range', type=float, default=[0, np.pi],
-        nargs='+', help='phase range of sinusoids')
-    parser.add_argument('--amp-range', type=float, default=[0.1, 5.0],
-        nargs='+', help='amp range of sinusoids')
-    parser.add_argument('--slope-range', type=float, default=[-3.0, 3.0],
-        nargs='+', help='slope range of linear functions')
-    parser.add_argument('--intersect-range', type=float, default=[-3.0, 3.0],
-        nargs='+', help='intersect range of linear functions')
-    parser.add_argument('--noise-std', type=float, default=0.0,
-        help='add gaussian noise to mixed functions')
-    parser.add_argument('--oracle', action='store_true',
-        help='concatenate phase and amp to sinusoid inputs')
-    parser.add_argument('--task-oracle', action='store_true',
-        help='uses task id for prediction in some models')
+    # parser.add_argument('--input-range', type=float, default=[-5.0, 5.0],
+    #     nargs='+', help='input range of simple functions')
+    # parser.add_argument('--phase-range', type=float, default=[0, np.pi],
+    #     nargs='+', help='phase range of sinusoids')
+    # parser.add_argument('--amp-range', type=float, default=[0.1, 5.0],
+    #     nargs='+', help='amp range of sinusoids')
+    # parser.add_argument('--slope-range', type=float, default=[-3.0, 3.0],
+    #     nargs='+', help='slope range of linear functions')
+    # parser.add_argument('--intersect-range', type=float, default=[-3.0, 3.0],
+    #     nargs='+', help='intersect range of linear functions')
+    # parser.add_argument('--noise-std', type=float, default=0.0,
+    #     help='add gaussian noise to mixed functions')
+    # parser.add_argument('--oracle', action='store_true',
+    #     help='concatenate phase and amp to sinusoid inputs')
+    # parser.add_argument('--task-oracle', action='store_true',
+    #     help='uses task id for prediction in some models')
     # Combine few-shot learning datasets
     # parser.add_argument('--multimodal_few_shot', type=str,
     #     default=['omniglot', 'cifar', 'miniimagenet', 'doublemnist', 'triplemnist'], 
@@ -847,7 +850,7 @@ if __name__ == '__main__':
         os.makedirs('./train_dir')
 
     # Make sure num sample embedding < num sample tasks
-    args.num_sample_embedding = min(args.num_sample_embedding, args.num_batches_meta_train)
+    args.num_sample_embedding = 0 # min(args.num_sample_embedding, args.num_batches_meta_train)
 
     # computer embedding dims
     num_gated_conv_layers = 4
