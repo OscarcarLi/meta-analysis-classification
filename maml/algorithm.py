@@ -604,7 +604,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
         with warnings.catch_warnings(record=True) as wn:
             lr_model = LogisticRegression(solver='lbfgs', penalty='l2', 
                 C=1/(self._l2_lambda), # now use _l2_lambda instead of 2 * _l2_lambda
-                tol=1e-6, max_iter=50,
+                tol=1e-6, max_iter=150,
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
 
