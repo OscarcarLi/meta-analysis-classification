@@ -24,7 +24,7 @@ from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_
 from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
-from maml.models.gated_conv_net import ImpRegConvModel
+from maml.models import gated_conv_net
 from maml.models import gated_conv_net_original
 import pprint
 
@@ -421,13 +421,17 @@ def main(args):
     elif args.model_type == 'impregconv':
         if args.original_conv:
             ImpRegConvModel = gated_conv_net_original.ImpRegConvModel
+        else:
+            ImpRegConvModel = gated_conv_net.ImpRegConvModel
         model = ImpRegConvModel(
                 input_channels=dataset['train'].input_size[0],
                 output_size=dataset['train'].output_size,
                 num_channels=args.num_channels,
                 img_side_len=dataset['train'].input_size[1],
                 use_max_pool=args.use_max_pool,
-                verbose=args.verbose)
+                verbose=args.verbose,
+                retain_activation=args.retain_activation,
+                use_group_norm=args.use_group_norm)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -750,6 +754,13 @@ if __name__ == '__main__':
 
     parser.add_argument('--hessian-inverse', type=str2bool, default=False,
         help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
+    parser.add_argument('--no-modulation', type=str2bool, default=False,
+        help='dont propose any modulation matrix')
+    parser.add_argument('--retain-activation', type=str2bool, default=False,
+        help='dont use activation in last layer')
+    parser.add_argument('--use-group-norm', type=str2bool, default=False,
+        help='use group norm instead of batch norm')
+    
     # parser.add_argument('--no-modulation', type=str2bool, default=False,
     #     help='dont propose any modulation matrix')
 

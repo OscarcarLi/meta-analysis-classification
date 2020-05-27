@@ -1,6 +1,7 @@
 python main.py \
 --algorithm imp_reg_maml \
 --model-type impregconv \
+--original-conv \
 --embedding-hidden-size 256 \
 --no-rnn-aggregation True \
 --slow-lr 0.001 \
@@ -14,7 +15,7 @@ python main.py \
 --num-val-samples-per-class-meta-train 15 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_5w1s_sans_modulation_10 \
+--output-folder impregmaml_minim_5w1s_sans_modulation_10_groupnorm \
 --device cuda \
 --device-number 2 \
 --log-interval 50 \
@@ -24,7 +25,10 @@ python main.py \
 --original-conv \
 --l2-inner-loop 10.0 \
 --hessian-inverse True \
---no-modulation True
+--no-modulation True \
+--verbose True \
+--retain-activation True \
+--use-group-norm True
 
 
 # --momentum \
