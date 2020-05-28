@@ -689,7 +689,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
 class MetaOptnet(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, n_way, n_shot,
-        C_reg=1., max_iter=15, double_precision=False):
+        C_reg=0.1, max_iter=15, double_precision=False):
         
         self._model = model
         self._device = device
