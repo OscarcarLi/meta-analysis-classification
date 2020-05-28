@@ -566,7 +566,7 @@ class Metaoptnet_algorithm_trainer(object):
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
         # sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
-        n_tasks = 0
+        n_task_batches = 0
 
         iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
                         leave=False, file=sys.stdout, initial=start, position=0)
@@ -574,8 +574,8 @@ class Metaoptnet_algorithm_trainer(object):
         for i, (train_task_batch, test_task_batch) in iterator:
 
             if is_training and i == stop:
-                return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
-                    'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)}
+                return {'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_task_batches),
+                    'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_task_batches)}
 
             batch_size = len(train_task_batch)
             train_task_batch_x = torch.stack([task.x for task in train_task_batch], dim=0)
@@ -611,6 +611,9 @@ class Metaoptnet_algorithm_trainer(object):
             # compute loss abd accu
             test_loss_after_adapt = self._outer_loss_func(logits, test_task_batch_y)
             test_accu_after_adapt = accuracy(logits, test_task_batch_y)
+
+            if is_training:
+                test_loss_after_adapt.backward()
         
             # metrics
             train_measurements_trajectory_over_batch = {
@@ -627,7 +630,7 @@ class Metaoptnet_algorithm_trainer(object):
             update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
                                                train_measurements_trajectory_over_batch)
             
-            n_tasks += batch_size
+            n_task_batches += 1
 
             if is_training:
                 outer_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
@@ -655,8 +658,8 @@ class Metaoptnet_algorithm_trainer(object):
                     torch.save(self._algorithm.state_dict(), f)
         
         results = {
-            'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_tasks),
-            'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_tasks)
+            'train_loss_trajectory': divide_measurements(sum_train_measurements_trajectory_over_meta_set, n=n_task_batches),
+            'test_loss_after': divide_measurements(sum_test_measurements_after_adapt_over_meta_set, n=n_task_batches)
         }
         
         if (not is_training) and meta_val:

@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+import torch.nn.functional as F
 
 # ours
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
@@ -688,7 +689,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
 class MetaOptnet(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, n_way, n_shot,
-        C_reg=0.1, max_iter=15, double_precision=False):
+        C_reg=1., max_iter=15, double_precision=False):
         
         self._model = model
         self._device = device

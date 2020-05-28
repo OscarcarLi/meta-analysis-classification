@@ -515,12 +515,12 @@ def main(args):
     print(embedding_model)
     optimizers = None
     if embedding_model is None:
-        optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr)
+        optimizers = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, nesterov=True)
     else:
         optimizer_specs = \
-            [{'params': model.parameters(), 'lr': args.slow_lr},
-             {'params': embedding_model.parameters(), 'lr': args.slow_lr}]
-        optimizers = torch.optim.Adam(optimizer_specs)
+            [{'params': model.parameters()},
+             {'params': embedding_model.parameters()}]
+        optimizers = torch.optim.SGD(optimizer_specs, lr=0.1, momentum=0.9, nesterov=True)
 
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
@@ -630,7 +630,10 @@ def main(args):
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
+        lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
         for iter_start in range(1, num_batches['train'], args.val_interval):
+            lr_scheduler.step()
             try:
                 train_result = trainer.run(train_iterator, is_training=True, 
                     start=iter_start, stop=iter_start+args.val_interval)
