@@ -1,19 +1,27 @@
 from collections import defaultdict, OrderedDict
-import torch
+import warnings
+import numpy as np
 
+# torch
+import torch
+import torch.nn as nn
+from torch.autograd import Variable
+
+# ours
 from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from maml.utils import accuracy
 from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from maml.utils import spectral_norm
-
-import torch.nn.functional as F
-import numpy as np
-
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
-from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 
-import warnings
+# metaoptnet
+from maml.metaoptnet_utils import one_hot, computeGramMatrix, binv, batched_kronecker
+from qpth.qp import QPFunction
+
+# sklearn
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.exceptions import ConvergenceWarning
+
 warnings.simplefilter("always", ConvergenceWarning)
 
 class Algorithm(object):
@@ -672,3 +680,162 @@ class ImpRMAML_inner_algorithm(Algorithm):
         # for model saving and reloading
         return {'model': self._model.state_dict(),
                 'embedding_model': self._embedding_model.state_dict() if self._embedding_model else None}
+
+
+
+
+
+class MetaOptnet(Algorithm):
+
+    def __init__(self, model, inner_loss_func, device, n_way, n_shot,
+        C_reg=0.1, max_iter=15, double_precision=False):
+        
+        self._model = model
+        self._device = device
+        self._inner_loss_func = inner_loss_func
+        self._C_reg = C_reg
+        self._max_iter = max_iter
+        self._n_way = n_way
+        self._n_shot = n_shot 
+        self._double_precision = double_precision
+        self.to(self._device)
+   
+
+    def inner_loop_adapt(self, query, support, support_labels):
+        """
+        Fits the support set with multi-class SVM and 
+        returns the classification score on the query set.
+        
+        This is the multi-class SVM presented in:
+        On the Algorithmic Implementation of Multiclass Kernel-based Vector Machines
+        (Crammer and Singer, Journal of Machine Learning Research 2001).
+        This model is the classification head that we use for the final version.
+        Parameters:
+        query:  a (tasks_per_batch, n_query, c, h, w) Tensor.
+        support:  a (tasks_per_batch, n_support, c, h, w) Tensor.
+        support_labels: a (tasks_per_batch, n_support) Tensor.
+        n_way: a scalar. Represents the number of classes in a few-shot classification task.
+        n_shot: a scalar. Represents the number of support examples given per class.
+        C_reg: a scalar. Represents the cost parameter C in SVM.
+        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        """
+
+        measurements_trajectory = defaultdict(list)
+
+        assert(query.dim() == 5)
+        assert(support.dim() == 5)
+        
+        # get features
+        orig_query_shape = query.shape
+        orig_support_shape = support.shape
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
+        support = self._model(
+            support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+                
+        tasks_per_batch = query.size(0)
+        n_support = support.size(1)
+        n_query = query.size(1)
+
+        n_way = self._n_way
+        n_shot = self._n_shot 
+        C_reg = self._C_reg
+        maxIter = self._max_iter
+
+        assert(query.dim() == 3)
+        assert(support.dim() == 3)
+        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
+        assert(n_support == n_way * n_shot)      # n_support must equal to n_way * n_shot
+
+        #Here we solve the dual problem:
+        #Note that the classes are indexed by m & samples are indexed by i.
+        #min_{\alpha}  0.5 \sum_m ||w_m(\alpha)||^2 + \sum_i \sum_m e^m_i alpha^m_i
+        #s.t.  \alpha^m_i <= C^m_i \forall m,i , \sum_m \alpha^m_i=0 \forall i
+
+        #where w_m(\alpha) = \sum_i \alpha^m_i x_i,
+        #and C^m_i = C if m  = y_i,
+        #C^m_i = 0 if m != y_i.
+        #This borrows the notation of liblinear.
+        
+        #\alpha is an (n_support, n_way) matrix
+        kernel_matrix = computeGramMatrix(support, support)
+
+        id_matrix_0 = torch.eye(n_way).expand(tasks_per_batch, n_way, n_way).cuda()
+        block_kernel_matrix = batched_kronecker(kernel_matrix, id_matrix_0)
+        #This seems to help avoid PSD error from the QP solver.
+        block_kernel_matrix += 1.0 * torch.eye(n_way*n_support).expand(tasks_per_batch, n_way*n_support, n_way*n_support).cuda()
+        
+        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * n_support), n_way) 
+        # (tasks_per_batch * n_support, n_way)
+        support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, n_support, n_way)
+        support_labels_one_hot = support_labels_one_hot.reshape(tasks_per_batch, n_support * n_way)
+        # (tasks_per_batch, n_support * n_way)
+
+        G = block_kernel_matrix
+        e = -1.0 * support_labels_one_hot
+        #This part is for the inequality constraints:
+        #\alpha^m_i <= C^m_i \forall m,i
+        #where C^m_i = C if m  = y_i,
+        #C^m_i = 0 if m != y_i.
+        id_matrix_1 = torch.eye(n_way * n_support).expand(tasks_per_batch, n_way * n_support, n_way * n_support)
+        C = Variable(id_matrix_1)
+        h = Variable(C_reg * support_labels_one_hot)
+        #print (C.size(), h.size())
+        #This part is for the equality constraints:
+        #\sum_m \alpha^m_i=0 \forall i
+        id_matrix_2 = torch.eye(n_support).expand(tasks_per_batch, n_support, n_support).cuda()
+
+        A = Variable(batched_kronecker(id_matrix_2, torch.ones(tasks_per_batch, 1, n_way).cuda()))
+        b = Variable(torch.zeros(tasks_per_batch, n_support))
+
+        if self._double_precision:
+            G, e, C, h, A, b = [x.double().cuda() for x in [G, e, C, h, A, b]]
+        else:
+            G, e, C, h, A, b = [x.float().cuda() for x in [G, e, C, h, A, b]]
+
+        # Solve the following QP to fit SVM:
+        #        \hat z =   argmin_z 1/2 z^T G z + e^T z
+        #                 subject to Cz <= h
+        # We use detach() to prevent backpropagation to fixed variables.
+        qp_sol = QPFunction(verbose=False, maxIter=maxIter)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
+        # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
+
+        qp_sol = qp_sol.reshape(tasks_per_batch, n_support, n_way)
+        
+        # Compute the classification score for query.
+        compatibility_query = computeGramMatrix(support, query)
+        compatibility_query = compatibility_query.float()
+        compatibility_query = compatibility_query.unsqueeze(3).expand(tasks_per_batch, n_support, n_query, n_way)
+        logits_query = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, n_support, n_query, n_way)
+        logits_query = logits_query * compatibility_query
+        logits_query = torch.sum(logits_query, 1)
+
+        # Compute the classification score for support.
+        compatibility_support = computeGramMatrix(support, support)
+        compatibility_support = compatibility_support.float()
+        compatibility_support = compatibility_support.unsqueeze(3).expand(tasks_per_batch, n_support, n_support, n_way)
+        logits_support = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, n_support, n_support, n_way)
+        logits_support = logits_support * compatibility_support
+        logits_support = torch.sum(logits_support, 1)
+        
+        # compute loss and acc on support
+        logits_support = logits_support.reshape(-1, logits_support.size(-1))
+        labels_support = support_labels.reshape(-1)
+        
+        loss = self._inner_loss_func(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support)
+        measurements_trajectory['loss'].append(loss.item())
+        measurements_trajectory['accu'].append(accu)
+
+
+        return logits_query, measurements_trajectory
+
+    
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+        
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}

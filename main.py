@@ -20,8 +20,8 @@ from maml.models.simple_embedding_model import SimpleEmbeddingModel
 from maml.models.lstm_embedding_model import LSTMEmbeddingModel
 from maml.models.gru_embedding_model import GRUEmbeddingModel
 from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddingModel
-from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm
-from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer
+from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm, MetaOptnet
+from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer, Metaoptnet_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models import gated_conv_net
@@ -590,6 +590,13 @@ def main(args):
             l2_lambda=args.l2_inner_loop,
             device=args.device,
             is_classification=True)
+    elif args.algorithm == 'metaoptnet':
+        algorithm = MetaOptnet(
+            model=model,
+            inner_loss_func=loss_func,
+            n_way=args.num_classes_per_batch,
+            n_shot=args.num_train_samples_per_class,
+            device=args.device)
 
 
     if args.algorithm == 'imp_reg_maml':
@@ -601,6 +608,16 @@ def main(args):
                 log_interval=args.log_interval, save_interval=args.save_interval,
                 model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
                 hessian_inverse=args.hessian_inverse)
+
+    elif args.algorithm == 'metaoptnet':
+        trainer = Metaoptnet_algorithm_trainer(
+                algorithm=algorithm,
+                outer_loss_func=loss_func,
+                outer_optimizer=optimizers, 
+                writer=writer,
+                log_interval=args.log_interval, save_interval=args.save_interval,
+                save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
+                model_type=args.model_type)
 
     else:
         trainer = Gradient_based_algorithm_trainer(
