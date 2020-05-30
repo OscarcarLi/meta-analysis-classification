@@ -688,7 +688,7 @@ class ImpRMAML_inner_algorithm(Algorithm):
 
 class MetaOptnet(Algorithm):
 
-    def __init__(self, model, inner_loss_func, device, n_way, n_shot,
+    def __init__(self, model, inner_loss_func, device, n_way, n_shot_train, n_shot_val,
         C_reg=0.1, max_iter=15, double_precision=False):
         
         self._model = model
@@ -697,7 +697,8 @@ class MetaOptnet(Algorithm):
         self._C_reg = C_reg
         self._max_iter = max_iter
         self._n_way = n_way
-        self._n_shot = n_shot 
+        self._n_shot_train = n_shot_train
+        self._n_shot_val = n_shot_val
         self._double_precision = double_precision
         self.to(self._device)
    
@@ -739,14 +740,15 @@ class MetaOptnet(Algorithm):
         n_query = query.size(1)
 
         n_way = self._n_way
-        n_shot = self._n_shot 
+        n_shot_val = self._n_shot_val
+        n_shot_train = self._n_shot_train
         C_reg = self._C_reg
         maxIter = self._max_iter
 
         assert(query.dim() == 3)
         assert(support.dim() == 3)
         assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-        assert(n_support == n_way * n_shot)      # n_support must equal to n_way * n_shot
+        assert(n_support == n_way * n_shot_train or n_support == n_way * n_shot_val)      # n_support must equal to n_way * n_shot
 
         #Here we solve the dual problem:
         #Note that the classes are indexed by m & samples are indexed by i.

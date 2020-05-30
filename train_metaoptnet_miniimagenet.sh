@@ -9,13 +9,14 @@ python main.py \
 --num-batches-meta-val 100 \
 --meta-batch-size 8 \
 --num-classes-per-batch 5 \
---num-train-samples-per-class 1 \
+--num-train-samples-per-class-meta-train 5 \
 --num-val-samples-per-class-meta-train 15 \
+--num-train-samples-per-class-meta-val 5 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_5w1s_metaoptnet \
+--output-folder impregmaml_minim_5w5s_metaoptnet_fixed \
 --device cuda \
---device-number 2 \
+--device-number 3 \
 --log-interval 50 \
 --save-interval 1000 \
 --val-interval 1000 \

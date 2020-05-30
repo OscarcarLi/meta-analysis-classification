@@ -26,6 +26,7 @@ from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models import gated_conv_net
 from maml.models import gated_conv_net_original
+from maml.models.protnet_embedding import ProtoNetEmbedding
 import pprint
 
 
@@ -71,6 +72,11 @@ def main(args):
         'val': args.num_val_samples_per_class_meta_val, 
         'test': args.num_val_samples_per_class_meta_test
     }
+    num_train_samples_per_class = {
+        'train': args.num_train_samples_per_class_meta_train, 
+        'val': args.num_train_samples_per_class_meta_val, 
+        'test': args.num_train_samples_per_class_meta_test
+    }
     dataset = {} # dictionary of datasets, indexed by split
 
     if args.dataset == 'omniglot':
@@ -79,7 +85,7 @@ def main(args):
                 root='data',
                 img_side_len=28, # args.img_side_len,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -95,7 +101,7 @@ def main(args):
                 root='data',
                 img_side_len=32,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -115,7 +121,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -130,7 +136,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -144,7 +150,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -188,7 +194,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -202,7 +208,7 @@ def main(args):
                     img_side_len=args.common_img_side_len,
                     img_channel=args.common_img_channel,
                     num_classes_per_batch=args.num_classes_per_batch,
-                    num_samples_per_class=args.num_train_samples_per_class,
+                    num_samples_per_class=num_train_samples_per_class[split],
                     num_total_batches=num_batches[split],
                     num_val_samples=num_val_samples_per_class[split],
                     meta_batch_size=args.meta_batch_size,
@@ -259,7 +265,7 @@ def main(args):
                 root='data',
                 img_side_len=84,
                 num_classes_per_batch=args.num_classes_per_batch,
-                num_samples_per_class=args.num_train_samples_per_class,
+                num_samples_per_class=num_train_samples_per_class[split],
                 num_total_batches=num_batches[split],
                 num_val_samples=num_val_samples_per_class[split],
                 meta_batch_size=args.meta_batch_size,
@@ -515,12 +521,12 @@ def main(args):
     print(embedding_model)
     optimizers = None
     if embedding_model is None:
-        optimizers = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, nesterov=True)
+        optimizers = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, nesterov=True, weight_decay=5e-4)
     else:
         optimizer_specs = \
             [{'params': model.parameters()},
              {'params': embedding_model.parameters()}]
-        optimizers = torch.optim.SGD(optimizer_specs, lr=0.1, momentum=0.9, nesterov=True)
+        optimizers = torch.optim.SGD(optimizer_specs, lr=0.1, momentum=0.9, nesterov=True, weight_decay=5e-4)
 
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
@@ -595,7 +601,8 @@ def main(args):
             model=model,
             inner_loss_func=loss_func,
             n_way=args.num_classes_per_batch,
-            n_shot=args.num_train_samples_per_class,
+            n_shot_train=args.num_train_samples_per_class_meta_train,
+            n_shot_val=args.num_train_samples_per_class_meta_val,
             device=args.device)
 
 
@@ -626,6 +633,30 @@ def main(args):
             log_interval=args.log_interval, save_interval=args.save_interval,
             model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
+
+    # dloader_train = data_loader(
+    #     dataset=dataset['train'],
+    #     nKnovel=5,
+    #     nKbase=0,
+    #     nExemplars=5, # num training examples per novel category
+    #     nTestNovel=75, # num test examples for all the novel categories
+    #     nTestBase=0, # num test examples for all the base categories
+    #     batch_size=10,
+    #     num_workers=4,
+    #     epoch_size=1000, # num of batches per epoch
+    # )
+
+    # dloader_val = data_loader(
+    #     dataset=dataset['val'],
+    #     nKnovel=5,
+    #     nKbase=0,
+    #     nExemplars=5, # num training examples per novel category
+    #     nTestNovel=75, # num test examples for all the novel categories
+    #     nTestBase=0, # num test examples for all the base categories
+    #     batch_size=1,
+    #     num_workers=0,
+    #     epoch_size=1 * 10, # num of batches per epoch
+    # )
     
     if is_training:
         # create train iterators
@@ -793,14 +824,18 @@ if __name__ == '__main__':
         help='how many classes for training')
     parser.add_argument('--num-classes-per-batch', type=int, default=5,
         help='how many classes per task')
-    parser.add_argument('--num-train-samples-per-class', type=int, default=1,
-        help='how many samples per class for training')
     parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=5,
         help='how many samples per class for validation (meta train)')
     parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
         help='how many samples per class for validation (meta val)')
     parser.add_argument('--num-val-samples-per-class-meta-test', type=int, default=15,
         help='how many samples per class for validation (meta test)')
+    parser.add_argument('--num-train-samples-per-class-meta-train', type=int, default=5,
+        help='how many samples per class for train (meta train)')
+    parser.add_argument('--num-train-samples-per-class-meta-val', type=int, default=5,
+        help='how many samples per class for train (meta val)')
+    parser.add_argument('--num-train-samples-per-class-meta-test', type=int, default=5,
+        help='how many samples per class for train (meta test)')
     parser.add_argument('--img-side-len', type=int, default=28,
         help='width and height of the input images')
     # parser.add_argument('--input-range', type=float, default=[-5.0, 5.0],

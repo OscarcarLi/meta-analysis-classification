@@ -1,5 +1,5 @@
 from collections import OrderedDict
-
+import math
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
@@ -8,10 +8,13 @@ from maml.models.model import Model
 
 
 def weight_init(module):
-    if (isinstance(module, torch.nn.Linear)
-        or isinstance(module, torch.nn.Conv2d)):
-        torch.nn.init.kaiming_normal_(module.weight)
-        module.bias.data.zero_()
+    if isinstance(module, nn.Conv2d):
+        n = module.kernel_size[0] * module.kernel_size[1] * module.out_channels
+        module.weight.data.normal_(0, math.sqrt(2. / n))  
+    # if (isinstance(module, torch.nn.Linear)
+    #     or isinstance(module, torch.nn.Conv2d)):
+    #     torch.nn.init.kaiming_normal_(module.weight)
+    #     module.bias.data.zero_()
     elif isinstance(module, nn.GroupNorm):
         module.weight.data.fill_(1)
         module.bias.data.zero_()
@@ -204,7 +207,7 @@ class ImpRegConvModel(Model):
                                             padding=self._padding)),
             ('layer1_norm', get_norm_layer(self._num_channels, 
                     'group_norm' if self._use_group_norm else 'batch_norm')),
-            ('layer1_lrelu', torch.nn.LeakyReLU(0.1)),
+            ('layer1_relu', torch.nn.ReLU(inplace=True)),
             ('layer1_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer2_conv', torch.nn.Conv2d(self._num_channels,
@@ -214,7 +217,7 @@ class ImpRegConvModel(Model):
                                             padding=self._padding)),
             ('layer2_norm', get_norm_layer(self._num_channels, 
                     'group_norm' if self._use_group_norm else 'batch_norm')),
-            ('layer2_lrelu', torch.nn.LeakyReLU(0.1)),
+            ('layer2_relu', torch.nn.ReLU(inplace=True)),
             ('layer2_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer3_conv', torch.nn.Conv2d(self._num_channels,
@@ -224,7 +227,7 @@ class ImpRegConvModel(Model):
                                             padding=self._padding)),
             ('layer3_norm', get_norm_layer(self._num_channels, 
                     'group_norm' if self._use_group_norm else 'batch_norm')),
-            ('layer3_lrelu', torch.nn.LeakyReLU(0.1)),
+            ('layer3_relu', torch.nn.ReLU(inplace=True)),
             ('layer3_max_pool', torch.nn.MaxPool2d(kernel_size=2,
                                                     stride=2)),
             ('layer4_conv', torch.nn.Conv2d(self._num_channels,
@@ -236,8 +239,10 @@ class ImpRegConvModel(Model):
                     'group_norm' if self._use_group_norm else 'batch_norm')),
         ]))
 
+        self.scale = nn.Parameter(torch.FloatTensor([1.0]))
+
         if self._retain_activation:
-            self.features.add_module('layer4_lrelu', torch.nn.LeakyReLU(0.1))
+            self.features.add_module('layer4_relu', torch.nn.ReLU(inplace=True))
             
         self.features.add_module('layer4_max_pool', 
                 torch.nn.MaxPool2d(kernel_size=2, stride=2))
@@ -295,7 +300,7 @@ class ImpRegConvModel(Model):
             print("After modulation")
             print(torch.norm(x, p=2, dim=1))
 
-        x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
+        # x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
         # pad with 10 to allow higher bias in inner solver
         
         self._reuse = True

@@ -6,8 +6,9 @@ from tqdm import tqdm
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.clip_grad import clip_grad_norm_
-
+from maml.datasets.task import Task
 import json
+import torch.nn as nn
 
 from maml.grad import quantile_marks, get_grad_norm_from_parameters
 from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
@@ -603,7 +604,7 @@ class Metaoptnet_algorithm_trainer(object):
                     assert len(set(train_task_batch_y)) == len(set(test_task_batch_y))
                    
             # reshape logits
-            logits = logits.reshape(-1, logits.size(-1))
+            logits = self._algorithm._model.scale * logits.reshape(-1, logits.size(-1))
             test_task_batch_y = test_task_batch_y.reshape(-1)
             assert logits.size(0) == test_task_batch_y.size(0)
             analysis = (i % self._log_interval == 0)
