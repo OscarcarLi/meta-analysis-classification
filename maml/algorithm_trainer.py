@@ -315,6 +315,12 @@ class Implicit_Gradient_based_algorithm_trainer(object):
 
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
+
+        if is_training:
+            self._algorithm._model.train()
+        else:
+            self._algorithm._model.eval()
+
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
         # sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)
@@ -356,7 +362,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     with torch.no_grad():
                         features_test = self._algorithm._model(batch=test_task.x, modulation=modulation_train)
 
-                test_pred_after_adapt = F.linear(features_test, weight=adapted_params)
+                test_pred_after_adapt = self._algorithm._model.scale * F.linear(features_test, weight=adapted_params)
                 test_loss_after_adapt = self._outer_loss_func(test_pred_after_adapt, test_task.y)
                 
                 test_measurements_after_adapt_over_batch['loss'].append(test_loss_after_adapt.item())
@@ -371,7 +377,8 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                     X_test = features_test.detach().cpu().numpy()
                     y_test = (test_task.y).cpu().numpy()
                     w = adapted_params.detach().cpu().numpy()
-                    test_grad_w = logistic_regression_grad_with_respect_to_w(X_test, y_test, w)
+                    test_grad_w = logistic_regression_grad_with_respect_to_w(X_test, y_test,
+                        self._algorithm._model.scale.detach().cpu().numpy() * w)
 
                     # train_hessian_inverse = np.linalg.inv(train_hessian)
                     # train_hessian_inv_test_grad = np.matmul(train_hessian_inverse, test_grad_w)
@@ -563,6 +570,12 @@ class Metaoptnet_algorithm_trainer(object):
         
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
+
+        if is_training:
+            self._algorithm._model.train()
+        else:
+            self._algorithm._model.eval()
+
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
         # sum_test_measurements_before_adapt_over_meta_set = defaultdict(float)

@@ -2,7 +2,7 @@ python main.py \
 --algorithm metaoptnet \
 --model-type impregconv \
 --original-conv \
---slow-lr 0.001 \
+--slow-lr 0.1 \
 --model-grad-clip 0. \
 --dataset miniimagenet \
 --num-batches-meta-train 60000 \
@@ -16,14 +16,16 @@ python main.py \
 --img-side-len 84 \
 --output-folder impregmaml_minim_5w5s_metaoptnet_fixed \
 --device cuda \
---device-number 3 \
+--device-number 2 \
 --log-interval 50 \
 --save-interval 1000 \
 --val-interval 1000 \
 --num-channels 64 \
 --verbose True \
 --retain-activation True \
---use-group-norm True
+--use-group-norm True \
+--optimizer sgd
+# --checkpoint train_dir/impregmaml_minim_5w5s_metaoptnet_fixed/maml_impregconv_20000.pt
 
 
 # --momentum \
@@ -32,4 +34,4 @@ python main.py \
 
 
 # Nameing convention 
-# dataset_type_main_model_rank_training_paradigm_embedding_model
+# dataset_type_main_model_rank_training_paradigm_embedding_model   

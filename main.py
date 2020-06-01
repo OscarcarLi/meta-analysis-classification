@@ -521,12 +521,18 @@ def main(args):
     print(embedding_model)
     optimizers = None
     if embedding_model is None:
-        optimizers = torch.optim.SGD(model.parameters(), lr=0.1, momentum=0.9, nesterov=True, weight_decay=5e-4)
+        if args.optimizer == 'adam':
+             optimizers = torch.optim.Adam(model.parameters(), lr=args.slow_lr, weight_decay=5e-4)
+        else:
+            optimizers = torch.optim.SGD(model.parameters(), lr=args.slow_lr, momentum=0.9, nesterov=True, weight_decay=5e-4)
     else:
         optimizer_specs = \
             [{'params': model.parameters()},
              {'params': embedding_model.parameters()}]
-        optimizers = torch.optim.SGD(optimizer_specs, lr=0.1, momentum=0.9, nesterov=True, weight_decay=5e-4)
+        if args.optimizer == 'adam':
+             optimizers = torch.optim.Adam(optimizer_specs, lr=args.slow_lr, weight_decay=5e-4)
+        else:
+            optimizers = torch.optim.SGD(optimizer_specs, lr=args.slow_lr, momentum=0.9, nesterov=True, weight_decay=5e-4)
 
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
@@ -661,10 +667,15 @@ def main(args):
     if is_training:
         # create train iterators
         train_iterator = iter(dataset['train']) 
-        lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+        if args.optimizer == 'sgd':
+            lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+        else:
+            lambda_epoch = lambda e: 1.0 if e < 20 else (0.1 if e < 40 else 0.01 if e < 50 else (0.002))
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
         for iter_start in range(1, num_batches['train'], args.val_interval):
             lr_scheduler.step()
+            for param_group in optimizers.param_groups:
+                print('optimizer:', args.optimizer, 'lr:', param_group['lr'])
             try:
                 train_result = trainer.run(train_iterator, is_training=True, 
                     start=iter_start, stop=iter_start+args.val_interval)
@@ -877,6 +888,8 @@ if __name__ == '__main__':
         help='name of the output folder')
     parser.add_argument('--device', type=str, default='cuda',
         help='set the device (cpu or cuda)')
+    parser.add_argument('--optimizer', type=str, default='adam',
+        help='optimizer')
     parser.add_argument('--device-number', type=str, default='0',
                         help='gpu device number')
     parser.add_argument('--num-workers', type=int, default=4,

@@ -10,14 +10,14 @@ python main.py \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
 --meta-batch-size 10 \
---num-classes-per-batch 5 \
---num-train-samples-per-class 1 \
+--num-train-samples-per-class-meta-train 1 \
 --num-val-samples-per-class-meta-train 15 \
+--num-train-samples-per-class-meta-val 1 \
 --num-val-samples-per-class-meta-val 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_5w1s_sans_modulation_10_groupnorm \
+--output-folder impregmaml_minim_5w1s_r2d2_fixed \
 --device cuda \
---device-number 2 \
+--device-number 1 \
 --log-interval 50 \
 --save-interval 1000 \
 --val-interval 1000 \
@@ -28,7 +28,8 @@ python main.py \
 --no-modulation True \
 --verbose True \
 --retain-activation True \
---use-group-norm True
+--use-group-norm True \
+--optimizer adam
 
 
 # --momentum \
