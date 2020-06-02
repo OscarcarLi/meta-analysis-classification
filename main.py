@@ -20,8 +20,8 @@ from maml.models.simple_embedding_model import SimpleEmbeddingModel
 from maml.models.lstm_embedding_model import LSTMEmbeddingModel
 from maml.models.gru_embedding_model import GRUEmbeddingModel
 from maml.models.conv_embedding_model import ConvEmbeddingModel, RegConvEmbeddingModel
-from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm, MetaOptnet
-from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer, Metaoptnet_algorithm_trainer
+from maml.algorithm import MAML_inner_algorithm, MMAML_inner_algorithm, ModMAML_inner_algorithm, RegMAML_inner_algorithm, ImpRMAML_inner_algorithm, MetaOptnet, ProtoNet
+from maml.algorithm_trainer import Gradient_based_algorithm_trainer, Implicit_Gradient_based_algorithm_trainer, InnerSolver_algorithm_trainer
 from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models import gated_conv_net
@@ -437,7 +437,8 @@ def main(args):
                 use_max_pool=args.use_max_pool,
                 verbose=args.verbose,
                 retain_activation=args.retain_activation,
-                use_group_norm=args.use_group_norm)
+                use_group_norm=args.use_group_norm,
+                add_bias=args.add_bias)
     else:
         raise ValueError('Unrecognized model type {}'.format(args.model_type))
     model_parameters = list(model.parameters())
@@ -517,8 +518,14 @@ def main(args):
             args.embedding_type))
     print("Model:")
     print(model)
+    if model:
+        for name, param in model.named_parameters():
+            print(name, param.shape)
     print("Embedding Model:")
     print(embedding_model)
+    if embedding_model:
+        for name, param in embedding_model.named_parameters():
+            print(name, param.shape)
     optimizers = None
     if embedding_model is None:
         if args.optimizer == 'adam':
@@ -611,6 +618,15 @@ def main(args):
             n_shot_val=args.num_train_samples_per_class_meta_val,
             device=args.device)
 
+    elif args.algorithm == 'protonet':
+        algorithm = ProtoNet(
+            model=model,
+            inner_loss_func=loss_func,
+            n_way=args.num_classes_per_batch,
+            n_shot_train=args.num_train_samples_per_class_meta_train,
+            n_shot_val=args.num_train_samples_per_class_meta_val,
+            device=args.device)
+
 
     if args.algorithm == 'imp_reg_maml':
         trainer = Implicit_Gradient_based_algorithm_trainer(
@@ -622,8 +638,8 @@ def main(args):
                 model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
                 hessian_inverse=args.hessian_inverse)
 
-    elif args.algorithm == 'metaoptnet':
-        trainer = Metaoptnet_algorithm_trainer(
+    elif args.algorithm == 'metaoptnet' or args.algorithm == 'protonet':
+        trainer = InnerSolver_algorithm_trainer(
                 algorithm=algorithm,
                 outer_loss_func=loss_func,
                 outer_optimizer=optimizers, 
@@ -820,6 +836,8 @@ if __name__ == '__main__':
         help='dont propose any modulation matrix')
     parser.add_argument('--retain-activation', type=str2bool, default=False,
         help='dont use activation in last layer')
+    parser.add_argument('--add-bias', type=str2bool, default=False,
+        help='add bias term inner loop')
     parser.add_argument('--use-group-norm', type=str2bool, default=False,
         help='use group norm instead of batch norm')
     

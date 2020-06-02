@@ -845,102 +845,138 @@ class MetaOptnet(Algorithm):
 
 
 
-# class ProtoNet(Algorithm):
+class ProtoNet(Algorithm):
 
-#     def __init__(self, model, inner_loss_func, device, 
-#             n_way, n_shot_train, n_shot_val, normalize=True):
+    def __init__(self, model, inner_loss_func, device, 
+            n_way, n_shot_train, n_shot_val, normalize=True):
         
-#         self._model = model
-#         self._device = device
-#         self._inner_loss_func = inner_loss_func
-#         self._C_reg = C_reg
-#         self._max_iter = max_iter
-#         self._n_way = n_way
-#         self._n_shot_train = n_shot_train
-#         self._n_shot_val = n_shot_val
-#         self._double_precision = double_precision
-#         self._normalize = normalize
-#         self.to(self._device)
+        self._model = model
+        self._device = device
+        self._inner_loss_func = inner_loss_func
+        self._n_way = n_way
+        self._n_shot_train = n_shot_train
+        self._n_shot_val = n_shot_val
+        self._normalize = normalize
+        self.to(self._device)
    
-
-# # def ProtoNetHead(query, support, support_labels, n_way, n_shot, normalize=True):
-
-#     def inner_loop_adapt(self, query, support, support_labels):
-#         """
-#         Constructs the prototype representation of each class(=mean of support vectors of each class) and 
-#         returns the classification score (=L2 distance to each class prototype) on the query set.
+    def inner_loop_adapt(self, query, support, support_labels):
+        """
+        Constructs the prototype representation of each class(=mean of support vectors of each class) and 
+        returns the classification score (=L2 distance to each class prototype) on the query set.
         
-#         This model is the classification head described in:
-#         Prototypical Networks for Few-shot Learning
-#         (Snell et al., NIPS 2017).
+        This model is the classification head described in:
+        Prototypical Networks for Few-shot Learning
+        (Snell et al., NIPS 2017).
         
-#         Parameters:
-#         query:  a (tasks_per_batch, n_query, d) Tensor.
-#         support:  a (tasks_per_batch, n_support, d) Tensor.
-#         support_labels: a (tasks_per_batch, n_support) Tensor.
-#         n_way: a scalar. Represents the number of classes in a few-shot classification task.
-#         n_shot: a scalar. Represents the number of support examples given per class.
-#         normalize: a boolean. Represents whether if we want to normalize the distances by the embedding dimension.
-#         Returns: a (tasks_per_batch, n_query, n_way) Tensor.
-#         """
+        Parameters:
+        query:  a (tasks_per_batch, n_query, d) Tensor.
+        support:  a (tasks_per_batch, n_support, d) Tensor.
+        support_labels: a (tasks_per_batch, n_support) Tensor.
+        n_way: a scalar. Represents the number of classes in a few-shot classification task.
+        n_shot: a scalar. Represents the number of support examples given per class.
+        normalize: a boolean. Represents whether if we want to normalize the distances by the embedding dimension.
+        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        """
 
-#         measurements_trajectory = defaultdict(list)
+        measurements_trajectory = defaultdict(list)
 
-#         assert(query.dim() == 5)
-#         assert(support.dim() == 5)
+        assert(query.dim() == 5)
+        assert(support.dim() == 5)
         
-#         # get features
-#         orig_query_shape = query.shape
-#         orig_support_shape = support.shape
-#         query = self._model(
-#             query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
-#         support = self._model(
-#             support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+        # get features
+        orig_query_shape = query.shape
+        orig_support_shape = support.shape
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
+        support = self._model(
+            support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
         
 
-#         tasks_per_batch = query.size(0)
-#         n_support = support.size(1)
-#         n_query = query.size(1)
-#         d = query.size(2)
+        tasks_per_batch = query.size(0)
+        n_support = support.size(1)
+        n_query = query.size(1)
+        d = query.size(2)
+        # dimension
 
-#         n_way = self._n_way
-#         n_shot_val = self._n_shot_val
-#         n_shot_train = self._n_shot_train
-#         C_reg = self._C_reg
-#         maxIter = self._max_iter
+        n_way = self._n_way
+        n_shot_val = self._n_shot_val
+        n_shot_train = self._n_shot_train
+        normalize = self._normalize
 
-#         assert(query.dim() == 3)
-#         assert(support.dim() == 3)
-#         assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-#         assert(n_support == n_way * n_shot_train or n_support == n_way * n_shot_val)      # n_support must equal to n_way * n_shot
+        assert(query.dim() == 3)
+        assert(support.dim() == 3)
+        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
+        assert(n_support == n_way * n_shot_train or n_support == n_way * n_shot_val)      # n_support must equal to n_way * n_shot
 
         
-#         support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * n_support), n_way)
-#         support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, n_support, n_way)
+        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * n_support), n_way)
+        support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, n_support, n_way)
     
-#     # From:
-#     # https://github.com/gidariss/FewShotWithoutForgetting/blob/master/architectures/PrototypicalNetworksHead.py
-#     #************************* Compute Prototypes **************************
-#     labels_train_transposed = support_labels_one_hot.transpose(1,2)
-#     # Batch matrix multiplication:
-#     #   prototypes = labels_train_transposed * features_train ==>
-#     #   [batch_size x nKnovel x num_channels] =
-#     #       [batch_size x nKnovel x num_train_examples] * [batch_size * num_train_examples * num_channels]
-#     prototypes = torch.bmm(labels_train_transposed, support)
-#     # Divide with the number of examples per novel category.
-#     prototypes = prototypes.div(
-#         labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
-#     )
+        labels_train_transposed = support_labels_one_hot.transpose(1,2)
+        # this makes it tasks_per_batch x n_way_train x n_support_train
 
-#     # Distance Matrix Vectorization Trick
-#     AB = computeGramMatrix(query, prototypes)
-#     AA = (query * query).sum(dim=2, keepdim=True)
-#     BB = (prototypes * prototypes).sum(dim=2, keepdim=True).reshape(tasks_per_batch, 1, n_way)
-#     logits = AA.expand_as(AB) - 2 * AB + BB.expand_as(AB)
-#     logits = -logits
-    
-#     if normalize:
-#         logits = logits / d
+        prototypes = torch.bmm(labels_train_transposed, support)
+        #   [batch_size x n_way_train x d] =
+        #       [batch_size x n_way_train x n_support_train] * [batch_size x n_support_train x d]
 
-#     return logits
+        prototypes = prototypes.div(
+            labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
+        )
+        # Divide with the number of examples per novel category.
 
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        AB = computeGramMatrix(query, prototypes)
+        # batch_size x n_query_train x n_way_train
+        AA = (query * query).sum(dim=2, keepdim=True)
+        # batch_size x n_query_train x 1
+        BB = (prototypes * prototypes).sum(dim=2, keepdim=True).reshape(tasks_per_batch, 1, n_way)
+        # batch_size x 1 x n_way_train
+        logits_query = AA.expand_as(AB) - 2 * AB + BB.expand_as(AB)
+        # euclidean distance 
+        logits_query = -logits_query
+        # batch_size x n_query_train x n_way_train
+
+        if normalize:
+            logits_query = logits_query / d
+        
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        AB = computeGramMatrix(support, prototypes)
+        # batch_size x n_support_train x n_way_train
+        AA = (support * support).sum(dim=2, keepdim=True)
+        # batch_size x n_support_train x 1
+        ## BB needn't be computed again
+        logits_support = AA.expand_as(AB) - 2 * AB + BB.expand_as(AB)
+        # euclidean distance 
+        logits_support = -logits_support
+        # batch_size x n_query_train x n_way_train
+
+        if normalize:
+            logits_support = logits_support / d
+
+        # compute loss and acc on support
+        logits_support = logits_support.reshape(-1, logits_support.size(-1))
+        labels_support = support_labels.reshape(-1)
+        
+        loss = self._inner_loss_func(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support)
+        measurements_trajectory['loss'].append(loss.item())
+        measurements_trajectory['accu'].append(accu)
+
+        return logits_query, measurements_trajectory
+
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+        
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}

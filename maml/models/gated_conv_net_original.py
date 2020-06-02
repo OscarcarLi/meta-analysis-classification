@@ -176,7 +176,7 @@ class ImpRegConvModel(Model):
     def __init__(self, input_channels, output_size, num_channels=64,
                  kernel_size=3, padding=1, nonlinearity=F.relu,
                  use_max_pool=False, img_side_len=28, verbose=False, normalize_norm=0.,
-                 retain_activation=False, use_group_norm=False):
+                 retain_activation=False, use_group_norm=False, add_bias=False):
         super(ImpRegConvModel, self).__init__()
         self._input_channels = input_channels
         self._output_size = output_size
@@ -193,6 +193,9 @@ class ImpRegConvModel(Model):
         # reuse is for checking the model architecture
         self._reuse = False
         self._verbose = verbose
+        self._add_bias = add_bias 
+
+        print("add_bias to output features : ", self._add_bias)
 
         # use 2 by 2 max_pool then use conv_stride = 1
         self._conv_stride = 1
@@ -300,8 +303,9 @@ class ImpRegConvModel(Model):
             print("After modulation")
             print(torch.norm(x, p=2, dim=1))
 
-        # x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
-        # pad with 10 to allow higher bias in inner solver
+        if self._add_bias:
+            x = torch.cat([x, 10.*torch.ones((x.size(0), 1), device=x.device)], dim=-1)
+            # pad with 10 to allow higher bias in inner solver
         
         self._reuse = True
 

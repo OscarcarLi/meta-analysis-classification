@@ -553,7 +553,7 @@ as opposed to a single task. This optimization is to benefit from batch mm type 
 so as to offset the time take by qp solver.
 """
 
-class Metaoptnet_algorithm_trainer(object):
+class InnerSolver_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
             writer, log_interval, save_interval, save_folder, model_type, outer_loop_grad_norm):
