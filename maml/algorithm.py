@@ -618,11 +618,13 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
 
-        if return_estimator:
-            return lr_model.coef_
-
+        
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
+        
+        if return_estimator:
+            return adapted_params
+
         preds = F.linear(features, weight=adapted_params)
 
 
@@ -912,7 +914,7 @@ class ProtoNet(Algorithm):
 
 
         if return_estimator:
-            return prototypes.detach().cpu().numpy()
+            return prototypes
 
 
         ################################################
