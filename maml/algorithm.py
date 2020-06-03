@@ -593,7 +593,8 @@ class ImpRMAML_inner_algorithm(Algorithm):
              np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
 
 
-    def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None):
+    def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None, 
+            return_estimator=False):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
@@ -617,40 +618,21 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
 
-            # lr_model = LogisticRegressionCV(Cs=self._Cs,
-            #                                 fit_intercept=False,
-            #                                 cv=5,
-            #                                 penalty='l2',
-            #                                 scoring='accuracy', #'neg_log_loss', # could be accuracy
-            #                                 solver='lbfgs',   
-            #                                 tol=1e-6,
-            #                                 max_iter=150,
-            #                                 n_jobs=-1,
-            #                                 refit=True,
-            #                                 multi_class='multinomial')
-            # lr_model.fit(X, y)
-        
+        if return_estimator:
+            return lr_model.coef_
+
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
         preds = F.linear(features, weight=adapted_params)
 
-        # print(adapted_params.shape)
-        # print("preds from functional:", preds)
-        # print(torch.argmax(preds, 1))
-        # print(torch.argmax(F.linear(lr_features, weight=torch.tensor(lr_model.coef_, dtype=torch.float32)), 1))
-        
+
         loss = self._inner_loss_func(preds, task.y)
         measurements_trajectory['loss'].append(loss.item())
         if self.is_classification: 
             measurements_trajectory['accu'].append(accuracy(preds, task.y))
 
         info_dict = None
-        # if analysis:
-        #     info_dict = {}
-        #     info_dict['grad_norm_by_step'] = grad_norm_by_step
-        #     info_dict['grad_quantiles_by_step'] = grad_quantiles_by_step
-        #     info_dict['modulation'] = modulation
-
+        
         l2_lambda_chosen = self._l2_lambda
         # assert np.all(lr_model.C_ == lr_model.C_[0]) # when using multinomial all the chosen C should be the same for each class
         # l2_lambda_chosen = 1 / lr_model.C_[0]
@@ -703,7 +685,7 @@ class MetaOptnet(Algorithm):
         self.to(self._device)
    
 
-    def inner_loop_adapt(self, query, support, support_labels):
+    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False):
         """
         Fits the support set with multi-class SVM and 
         returns the classification score on the query set.
@@ -804,6 +786,10 @@ class MetaOptnet(Algorithm):
         # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
 
         qp_sol = qp_sol.reshape(tasks_per_batch, n_support, n_way)
+
+        if return_estimator:
+            return torch.bmm(qp_sol.float().transpose(1 ,2), support)
+
         
         # Compute the classification score for query.
         compatibility_query = computeGramMatrix(support, query)
@@ -859,7 +845,7 @@ class ProtoNet(Algorithm):
         self._normalize = normalize
         self.to(self._device)
    
-    def inner_loop_adapt(self, query, support, support_labels):
+    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False):
         """
         Constructs the prototype representation of each class(=mean of support vectors of each class) and 
         returns the classification score (=L2 distance to each class prototype) on the query set.
@@ -923,6 +909,11 @@ class ProtoNet(Algorithm):
             labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
         )
         # Divide with the number of examples per novel category.
+
+
+        if return_estimator:
+            return prototypes.detach().cpu().numpy()
+
 
         ################################################
         # Compute the classification score for query
