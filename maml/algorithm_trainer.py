@@ -631,8 +631,7 @@ class InnerSolver_algorithm_trainer(object):
         
             # metrics
             train_measurements_trajectory_over_batch = {
-                'loss': np.array([measurements_trajectory['loss']]) , 
-                'accu': np.array([measurements_trajectory['accu']])
+                k:np.array([v]) for k,v in measurements_trajectory.items()
             }
             test_measurements_after_adapt_over_batch = {
                 'loss': np.array([test_loss_after_adapt.item()]) , 
@@ -703,7 +702,7 @@ class InnerSolver_algorithm_trainer(object):
                 avg_test_after = test_measurements_after_adapt_over_batch[key]
                 avg_train_after = avg_train_trajectory[-1]
 
-            if key == 'accu':
+            if 'accu' in key:
                 log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
                 log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
             else:

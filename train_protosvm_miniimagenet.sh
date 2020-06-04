@@ -1,26 +1,26 @@
 python main.py \
---algorithm protonet \
+--algorithm protosvm \
 --model-type impregconv \
 --original-conv \
---slow-lr 0.001 \
+--slow-lr 0.1 \
 --model-grad-clip 0. \
 --dataset miniimagenet \
 --num-batches-meta-train 60000 \
 --num-batches-meta-val 100 \
---meta-batch-size 6 \
---num-classes-per-batch-meta-train 20 \
+--meta-batch-size 8 \
+--num-classes-per-batch-meta-train 5 \
 --num-classes-per-batch-meta-val 5 \
 --num-classes-per-batch-meta-test 5 \
---num-train-samples-per-class-meta-train 1 \
---num-train-samples-per-class-meta-val 1 \
---num-train-samples-per-class-meta-test 1 \
---num-val-samples-per-class-meta-train 10 \
---num-val-samples-per-class-meta-val 10 \
---num-val-samples-per-class-meta-test 10 \
+--num-train-samples-per-class-meta-train 5 \
+--num-train-samples-per-class-meta-val 5 \
+--num-train-samples-per-class-meta-test 5 \
+--num-val-samples-per-class-meta-train 15 \
+--num-val-samples-per-class-meta-val 15 \
+--num-val-samples-per-class-meta-test 15 \
 --img-side-len 84 \
---output-folder impregmaml_minim_20w1s_protonet \
+--output-folder minim_5w5s_protosvm \
 --device cuda \
---device-number 3 \
+--device-number 2 \
 --log-interval 50 \
 --save-interval 1000 \
 --val-interval 1000 \
@@ -28,7 +28,9 @@ python main.py \
 --verbose True \
 --retain-activation True \
 --use-group-norm True \
---optimizer adam
+--optimizer sgd \
+--add-bias False
+
 # --checkpoint train_dir/impregmaml_minim_5w5s_metaoptnet_fixed/maml_impregconv_20000.pt
 
 
