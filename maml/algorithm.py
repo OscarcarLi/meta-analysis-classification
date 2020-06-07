@@ -1,5 +1,6 @@
 from collections import defaultdict, OrderedDict
 import warnings
+import time
 import numpy as np
 
 # torch
@@ -585,12 +586,20 @@ class ImpRMAML_inner_algorithm(Algorithm):
         w  C, (d+1) number of classes
         v  C(d+1), 1
         '''
-        
-        diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w)
-        pre_inv = np.matmul(Xbar, Xbar.T) + l2_lambda * np.diag(np.reciprocal(diag))
+        diag, Xbar = logistic_regression_hessian_pieces_with_respect_to_w(X, y, w) # Xbar shape N(C+1), C(d+1)
+        # Question: why is this taking much longer than run alone in a terminal
+        pre_inv = np.matmul(Xbar, Xbar.T)
+
+        pre_inv = pre_inv + l2_lambda * np.diag(np.reciprocal(diag))
+        # np.fill_diagonal(a=pre_inv, val=np.diag(pre_inv) + l2_lambda * np.reciprocal(diag))
+
         inv = np.linalg.inv(pre_inv)
-        return 1 / l2_lambda * (v -\
-             np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v)))
+
+        # result = 1 / l2_lambda * (v -\
+        #      np.matmul(np.matmul(Xbar.T, inv), np.matmul(Xbar, v))) # this was suboptimal
+        result = 1 / l2_lambda * (v - np.matmul(Xbar.T, np.matmul(inv, np.matmul(Xbar, v))))
+
+        return result
 
 
     def inner_loop_adapt(self, task, hessian_inverse=False, num_updates=None, analysis=False, iter=None, 
@@ -617,7 +626,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 tol=1e-6, max_iter=150,
                 multi_class='multinomial', fit_intercept=False)
             lr_model.fit(X, y)
-
         
         # print(lr_model.n_iter_)
         adapted_params = torch.tensor(lr_model.coef_, device=self._device, dtype=torch.float32, requires_grad=False)
@@ -626,7 +634,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
             return adapted_params
 
         preds = F.linear(features, weight=adapted_params)
-
 
         loss = self._inner_loss_func(preds, task.y)
         measurements_trajectory['loss'].append(loss.item())
@@ -645,10 +652,10 @@ class ImpRMAML_inner_algorithm(Algorithm):
             hessian = self.compute_hessian(X=X, y=y, w=lr_model.coef_, l2_lambda=l2_lambda_chosen)
             h_inv_multiply = lambda v: np.linalg.solve(hessian, v)
         else:
-            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_, l2_lambda=l2_lambda_chosen, v=v)
+            h_inv_multiply = lambda v: self.compute_inverse_hessian_multiply_vector(X=X, y=y, w=lr_model.coef_.astype(np.float32), l2_lambda=l2_lambda_chosen, v=v)
         
         # mixed_partials_func given a vector v of shape C(d+1), 1
-        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_, a=v)
+        mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_.astype(np.float32), a=v)
 
         return adapted_params, features, modulation, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
 
@@ -870,12 +877,6 @@ class ProtoNet(Algorithm):
         # get features
         orig_query_shape = query.shape
         orig_support_shape = support.shape
-<<<<<<< HEAD
-        # now the query and support are in the shape of (n_tasks_per_batch, n_query, feature dimension)
-        query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
-=======
->>>>>>> ca78be3081dc7ba5d4abf4045d40cfd7adeb0cc7
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
         query = self._model(
@@ -904,13 +905,8 @@ class ProtoNet(Algorithm):
         # this makes it tasks_per_batch x n_way x n_support_train
 
         prototypes = torch.bmm(labels_train_transposed, support)
-<<<<<<< HEAD
         # [batch_size x n_way_train x d] =
         #     [batch_size x n_way_train x n_support_train] * [batch_size x n_support_train x d]
-=======
-        #   [batch_size x n_way x d] =
-        #       [batch_size x n_way x n_support_train] * [batch_size x n_support_train x d]
->>>>>>> ca78be3081dc7ba5d4abf4045d40cfd7adeb0cc7
 
         prototypes = prototypes.div(
             labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)

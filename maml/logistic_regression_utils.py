@@ -1,3 +1,4 @@
+import time
 import numpy as np
 from scipy.special import softmax
 
@@ -17,7 +18,7 @@ def logistic_regression_grad_with_respect_to_w(X, y, w):
     C = w.shape[0]
     N = X.shape[0]
 
-    result = np.zeros((C * X.shape[1], 1))
+    result = np.zeros((C * X.shape[1], 1), dtype=np.float32)
     I = np.eye(C, dtype=np.float32)
     for i in range(X.shape[0]):
         result += np.kron(p[i].reshape(-1, 1) - I[:, y[i]: y[i]+1], X[i].reshape(-1, 1))
@@ -46,7 +47,7 @@ def logistic_regression_hessian_pieces_with_respect_to_w(X, y, w):
     N = X.shape[0]
     d = X.shape[1] - 1
     
-    Xbar = np.zeros(shape=(N * (C+1), C * (d+1)))
+    Xbar = np.zeros(shape=(N * (C+1), C * (d+1)), dtype=np.float32)
     diag = []
     
     for i in range(N):

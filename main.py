@@ -26,7 +26,7 @@ from maml.utils import optimizer_to_device, get_git_revision_hash
 from maml.models import gated_conv_net_original, gated_conv_net
 from maml.models import gated_conv_net
 from maml.models import gated_conv_net_original
-from maml.models.protnet_embedding import ProtoNetEmbedding
+# from maml.models.protnet_embedding import ProtoNetEmbedding
 import pprint
 
 
@@ -674,9 +674,9 @@ def main(args):
         # create train iterators
         train_iterator = iter(dataset['train']) 
         if args.optimizer == 'sgd':
-            lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+            lambda_epoch = lambda e: 1.0 if e < 20 * args.optimizer_update_interval else (0.06 if e < 40 * args.optimizer_update_interval else 0.012 if e < 50 * args.optimizer_update_interval else (0.0024))
         else:
-            lambda_epoch = lambda e: 1.0 if e < 20 else (0.1 if e < 40 else 0.01 if e < 50 else (0.002))
+            lambda_epoch = lambda e: 1.0 if e < 20 * args.optimizer_update_interval else (0.1 if e < 40 * args.optimizer_update_interval else 0.01 * args.optimizer_update_interval if e < 50 * args.optimizer_update_interval else (0.002))
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
         for iter_start in range(1, num_batches['train'], args.val_interval):
             lr_scheduler.step()
