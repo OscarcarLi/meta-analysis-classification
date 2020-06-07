@@ -8,12 +8,12 @@ python main.py \
 --add-bias False \
 --optimizer adam \
 --slow-lr 0.001 \
---optimizer-update-interval 8 \
+--optimizer-update-interval 4 \
 --model-grad-clip 0. \
 --dataset miniimagenet \
 --num-batches-meta-train 40000 \
 --num-batches-meta-val 100 \
---meta-batch-size 1 \
+--meta-batch-size 2 \
 --num-classes-per-batch-meta-train 20 \
 --num-classes-per-batch-meta-val 5 \
 --num-classes-per-batch-meta-test 5 \
