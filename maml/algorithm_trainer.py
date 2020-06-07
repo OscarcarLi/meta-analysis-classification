@@ -556,7 +556,8 @@ so as to offset the time take by qp solver.
 class InnerSolver_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, save_folder, model_type, outer_loop_grad_norm):
+            writer, log_interval, save_interval, save_folder, model_type, 
+            outer_loop_grad_norm, optimizer_update_interval=1):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -567,6 +568,7 @@ class InnerSolver_algorithm_trainer(object):
         self._save_folder = save_folder
         self._outer_loop_grad_norm = outer_loop_grad_norm
         self._model_type = model_type 
+        self._optimizer_update_interval = optimizer_update_interval
         
 
     def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
@@ -602,7 +604,7 @@ class InnerSolver_algorithm_trainer(object):
             test_task_batch_y = torch.stack([task.y for task in test_task_batch], dim=0)
             # a tensor of size len(test_task_batch) x n_test x n_way    
 
-            if is_training:
+            if is_training and (i % self._optimizer_update_interval == 0):
                 self._outer_optimizer.zero_grad()
             
             if is_training:    
@@ -645,7 +647,7 @@ class InnerSolver_algorithm_trainer(object):
             
             n_task_batches += 1
 
-            if is_training:
+            if is_training and (i % self._optimizer_update_interval == 0):
                 outer_model_grad_norm_before_clip = get_grad_norm_from_parameters(self._algorithm._model.parameters())
                 self._writer.add_scalar('outer_grad/model_norm/before_clip', outer_model_grad_norm_before_clip, i)
                 if self._outer_loop_grad_norm > 0.:

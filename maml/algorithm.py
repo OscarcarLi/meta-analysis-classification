@@ -714,10 +714,10 @@ class MetaOptnet(Algorithm):
         # get features
         orig_query_shape = query.shape
         orig_support_shape = support.shape
-        query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
                 
         tasks_per_batch = query.size(0)
         n_support = support.size(1)
@@ -874,10 +874,10 @@ class ProtoNet(Algorithm):
         # get features
         orig_query_shape = query.shape
         orig_support_shape = support.shape
-        query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
         
 
         tasks_per_batch = query.size(0)

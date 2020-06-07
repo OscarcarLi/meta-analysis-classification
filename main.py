@@ -658,7 +658,8 @@ def main(args):
                 writer=writer,
                 log_interval=args.log_interval, save_interval=args.save_interval,
                 save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
-                model_type=args.model_type)
+                model_type=args.model_type,
+                optimizer_update_interval=args.optimizer_update_interval)
 
     else:
         trainer = Gradient_based_algorithm_trainer(
@@ -668,29 +669,6 @@ def main(args):
             model_type=args.model_type, save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip)
 
 
-    # dloader_train = data_loader(
-    #     dataset=dataset['train'],
-    #     nKnovel=5,
-    #     nKbase=0,
-    #     nExemplars=5, # num training examples per novel category
-    #     nTestNovel=75, # num test examples for all the novel categories
-    #     nTestBase=0, # num test examples for all the base categories
-    #     batch_size=10,
-    #     num_workers=4,
-    #     epoch_size=1000, # num of batches per epoch
-    # )
-
-    # dloader_val = data_loader(
-    #     dataset=dataset['val'],
-    #     nKnovel=5,
-    #     nKbase=0,
-    #     nExemplars=5, # num training examples per novel category
-    #     nTestNovel=75, # num test examples for all the novel categories
-    #     nTestBase=0, # num test examples for all the base categories
-    #     batch_size=1,
-    #     num_workers=0,
-    #     epoch_size=1 * 10, # num of batches per epoch
-    # )
     
     if is_training:
         # create train iterators
@@ -846,6 +824,8 @@ if __name__ == '__main__':
         help='number of batches (meta-test)')
     parser.add_argument('--meta-batch-size', type=int, default=10,
         help='number of tasks per batch')
+    parser.add_argument('--optimizer-update-interval', type=int, default=1,
+        help='number of mini batches after which the optimizer is updated')
 
 
     parser.add_argument('--hessian-inverse', type=str2bool, default=False,
@@ -871,24 +851,28 @@ if __name__ == '__main__':
         help='how many classes for training')
     parser.add_argument('--num-classes-per-batch', type=int, default=5,
         help='how many classes per task')
-    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=5,
+    
+    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=15,
         help='how many samples per class for validation (meta train)')
     parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
         help='how many samples per class for validation (meta val)')
     parser.add_argument('--num-val-samples-per-class-meta-test', type=int, default=15,
         help='how many samples per class for validation (meta test)')
+    
     parser.add_argument('--num-train-samples-per-class-meta-train', type=int, default=5,
         help='how many samples per class for train (meta train)')
     parser.add_argument('--num-train-samples-per-class-meta-val', type=int, default=5,
         help='how many samples per class for train (meta val)')
     parser.add_argument('--num-train-samples-per-class-meta-test', type=int, default=5,
         help='how many samples per class for train (meta test)')
+    
     parser.add_argument('--num-classes-per-batch-meta-train', type=int, default=5,
         help='how classes per task for train (meta train)')
     parser.add_argument('--num-classes-per-batch-meta-val', type=int, default=5,
         help='how classes per task for train (meta val)')
     parser.add_argument('--num-classes-per-batch-meta-test', type=int, default=5,
         help='how classes per task for train (meta test)')
+    
     parser.add_argument('--img-side-len', type=int, default=28,
         help='width and height of the input images')
     # parser.add_argument('--input-range', type=float, default=[-5.0, 5.0],
