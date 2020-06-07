@@ -665,9 +665,6 @@ class ImpRMAML_inner_algorithm(Algorithm):
                 'embedding_model': self._embedding_model.state_dict() if self._embedding_model else None}
 
 
-
-
-
 class MetaOptnet(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, n_way, n_shot_train, n_shot_val,
@@ -830,7 +827,6 @@ class MetaOptnet(Algorithm):
         return {'model': self._model.state_dict()}
 
 
-
 class ProtoNet(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, 
@@ -855,9 +851,9 @@ class ProtoNet(Algorithm):
         (Snell et al., NIPS 2017).
         
         Parameters:
-        query:  a (tasks_per_batch, n_query, d) Tensor.
-        support:  a (tasks_per_batch, n_support, d) Tensor.
-        support_labels: a (tasks_per_batch, n_support) Tensor.
+        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
+        support_labels: a (n_tasks_per_batch, n_support) Tensor.
         n_way: a scalar. Represents the number of classes in a few-shot classification task.
         n_shot: a scalar. Represents the number of support examples given per class.
         normalize: a boolean. Represents whether if we want to normalize the distances by the embedding dimension.
@@ -872,6 +868,7 @@ class ProtoNet(Algorithm):
         # get features
         orig_query_shape = query.shape
         orig_support_shape = support.shape
+        # now the query and support are in the shape of (n_tasks_per_batch, n_query, feature dimension)
         query = self._model(
             query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
         support = self._model(
@@ -881,8 +878,7 @@ class ProtoNet(Algorithm):
         tasks_per_batch = query.size(0)
         n_support = support.size(1)
         n_query = query.size(1)
-        d = query.size(2)
-        # dimension
+        d = query.size(2) # dimension
 
         n_way = self._n_way
         n_shot_val = self._n_shot_val
@@ -894,7 +890,6 @@ class ProtoNet(Algorithm):
         assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
         assert(n_support == n_way * n_shot_train or n_support == n_way * n_shot_val)      # n_support must equal to n_way * n_shot
 
-        
         support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * n_support), n_way)
         support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, n_support, n_way)
     
@@ -902,18 +897,16 @@ class ProtoNet(Algorithm):
         # this makes it tasks_per_batch x n_way_train x n_support_train
 
         prototypes = torch.bmm(labels_train_transposed, support)
-        #   [batch_size x n_way_train x d] =
-        #       [batch_size x n_way_train x n_support_train] * [batch_size x n_support_train x d]
+        # [batch_size x n_way_train x d] =
+        #     [batch_size x n_way_train x n_support_train] * [batch_size x n_support_train x d]
 
         prototypes = prototypes.div(
             labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
         )
         # Divide with the number of examples per novel category.
 
-
         if return_estimator:
             return prototypes.detach().cpu().numpy()
-
 
         ################################################
         # Compute the classification score for query
@@ -966,7 +959,6 @@ class ProtoNet(Algorithm):
     def to(self, device, **kwargs):
         self._device = device
         self._model.to(device, **kwargs)
-        
 
     def state_dict(self):
         # for model saving and reloading

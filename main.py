@@ -835,7 +835,7 @@ if __name__ == '__main__':
     parser.add_argument('--no-modulation', type=str2bool, default=False,
         help='dont propose any modulation matrix')
     parser.add_argument('--retain-activation', type=str2bool, default=False,
-        help='dont use activation in last layer')
+        help='if True, use activation function in the last layer; otherwise dont use activation in the last layer')
     parser.add_argument('--add-bias', type=str2bool, default=False,
         help='add bias term inner loop')
     parser.add_argument('--use-group-norm', type=str2bool, default=False,
