@@ -702,7 +702,7 @@ def main(args):
             
     else:
         if hasattr(trainer._algorithm, '_n_way'):
-            trainer._algorithm._n_way = args.num_classes_per_batch_meta_val
+            trainer._algorithm._n_way = args.num_classes_per_batch_meta_test
         results = trainer.run(iter(dataset['test']), is_training=False, start=0)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
