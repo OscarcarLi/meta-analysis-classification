@@ -91,7 +91,7 @@ def main(args):
 
     loss_func = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam([
-        {'params': model.parameters()},
+        {'params': model.parameters(), 'lr': args.lr},
     ])
     print("Total n_epochs: ", args.n_epochs)
 
