@@ -642,7 +642,7 @@ class Classical_algorithm_trainer(object):
             save_name = "classical_{0}_{1:03d}.pt".format('resnet', epoch)
             save_path = os.path.join(self._save_folder, save_name)
             with open(save_path, 'wb') as f:
-                torch.save(self._model.state_dict(), f)
+                torch.save({'model': self._model.state_dict()}, f)
 
         else:
             self.log_output(epoch, None,

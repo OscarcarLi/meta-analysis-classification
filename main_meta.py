@@ -80,7 +80,7 @@ def main(args):
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
         model_dict = model.state_dict()
-        chkpt_state_dict = torch.load(args.checkpoint)
+        chkpt_state_dict = torch.load(args.checkpoint)['model']
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
         if args.no_fc_layer:
             # remove "module." from key, possibly present as it was dumped by data-parallel
