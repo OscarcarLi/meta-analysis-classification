@@ -7,17 +7,15 @@ import time
 import torch
 import torch.nn.functional as F
 from torch.nn.utils.clip_grad import clip_grad_norm_
-from maml.datasets.task import Task
 import json
 import torch.nn as nn
 
-from maml.grad import quantile_marks, get_grad_norm_from_parameters
-from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
-from maml.utils import accuracy
-from maml.algorithm import RegMAML_inner_algorithm
-
-from maml.logistic_regression_utils import logistic_regression_grad_with_respect_to_w
-from maml.logistic_regression_utils import logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
+from algorithm_trainer.algorithms.grad import quantile_marks, get_grad_norm_from_parameters
+from algorithm_trainer.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
+from algorithm_trainer.utils import accuracy
+from algorithm_trainer.algorithms.algorithm import RegMAML_inner_algorithm
+from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_grad_with_respect_to_w
+from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
 class Gradient_based_algorithm_trainer(object):
 
@@ -773,3 +771,95 @@ class InnerSolver_algorithm_trainer(object):
                 tag=f'embedding_layer_{layer}',
                 global_step=iteration
             )
+
+
+
+
+
+"""
+To train model on all classes together
+"""
+
+class Classical_algorithm_trainer(object):
+
+    def __init__(self, model, loss_func, optimizer, writer,
+        log_interval, save_folder, grad_norm):
+
+        self._model = model
+        self._loss_func = loss_func
+        self._optimizer = optimizer
+        self._writer = writer
+        self._log_interval = log_interval 
+        self._save_folder = save_folder
+        self._grad_norm = grad_norm
+
+
+    def run(self, dataset_iterator, epoch=None, is_training=True):
+
+        if is_training:
+            self._model.train()
+        else:
+            self._model.eval()
+         
+        iterator = tqdm(enumerate(dataset_iterator, start=1),
+                        leave=False, file=sys.stdout, position=0)
+        agg_loss = []
+        agg_accu = []
+        
+        for i, batch in iterator:
+
+            analysis = (i % self._log_interval == 0)
+            batch_size = len(batch)
+            batch_x, batch_y = batch
+            batch_x = batch_x.cuda()
+            batch_y = batch_y.cuda()
+
+            
+            logits = self._model(batch_x)
+            loss = self._loss_func(logits, batch_y)
+            accu = accuracy(logits, batch_y)
+            
+            if is_training:
+                self._optimizer.zero_grad()
+                loss.backward()
+                if self._grad_norm > 0.:
+                    clip_grad_norm_(self._model.parameters(), self._grad_norm)
+                self._optimizer.step()
+            
+            agg_loss.append(loss.data.item())
+            agg_accu.append(accu)
+            
+            # logging
+            if analysis and is_training:
+                self.log_output(epoch, i,
+                    {"train_loss":  np.mean(agg_loss),
+                        "train_acc": np.mean(agg_accu) * 100.})
+                agg_loss = []
+                agg_accu = []
+
+        # save model and log tboard for eval
+        if is_training:
+            save_name = "classical_{0}_{1:03d}.pt".format('resnet', epoch)
+            save_path = os.path.join(self._save_folder, save_name)
+            with open(save_path, 'wb') as f:
+                torch.save(self._model.state_dict(), f)
+
+        else:
+            self.log_output(epoch, None,
+                {"val_loss":  np.mean(agg_loss),
+                    "val_acc": np.mean(agg_accu) * 100.})    
+        
+
+    def log_output(self, epoch, iteration,
+                metrics_dict):
+        if iteration is not None:
+            log_array = ['Epoch {} Iteration {}'.format(epoch, iteration)]
+        else:
+            log_array = ['Epoch {} '.format(epoch)]
+        for key in metrics_dict:
+            log_array.append(
+                '{}: \t{:.2f}'.format(key, metrics_dict[key]))
+            self._writer.add_scalar(
+                key, metrics_dict[key], iteration)
+            log_array.append(' ') 
+        tqdm.write('\n'.join(log_array))

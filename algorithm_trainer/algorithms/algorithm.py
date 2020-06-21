@@ -10,14 +10,14 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 # ours
-from maml.grad import soft_clip, get_grad_norm, get_grad_quantiles
-from maml.utils import accuracy
-from maml.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
-from maml.utils import spectral_norm
-from maml.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
+from algorithm_trainer.algorithms.grad import soft_clip, get_grad_norm, get_grad_quantiles
+from algorithm_trainer.utils import accuracy
+from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
+from algorithm_trainer.utils import spectral_norm
+from algorithm_trainer.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
 
 # metaoptnet
-from maml.metaoptnet_utils import one_hot, computeGramMatrix, binv, batched_kronecker
+from algorithm_trainer.algorithms.metaoptnet_utils import one_hot, computeGramMatrix, binv, batched_kronecker
 from qpth.qp import QPFunction
 
 # sklearn

@@ -1,0 +1,15 @@
+python main_classical.py \
+--model-type resnet \
+--lr 0.001 \
+--model-grad-clip 0. \
+--dataset-path data/filelists/miniImagenet \
+--num-classes 64 \
+--n-epochs 400 \
+--train-batch-size 32 \
+--val-batch-size 50 \
+--img-side-len 84 \
+--output-folder classical_miniimagenet \
+--device cuda \
+--device-number 0,1 \
+--log-interval 500 \
+--train-aug

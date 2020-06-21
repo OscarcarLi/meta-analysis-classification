@@ -4,7 +4,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
-from maml.models.model import Model
+from algorithm_trainer.models.model import Model
 
 
 def weight_init(module):
