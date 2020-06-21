@@ -37,12 +37,11 @@ class Algorithm(object):
 
 
 class LR(Algorithm):
-    def __init__(self, model, embedding_model,
+    def __init__(self, model,
                 inner_loss_func, l2_lambda,
                 device, is_classification=True):
 
         self._model = model
-        self._embedding_model = embedding_model
         self._inner_loss_func = inner_loss_func
         self._l2_lambda = l2_lambda
         # self._Cs = [1 / lambda_ for lambda_ in self._l2_lambda]
@@ -87,15 +86,9 @@ class LR(Algorithm):
         # adapt means doing the complete inner loop update
         
         measurements_trajectory = defaultdict(list)
-        if self._embedding_model:
-            modulation = self._embedding_model(task, return_task_embedding=False)
-        else:
-            modulation = None
-
         
         # here the features are padded with 1's at the end
-        features = self._model(
-            task.x, modulation=modulation)
+        features = self._model(task.x)
 
         X = features.detach().cpu().numpy()
         y = (task.y).cpu().numpy()
@@ -137,21 +130,17 @@ class LR(Algorithm):
         # mixed_partials_func given a vector v of shape C(d+1), 1
         mixed_partials_left_multiply = lambda v: logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply(X=X, y=y, w=lr_model.coef_.astype(np.float32), a=v)
 
-        return adapted_params, features, modulation, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
+        return adapted_params, features, h_inv_multiply, mixed_partials_left_multiply, measurements_trajectory, info_dict
 
 
     def to(self, device, **kwargs):
         # called in __init__
         self._device = device
         self._model.to(device, **kwargs)
-        if self._embedding_model:
-            self._embedding_model.to(device, **kwargs)
-
-
+        
     def state_dict(self):
         # for model saving and reloading
-        return {'model': self._model.state_dict(),
-                'embedding_model': self._embedding_model.state_dict() if self._embedding_model else None}
+        return {'model': self._model.state_dict()}
 
 
 class SVM(Algorithm):
@@ -199,9 +188,9 @@ class SVM(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
                 
         tasks_per_batch = query.size(0)
         n_support = support.size(1)
@@ -358,9 +347,9 @@ class ProtoNet(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
         
 
         tasks_per_batch = query.size(0)
@@ -433,10 +422,15 @@ class ProtoNet(Algorithm):
         if normalize:
             logits_support = logits_support / d
 
+        
         # compute loss and acc on support
         logits_support = logits_support.reshape(-1, logits_support.size(-1))
         labels_support = support_labels.reshape(-1)
         
+        print('logits_support', logits_support)
+        print('labels_support', labels_support)
+
+
         loss = self._inner_loss_func(logits_support, labels_support)
         accu = accuracy(logits_support, labels_support)
         measurements_trajectory['loss'].append(loss.item())
@@ -495,9 +489,9 @@ class ProtoSVM(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), modulation=None).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:]), modulation=None).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
         
 
         tasks_per_batch = query.size(0)

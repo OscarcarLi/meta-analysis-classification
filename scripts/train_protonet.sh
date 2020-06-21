@@ -5,11 +5,12 @@ python main_meta.py \
 --no-fc-layer True \
 --optimizer adam \
 --lr 0.001 \
---optimizer-update-interval 2 \
+--optimizer-update-interval 1 \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
+--train-aug \
 --img-side-len 84 \
---batch-size-train 10 \
+--batch-size-train 8 \
 --batch-size-val 10 \
 --n-way-train 5 \
 --n-way-val 5 \
@@ -20,8 +21,8 @@ python main_meta.py \
 --n-iterations-train 20000 \
 --n-iterations-val 100 \
 --output-folder Protonet_miniimagenet_5w5s \
---device-number 2 \
+--device-number 0,1,2,3 \
 --log-interval 50 \
---save-interval 1000 \
---val-interval 1000 \
+--save-interval 500 \
+--val-interval 500 \
 --verbose True

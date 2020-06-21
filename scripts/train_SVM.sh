@@ -8,6 +8,7 @@ python main.py \
 --optimizer-update-interval 2 \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
+--train-aug \
 --img-side-len 84 \
 --batch-size-train 10 \
 --batch-size-val 10 \

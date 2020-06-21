@@ -63,11 +63,11 @@ def main(args):
     ####################################################
 
     if args.model_type == 'resnet':
-        model = resnet.ResNet18(no_fc_layer=args.no_fc_layer)
+        model = resnet.ResNet18(no_fc_layer=args.no_fc_layer, add_bias=args.add_bias)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             num_channels=64, verbose=True, retain_activation=True, 
-            use_group_norm=True, add_bias=False, no_fc_layer=args.no_fc_layer)
+            use_group_norm=True, add_bias=args.add_bias, no_fc_layer=args.no_fc_layer)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -297,7 +297,7 @@ if __name__ == '__main__':
         help='no. of iterations train.') 
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
-    parser.add_argument('--train-aug', action='store_true', default=False,
+    parser.add_argument('--train-aug', action='store_true', default=True,
         help='perform data augmentation during training')
     args = parser.parse_args()
     

@@ -103,7 +103,6 @@ class Conv64(Model):
         ]))
 
         self.scale = nn.Parameter(torch.FloatTensor([1.0]))
-        self.add_module(self.scale)
 
         if self._retain_activation:
             self.features.add_module('layer4_relu', torch.nn.ReLU(inplace=True))

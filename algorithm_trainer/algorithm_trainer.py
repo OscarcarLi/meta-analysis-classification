@@ -126,7 +126,12 @@ class LR_algorithm_trainer(object):
                         features_test = self._algorithm._model(batch=test_task.x, 
                             modulation=modulation_train)
 
-                test_pred_after_adapt = self._algorithm._model.scale * F.linear(
+                if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                    scale = self._algorithm._model.module.scale
+                else:
+                    scale = self._algorithm._model.scale
+
+                test_pred_after_adapt = scale * F.linear(
                     features_test, weight=adapted_params)
                 test_loss_after_adapt = self._outer_loss_func(
                     test_pred_after_adapt, test_task.y)
@@ -149,7 +154,7 @@ class LR_algorithm_trainer(object):
                     y_test = (test_task.y).cpu().numpy()
                     w = adapted_params.detach().cpu().numpy()
                     test_grad_w = logistic_regression_grad_with_respect_to_w(X_test, y_test,
-                        self._algorithm._model.scale.detach().cpu().numpy() * w)
+                        scale.detach().cpu().numpy() * w)
 
                     train_hessian_inv_test_grad = train_hessian_inv_multiply(
                         test_grad_w)
@@ -189,7 +194,7 @@ class LR_algorithm_trainer(object):
 
             # Save model
             if (i % self._save_interval == 0 or i ==1) and is_training:
-                save_name = 'maml_{0}_{1}.pt'.format(self._model_type, i)
+                save_name = '{0}_{1:04d}.pt'.format(self._model_type, i)
                 save_path = os.path.join(self._save_folder, save_name)
                 with open(save_path, 'wb') as f:
                     torch.save(self._algorithm.state_dict(), f)
@@ -396,9 +401,15 @@ class Generic_algorithm_trainer(object):
                         query=query_x, support=shots_x, 
                         support_labels=shots_y)
                     assert len(set(shots_y)) == len(set(query_y))
-                   
+
+
+            if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                scale = self._algorithm._model.module.scale
+            else:
+                scale = self._algorithm._model.scale
+
             # reshape logits
-            logits = self._algorithm._model.scale * logits.reshape(-1, logits.size(-1))
+            logits = scale * logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
             analysis = (i % self._log_interval == 0)
@@ -448,7 +459,7 @@ class Generic_algorithm_trainer(object):
 
             # Save model
             if (i % self._save_interval == 0 or i ==1) and is_training:
-                save_name = 'maml_{0}_{1}.pt'.format(self._model_type, i)
+                save_name = '{0}_{1:04d}.pt'.format(self._model_type, i)
                 save_path = os.path.join(self._save_folder, save_name)
                 with open(save_path, 'wb') as f:
                     torch.save(self._algorithm.state_dict(), f)

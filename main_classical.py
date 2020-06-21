@@ -173,7 +173,7 @@ if __name__ == '__main__':
         help='path to saved parameters.')
     parser.add_argument('--eval', action='store_true', default=False,
         help='evaluate model')
-    parser.add_argument('--train-aug', action='store_true', default=False,
+    parser.add_argument('--train-aug', action='store_true', default=True,
         help='perform data augmentation during training')
     
     args = parser.parse_args()

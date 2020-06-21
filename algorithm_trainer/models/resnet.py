@@ -116,7 +116,7 @@ class BasicBlock(nn.Module):
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=None, no_fc_layer=False,
-            zero_init_residual=False, distance_classifier=False):
+            zero_init_residual=False, distance_classifier=False, add_bias=False):
 
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -135,6 +135,10 @@ class ResNet(nn.Module):
         elif no_fc_layer is False:
             self.fc = nn.Linear(512 * block.expansion, num_classes)
 
+        self.no_fc_layer = no_fc_layer
+        self.add_bias = add_bias
+        self.scale = nn.Parameter(torch.FloatTensor([1.0]))
+        
         init_module(self, zero_init_residual)
 
     def _make_layer(self, block, planes, blocks, stride=1):
@@ -160,9 +164,9 @@ class ResNet(nn.Module):
         out = self.layer4(out)
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
-        if self._add_bias and self._no_fc_layer:
+        if self.add_bias and self.no_fc_layer:
             out = torch.cat([out, 10.*torch.ones((out.size(0), 1), device=out.device)], dim=-1)
-        elif self._no_fc_layer is False:
+        elif self.no_fc_layer is False:
             out = self.fc.forward(out)
         return out
     
