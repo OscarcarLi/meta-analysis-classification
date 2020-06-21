@@ -427,9 +427,6 @@ class ProtoNet(Algorithm):
         logits_support = logits_support.reshape(-1, logits_support.size(-1))
         labels_support = support_labels.reshape(-1)
         
-        print('logits_support', logits_support)
-        print('labels_support', labels_support)
-
 
         loss = self._inner_loss_func(logits_support, labels_support)
         accu = accuracy(logits_support, labels_support)

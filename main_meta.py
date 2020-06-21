@@ -8,6 +8,7 @@ import torch.nn as nn
 import numpy as np
 from tensorboardX import SummaryWriter
 import pprint
+import re
 
 from algorithm_trainer.models import gated_conv_net_original, resnet
 from algorithm_trainer.algorithm_trainer import Generic_algorithm_trainer, LR_algorithm_trainer
@@ -78,8 +79,22 @@ def main(args):
     # load from checkpoint
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
-        state_dict = torch.load(args.checkpoint)
-        model.load_state_dict(state_dict['model'])
+        model_dict = model.state_dict()
+        chkpt_state_dict = torch.load(args.checkpoint)
+        chkpt_state_dict_cpy = chkpt_state_dict.copy()
+        if args.no_fc_layer:
+            # remove "module." from key, possibly present as it was dumped by data-parallel
+            for key in chkpt_state_dict_cpy.keys():
+                if 'module.' in key:
+                    new_key = re.sub('module\.', '',  key)
+                    chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
+        chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
+        model_dict.update(chkpt_state_dict)
+        updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
+        print(f"Updated {len(updated_keys)} keys using chkpt")
+        print("Following keys updated :", "\n".join(sorted(updated_keys)))
+        model.load_state_dict(model_dict)
+                    
         
     # Multi-gpu support and device setup
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number

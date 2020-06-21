@@ -3,6 +3,7 @@ python main_meta.py \
 --model-type resnet \
 --add-bias True \
 --no-fc-layer True \
+--checkpoint train_dir/classical_miniimagenet_dc/classical_resnet_340.pt \
 --optimizer adam \
 --lr 0.001 \
 --optimizer-update-interval 1 \
@@ -20,7 +21,7 @@ python main_meta.py \
 --n-query-val 15 \
 --n-iterations-train 20000 \
 --n-iterations-val 100 \
---output-folder Protonet_miniimagenet_5w5s \
+--output-folder Protonet_miniimagenet_5w5s_pre_trained \
 --device-number 0,1,2,3 \
 --log-interval 50 \
 --save-interval 500 \
