@@ -168,5 +168,4 @@ class EpisodicBatchSampler(object):
         for i in range(self.n_episodes):
             yield np.concatenate(
                 [np.random.choice(self.n_classes, self.n_way, replace=False) for _ in range(self.n_tasks)])
-
-
+            

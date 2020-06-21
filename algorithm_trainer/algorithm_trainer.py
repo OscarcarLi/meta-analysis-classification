@@ -348,10 +348,8 @@ class Generic_algorithm_trainer(object):
             x_batch, y_batch = batch
             original_shape = x_batch.shape
             assert len(original_shape) == 5
-            # (n_way*batch_sz, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.reshape(n_way, batch_sz, *original_shape[-4:])
-            # (n_way, batch_sz, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.transpose(0, 1)
+            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
             # (batch_sz, n_way, n_shot+n_query, channels , height , width)
             shots_x = x_batch[:, :, :n_shot, :, :, :]
             # (batch_sz, n_way, n_shot, channels , height , width)
@@ -487,10 +485,8 @@ class Generic_algorithm_trainer(object):
 
 
     def get_labels(self, y_batch, n_way, n_shot, n_query, batch_sz):
-        # original y_batch: (n_way*batch_sz, n_shot+n_query)
-        y_batch = y_batch.reshape(n_way, batch_sz, -1)
-        # n_way, batch_sz, n_shot+n_query
-        y_batch = y_batch.transpose(0, 1)
+        # original y_batch: (batch_sz*n_way, n_shot+n_query)
+        y_batch = y_batch.reshape(batch_sz, n_way, -1)
         # batch_sz, n_way, n_shot+n_query
         
         for i in range(y_batch.shape[0]):
@@ -499,7 +495,7 @@ class Generic_algorithm_trainer(object):
             # convert labels
             for uniq_class in uniq_classes: 
                 y_batch[i, y_batch[i]==uniq_class] = conversion_dict[uniq_class]
-        
+            
         shots_y = y_batch[:, :, :n_shot]
         query_y = y_batch[:, :, n_shot:]
         shots_y = shots_y.reshape(batch_sz, -1)
