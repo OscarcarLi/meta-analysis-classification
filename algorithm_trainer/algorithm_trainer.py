@@ -3,6 +3,7 @@ import sys
 from collections import defaultdict
 import numpy as np
 from tqdm import tqdm
+import sys
 import time
 import torch
 import torch.nn.functional as F
@@ -11,9 +12,7 @@ import json
 import torch.nn as nn
 
 from algorithm_trainer.algorithms.grad import quantile_marks, get_grad_norm_from_parameters
-from algorithm_trainer.models.lstm_embedding_model import LSTMAttentionEmbeddingModel
 from algorithm_trainer.utils import accuracy
-from algorithm_trainer.algorithms.algorithm import RegMAML_inner_algorithm
 from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_grad_with_respect_to_w
 from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
@@ -58,7 +57,8 @@ def standard_deviation_measurement(measurements):
 class LR_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
-            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm, hessian_inverse=False):
+            writer, log_interval, save_interval, model_type, save_folder, outer_loop_grad_norm,
+            grad_clip=0., hessian_inverse=False):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -68,7 +68,7 @@ class LR_algorithm_trainer(object):
         self._save_interval = save_interval
         self._model_type = model_type
         self._save_folder = save_folder
-        self._outer_loop_grad_norm = outer_loop_grad_norm
+        self._grad_clip = grad_clip
         self._hessian_inverse = hessian_inverse
 
 
@@ -176,9 +176,9 @@ class LR_algorithm_trainer(object):
                     self._algorithm._model.parameters())
                 self._writer.add_scalar('outer_grad/model_norm/before_clip',
                     outer_model_grad_norm_before_clip, i)
-                if self._outer_loop_grad_norm > 0.:
+                if self._grad_clip > 0.:
                     clip_grad_norm_(
-                        self._algorithm._model.parameters(), self._outer_loop_grad_norm)
+                        self._algorithm._model.parameters(), self._grad_clip)
                 self._outer_optimizer.step()
 
             if analysis and is_training:
@@ -299,7 +299,7 @@ class Generic_algorithm_trainer(object):
 
     def __init__(self, algorithm, outer_loss_func, outer_optimizer,
             writer, log_interval, save_interval, save_folder, model_type, 
-            outer_loop_grad_norm, optimizer_update_interval=1):
+            outer_loop_grad_norm, grad_clip=0., optimizer_update_interval=1):
 
         self._algorithm = algorithm
         self._outer_loss_func = outer_loss_func
@@ -309,12 +309,12 @@ class Generic_algorithm_trainer(object):
         # at log_interval will do gradient analysis
         self._save_interval = save_interval
         self._save_folder = save_folder
-        self._outer_loop_grad_norm = outer_loop_grad_norm
+        self._grad_clip = grad_clip
         self._model_type = model_type 
         self._optimizer_update_interval = optimizer_update_interval
         
 
-    def run(self, dataset_iterator, is_training=False, meta_val=False, start=1, stop=1):
+    def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1):
 
         if is_training:
             self._algorithm._model.train()
@@ -327,10 +327,52 @@ class Generic_algorithm_trainer(object):
         sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
         n_task_batches = 0
 
+        n_way = dataset_manager.n_way
+        n_shot = dataset_manager.n_shot
+        n_query = dataset_manager.n_query
+        batch_sz = dataset_manager.batch_size
+        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
+
         iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
                         leave=False, file=sys.stdout, initial=start, position=0)
         
-        for i, (train_task_batch, test_task_batch) in iterator:
+
+        for i, batch in iterator:
+
+            ############## covariates #############
+            x_batch, y_batch = batch
+            original_shape = x_batch.shape
+            assert len(original_shape) == 5
+            # (n_way*batch_sz, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.reshape(n_way, batch_sz, *original_shape[-4:])
+            # (n_way, batch_sz, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.transpose(0, 1)
+            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+            shots_x = x_batch[:, :, :n_shot, :, :, :]
+            # (batch_sz, n_way, n_shot, channels , height , width)
+            query_x = x_batch[:, :, n_shot:, :, :, :]
+            # (batch_sz, n_way, n_query, channels , height , width)
+            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_shot, channels , height , width)
+            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_query, channels , height , width)
+            assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
+            assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
+
+
+            ############## labels #############
+            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+                n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
+            assert shots_y.shape == (batch_sz, n_way*n_shot)
+            assert query_y.shape == (batch_sz, n_way*n_query)
+
+
+            # move labels and covariates to cuda
+            shots_x = shots_x.cuda()
+            query_x = query_x.cuda()
+            shots_y = shots_y.cuda()
+            query_y = query_y.cuda()
+
 
             if is_training and i == stop:
                 return {'train_loss_trajectory': divide_measurements(
@@ -338,42 +380,32 @@ class Generic_algorithm_trainer(object):
                     'test_loss_after': divide_measurements(
                         sum_test_measurements_after_adapt_over_meta_set, n=n_task_batches)}
 
-            batch_size = len(train_task_batch)
-            train_task_batch_x = torch.stack([task.x for task in train_task_batch], dim=0)
-            # a tensor of size len(train_task_batch) x n_train x n_way
-            train_task_batch_y = torch.stack([task.y for task in train_task_batch], dim=0)
-            # a tensor of size len(train_task_batch) x n_train
-
-            test_task_batch_x = torch.stack([task.x for task in test_task_batch], dim=0)
-            # a tensor of size len(test_task_batch) x n_test x n_way
-            test_task_batch_y = torch.stack([task.y for task in test_task_batch], dim=0)
-            # a tensor of size len(test_task_batch) x n_test x n_way    
-
+            batch_size = len(shots_x)
+            
             if is_training and (i % self._optimizer_update_interval == 0):
                 self._outer_optimizer.zero_grad()
-            
+
             if is_training:    
                 logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                    query=test_task_batch_x, support=train_task_batch_x, 
-                    support_labels=train_task_batch_y)
-                assert len(set(train_task_batch_y)) == len(set(test_task_batch_y))
-                # len(train_task_batch) x n_test x n_way
+                    query=query_x, support=shots_x, 
+                    support_labels=shots_y)
+                assert len(set(shots_y)) == len(set(query_y))
             else:
                 with torch.no_grad():
                     logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                        query=test_task_batch_x, support=train_task_batch_x, 
-                        support_labels=train_task_batch_y)
-                    assert len(set(train_task_batch_y)) == len(set(test_task_batch_y))
+                        query=query_x, support=shots_x, 
+                        support_labels=shots_y)
+                    assert len(set(shots_y)) == len(set(query_y))
                    
             # reshape logits
             logits = self._algorithm._model.scale * logits.reshape(-1, logits.size(-1))
-            test_task_batch_y = test_task_batch_y.reshape(-1)
-            assert logits.size(0) == test_task_batch_y.size(0)
+            query_y = query_y.reshape(-1)
+            assert logits.size(0) == query_y.size(0)
             analysis = (i % self._log_interval == 0)
 
             # compute loss abd accu
-            test_loss_after_adapt = self._outer_loss_func(logits, test_task_batch_y)
-            test_accu_after_adapt = accuracy(logits, test_task_batch_y)
+            test_loss_after_adapt = self._outer_loss_func(logits, query_y)
+            test_accu_after_adapt = accuracy(logits, query_y)
             if not is_training:
                 val_task_acc.append(test_accu_after_adapt * 100.)
 
@@ -401,9 +433,9 @@ class Generic_algorithm_trainer(object):
                     self._algorithm._model.parameters())
                 self._writer.add_scalar(
                     'outer_grad/model_norm/before_clip', outer_model_grad_norm_before_clip, i)
-                if self._outer_loop_grad_norm > 0.:
+                if self._grad_clip > 0.:
                     clip_grad_norm_(
-                        self._algorithm._model.parameters(), self._outer_loop_grad_norm)
+                        self._algorithm._model.parameters(), self._grad_clip)
                 self._outer_optimizer.step()
 
             # logging
@@ -442,6 +474,27 @@ class Generic_algorithm_trainer(object):
         
         return results
 
+
+    def get_labels(self, y_batch, n_way, n_shot, n_query, batch_sz):
+        # original y_batch: (n_way*batch_sz, n_shot+n_query)
+        y_batch = y_batch.reshape(n_way, batch_sz, -1)
+        # n_way, batch_sz, n_shot+n_query
+        y_batch = y_batch.transpose(0, 1)
+        # batch_sz, n_way, n_shot+n_query
+        
+        for i in range(y_batch.shape[0]):
+            uniq_classes = np.unique(y_batch[i, :, :])
+            conversion_dict = {v:k for k, v in enumerate(uniq_classes)}
+            # convert labels
+            for uniq_class in uniq_classes: 
+                y_batch[i, y_batch[i]==uniq_class] = conversion_dict[uniq_class]
+        
+        shots_y = y_batch[:, :, :n_shot]
+        query_y = y_batch[:, :, n_shot:]
+        shots_y = shots_y.reshape(batch_sz, -1)
+        query_y = query_y.reshape(batch_sz, -1)
+        return shots_y, query_y
+        
 
     def log_output(self, iteration,
                 train_measurements_trajectory_over_batch,

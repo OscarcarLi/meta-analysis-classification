@@ -31,7 +31,7 @@ class ClassicalDataset:
 
 class MetaDataset:
 
-    def __init__(self, data_file, batch_size, transform):
+    def __init__(self, data_file, per_task_batch_size, transform):
         
         with open(data_file, 'r') as f:
             self.meta = json.load(f)
@@ -46,7 +46,7 @@ class MetaDataset:
             self.sub_meta[y].append(x)
 
         self.sub_dataloader = [] 
-        sub_data_loader_params = dict(batch_size = batch_size, # n_support + n_query
+        sub_data_loader_params = dict(batch_size = per_task_batch_size, # (n_support + n_query) * n_tasks
                                   shuffle = True,
                                   num_workers = 0, #use main thread only or may receive multiple batches
                                   pin_memory = False)        

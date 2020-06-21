@@ -108,7 +108,7 @@ class ClassicalDataManager(DataManager):
         """
         transform = self.trans_loader.get_composed_transform(aug)
         dataset = ClassicalDataset(data_file, transform)
-        data_loader_params = dict(batch_size = self.batch_size, shuffle = True, num_workers = 12, pin_memory = True)       
+        data_loader_params = dict(batch_size=self.batch_size, shuffle = True, num_workers = 12, pin_memory = True)       
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
 
         return data_loader
@@ -117,16 +117,18 @@ class ClassicalDataManager(DataManager):
 
 """
 Data Manager for meta-training methods.
-This would beed additional params: [n_way, n_support, n_query, n_eposide]
+This would beed additional params: [n_way, n_shot, n_query, n_eposide]
 """
 
-class SetDataManager(DataManager):
-    def __init__(self, image_size, n_way, n_support, n_query, n_eposide=100):        
-        super(SetDataManager, self).__init__()
+class MetaDataManager(DataManager):
+    def __init__(self, image_size, n_way, n_shot, n_query, batch_size, n_episodes=100):        
+        super(MetaDataManager, self).__init__()
         self.image_size = image_size
         self.n_way = n_way
-        self.batch_size = n_support + n_query
-        self.n_eposide = n_eposide
+        self.batch_size = batch_size
+        self.n_shot = n_shot
+        self.n_query = n_query
+        self.n_episodes = n_episodes
         self.trans_loader = TransformLoader(image_size)
 
     def get_data_loader(self, data_file, aug): #parameters that would change on train/val set
@@ -135,9 +137,10 @@ class SetDataManager(DataManager):
         aug: boolean to set data augmentation
         """
         transform = self.trans_loader.get_composed_transform(aug)
-        dataset = MetaDataset(data_file, self.batch_size, transform)
-        sampler = EpisodicBatchSampler(len(dataset), self.n_way, self.n_eposide)  
-        data_loader_params = dict(batch_sampler=sampler,  num_workers=12, pin_memory=True)       
+        dataset = MetaDataset(data_file, per_task_batch_size=self.n_shot+self.n_query, transform=transform)
+        sampler = EpisodicBatchSampler(len(dataset), n_way=self.n_way, 
+            n_episodes=self.n_episodes, n_tasks=self.batch_size)  
+        data_loader_params = dict(batch_sampler=sampler, num_workers=12, pin_memory=True)       
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
         return data_loader
 
@@ -152,9 +155,10 @@ Used by almost all pytorch implementations released after Protonet.
 
 class EpisodicBatchSampler(object):
 
-    def __init__(self, n_classes, n_way, n_episodes):
+    def __init__(self, n_classes, n_way, n_tasks, n_episodes):
         self.n_classes = n_classes
         self.n_way = n_way
+        self.n_tasks = n_tasks
         self.n_episodes = n_episodes
 
     def __len__(self):
@@ -162,6 +166,6 @@ class EpisodicBatchSampler(object):
 
     def __iter__(self):
         for i in range(self.n_episodes):
-            yield torch.randperm(self.n_classes)[:self.n_way]
+            yield np.random.choice(self.n_classes, self.n_way * self.n_tasks, replace=True)
 
 

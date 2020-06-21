@@ -61,7 +61,7 @@ def main(args):
             distance_classifier=args.distance_classifier)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
-            input_channels=3, num_channels=64, img_side_len=image_size,
+            input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes,
             verbose=True, retain_activation=True, use_group_norm=True, add_bias=False)
     else:
         raise ValueError(

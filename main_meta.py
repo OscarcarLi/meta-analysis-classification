@@ -4,10 +4,16 @@ import json
 import argparse
 import pickle
 import torch
+import torch.nn as nn
 import numpy as np
 from tensorboardX import SummaryWriter
 import pprint
 
+from algorithm_trainer.models import gated_conv_net_original, resnet
+from algorithm_trainer.algorithm_trainer import Generic_algorithm_trainer, LR_algorithm_trainer
+from algorithm_trainer.algorithms.algorithm import LR, SVM, ProtoNet, ProtoSVM
+from algorithm_trainer.utils import optimizer_to_device
+from data_layer.dataset_managers import MetaDataManager
 
 
 
@@ -40,10 +46,14 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'base.json')
-    train_datamgr = ClassicalDataManager(image_size, batch_size=args.train_batch_size)
+    val_file = os.path.join(args.dataset_path, 'val.json')
+    train_datamgr = MetaDataManager(
+        image_size, batch_size=args.batch_size_train, n_episodes=args.n_iterations_train,
+        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train)
     train_loader = train_datamgr.get_data_loader(train_file, aug=args.train_aug)
-    val_datamgr = ClassicalDataManager(image_size, batch_size=args.val_batch_size)
+    val_datamgr = MetaDataManager(
+        image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
+        n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
     val_loader = val_datamgr.get_data_loader(val_file, aug=False)
     
 
@@ -53,12 +63,11 @@ def main(args):
     ####################################################
 
     if args.model_type == 'resnet':
-        model = resnet.ResNet18(num_classes=args.num_classes, 
-            distance_classifier=args.distance_classifier)
+        model = resnet.ResNet18(no_fc_layer=args.no_fc_layer)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
-            input_channels=3, num_channels=64, img_side_len=image_size,
-            verbose=True, retain_activation=True, use_group_norm=True, add_bias=False)
+            num_channels=64, verbose=True, retain_activation=True, 
+            use_group_norm=True, add_bias=False, no_fc_layer=args.no_fc_layer)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -94,7 +103,9 @@ def main(args):
         optimizer = torch.optim.SGD(
             model.parameters(), lr=args.lr, 
             momentum=0.9, nesterov=True, weight_decay=5e-4)
-    print("Total n_epochs: ", args.n_epochs)
+    print("Total episodes: ", args.n_iterations_train)
+    print("Total tasks: ", args.n_iterations_train * args.batch_size_train)
+    
         
 
 
@@ -116,18 +127,18 @@ def main(args):
         algorithm = MetaOptnet(
             model=model,
             inner_loss_func=loss_func,
-            n_way=args.num_classes_per_batch_meta_train,
-            n_shot_train=args.num_train_samples_per_class_meta_train,
-            n_shot_val=args.num_train_samples_per_class_meta_val,
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
             device=args.device)
 
     elif args.algorithm == 'Protonet':
         algorithm = ProtoNet(
             model=model,
             inner_loss_func=loss_func,
-            n_way=args.num_classes_per_batch_meta_train,
-            n_shot_train=args.num_train_samples_per_class_meta_train,
-            n_shot_val=args.num_train_samples_per_class_meta_val,
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
             device=args.device)
 
     elif args.algorithm == 'ProtoSVM':
@@ -135,8 +146,8 @@ def main(args):
             model=model,
             inner_loss_func=loss_func,
             n_way=args.num_classes_per_batch_meta_train,
-            n_shot_train=args.num_train_samples_per_class_meta_train,
-            n_shot_val=args.num_train_samples_per_class_meta_val,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
             device=args.device)
 
 
@@ -148,17 +159,17 @@ def main(args):
             writer=writer,
             log_interval=args.log_interval, save_interval=args.save_interval,
             model_type=args.model_type, save_folder=save_folder, 
-            outer_loop_grad_norm=args.model_grad_clip,
+            outer_loop_grad_norm=args.grad_clip,
             hessian_inverse=args.hessian_inverse)
         
     elif args.algorithm in ['SVM', 'Protonet', 'ProtoSVM']:
         trainer = Generic_algorithm_trainer(
             algorithm=algorithm,
             outer_loss_func=loss_func,
-            outer_optimizer=optimizers, 
+            outer_optimizer=optimizer, 
             writer=writer,
             log_interval=args.log_interval, save_interval=args.save_interval,
-            save_folder=save_folder, outer_loop_grad_norm=args.model_grad_clip,
+            save_folder=save_folder, outer_loop_grad_norm=args.grad_clip,
             model_type=args.model_type,
             optimizer_update_interval=args.optimizer_update_interval)
 
@@ -166,41 +177,38 @@ def main(args):
     
     if is_training:
         # create train iterators
-        train_iterator = iter(dataset['train']) 
-        if args.optimizer == 'sgd':
-            lambda_epoch = lambda e: 1.0 if e < 20 * args.optimizer_update_interval else (0.06 if e < 40 * args.optimizer_update_interval else 0.012 if e < 50 * args.optimizer_update_interval else (0.0024))
-        else:
-            lambda_epoch = lambda e: 1.0 if e < 20 * args.optimizer_update_interval else (0.1 if e < 40 * args.optimizer_update_interval else 0.01 * args.optimizer_update_interval if e < 50 * args.optimizer_update_interval else (0.002))
-        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizers, lr_lambda=lambda_epoch, last_epoch=-1)
-        for iter_start in range(1, num_batches['train'], args.val_interval):
-            lr_scheduler.step()
+        epoch_sz = args.n_iterations_train // 1000
+        lambda_epoch = lambda e: 1.0 if e < (epoch_sz // 2) * args.optimizer_update_interval else 0.1
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+        for iter_start in range(1, args.n_iterations_train, args.val_interval):
             if hasattr(trainer._algorithm, '_n_way'):
-                trainer._algorithm._n_way = args.num_classes_per_batch_meta_train
-            for param_group in optimizers.param_groups:
+                trainer._algorithm._n_way = args.n_way_train
+            for param_group in optimizer.param_groups:
                 print('optimizer:', args.optimizer, 'lr:', param_group['lr'])
             try:
-                train_result = trainer.run(train_iterator, is_training=True, 
+                train_result = trainer.run(train_loader, train_datamgr, is_training=True, 
                     start=iter_start, stop=iter_start+args.val_interval)
             except StopIteration:
                 print("Finished training iterations.")
                 print(train_result)
                 print("Starting final validation.")
-    
+            lr_scheduler.step()
+            
             # validation
             if hasattr(trainer._algorithm, '_n_way'):
-                trainer._algorithm._n_way = args.num_classes_per_batch_meta_val
+                trainer._algorithm._n_way = args.n_way_val
             tqdm.write("=="*27+"\nStarting validation")
-            val_result = trainer.run(iter(dataset['val']), is_training=False, meta_val=True, start=iter_start+args.val_interval - 1)
+            val_result = trainer.run(val_loader, val_datamgr, is_training=False, 
+            meta_val=True, start=iter_start+args.val_interval-1)
             tqdm.write(str(val_result))
             tqdm.write("Finished validation\n" + "=="*27)
             
     else:
         if hasattr(trainer._algorithm, '_n_way'):
-            trainer._algorithm._n_way = args.num_classes_per_batch_meta_test
-        results = trainer.run(iter(dataset['test']), is_training=False, start=0)
+            trainer._algorithm._n_way = args.n_way_val
+        results = trainer.run(val_loader, val_datamgr, is_training=False, start=0)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
-        name = args.checkpoint[0:args.checkpoint.rfind('.')]
         
 
 if __name__ == '__main__':
@@ -222,6 +230,8 @@ if __name__ == '__main__':
              otherwise dont use activation in the last layer')
     parser.add_argument('--add-bias', type=str2bool, default=False,
         help='add bias term inner loop')
+    parser.add_argument('--no-fc-layer', type=str2bool, default=True,
+        help='will not add fc layer to model')
     parser.add_argument('--use-group-norm', type=str2bool, default=False,
         help='use group norm instead of batch norm')
     
@@ -233,8 +243,8 @@ if __name__ == '__main__':
         help='gradient clipping')
     parser.add_argument('--optimizer-update-interval', type=int, default=1,
         help='number of mini batches after which the optimizer is updated')
-
-
+    parser.add_argument('--optimizer', type=str, default='adam',
+        help='optimizer')
     parser.add_argument('--hessian-inverse', type=str2bool, default=False,
         help='for implicit last layer optimization, whether to use \
             hessian to solve linear equation or to use woodbury identity\
@@ -244,9 +254,9 @@ if __name__ == '__main__':
     # Dataset
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
-    parser.add_argument('--train-batch-size', type=int, default=20,
+    parser.add_argument('--batch-size-train', type=int, default=10,
         help='batch size for training')
-    parser.add_argument('--val-batch-size', type=int, default=4,
+    parser.add_argument('--batch-size-val', type=int, default=10,
         help='batch size for validation')
     parser.add_argument('--n-query-train', type=int, default=15,
         help='how many samples per class for validation (meta train)')
@@ -269,10 +279,8 @@ if __name__ == '__main__':
         help='name of the output folder')
     parser.add_argument('--device', type=str, default='cuda',
         help='set the device (cpu or cuda)')
-    parser.add_argument('--optimizer', type=str, default='adam',
-        help='optimizer')
     parser.add_argument('--device-number', type=str, default='0',
-                        help='gpu device number')
+        help='gpu device number')
     parser.add_argument('--log-interval', type=int, default=100,
         help='number of batches between tensorboard writes')
     parser.add_argument('--save-interval', type=int, default=1000,
@@ -285,8 +293,14 @@ if __name__ == '__main__':
         help='no. of iterations after which to perform meta-validation.')
     parser.add_argument('--verbose', type=str2bool, default=False,
         help='debugging purposes')
-
+    parser.add_argument('--n-iterations-train', type=int, default=60000,
+        help='no. of iterations train.') 
+    parser.add_argument('--n-iterations-val', type=int, default=100,
+        help='no. of iterations validation.') 
+    parser.add_argument('--train-aug', action='store_true', default=False,
+        help='perform data augmentation during training')
     args = parser.parse_args()
+    
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number
     print('GPU number', os.environ["CUDA_VISIBLE_DEVICES"])
 

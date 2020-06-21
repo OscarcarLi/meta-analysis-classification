@@ -1,0 +1,27 @@
+python main.py \
+--algorithm SVM \
+--model-type resnet \
+--add-bias True \
+--no-fc-layer True \
+--optimizer adam \
+--lr 0.001 \
+--optimizer-update-interval 2 \
+--grad-clip 0. \
+--dataset-path data/filelists/miniImagenet \
+--img-side-len 84 \
+--batch-size-train 10 \
+--batch-size-val 10 \
+--n-way-train 5 \
+--n-way-val 5 \
+--n-shot-train 5 \
+--n-shot-val 5 \
+--n-query-train 15 \
+--n-query-val 15 \
+--n-iterations-train 60000 \
+--n-iterations-val 100 \
+--output-folder SVM_miniimagenet_5w5s \
+--device-number 2 \
+--log-interval 50 \
+--save-interval 1000 \
+--val-interval 1000 \
+--verbose True
