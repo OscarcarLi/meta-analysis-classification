@@ -1,7 +1,7 @@
 python main_meta.py \
 --algorithm Protonet \
 --model-type resnet \
---checkpoint train_dir/Protonet_miniimagenet_5w5s/resnet_11500.pt \
+--checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
 --add-bias True \
 --no-fc-layer True \
 --optimizer adam \
@@ -15,17 +15,18 @@ python main_meta.py \
 --batch-size-val 10 \
 --n-way-train 5 \
 --n-way-val 5 \
---n-shot-train 5 \
---n-shot-val 5 \
+--n-shot-train 1 \
+--n-shot-val 1 \
 --n-query-train 15 \
 --n-query-val 15 \
---n-iterations-train 20000 \
---n-iterations-val 100 \
---output-folder Protonet_miniimagenet_5w5s_restart \
+--n-iterations-train 10000 \
+--n-iterations-val 400 \
+--output-folder eval_Protonet_with_classical_backbone \
 --device-number 0,1,2,3 \
 --log-interval 50 \
 --save-interval 500 \
 --val-interval 500 \
---verbose True
+--verbose True \
+--eval
 
 # --checkpoint train_dir/classical_miniimagenet_dc/classical_resnet_340.pt \

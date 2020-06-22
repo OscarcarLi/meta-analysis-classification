@@ -40,3 +40,25 @@ def optimizer_to_device(optimizer, device):
 
 def get_git_revision_hash():
     return str(subprocess.check_output(['git', 'rev-parse', 'HEAD']))
+
+
+
+def add_fc(old_model, prefc_feature_sz, num_classes):
+    if isinstance(old_model, torch.nn.DataParallel):
+        old_model.module.fc = torch.nn.Linear(
+            prefc_feature_sz, num_classes).cuda()
+        new_model = torch.nn.DataParallel(
+            old_model.module, device_ids=range(torch.cuda.device_count()))
+    else:
+        old_model.fc = torch.nn.Linear(
+            prefc_feature_sz, num_classes).cuda()
+        new_model = old_model
+    return new_model
+
+
+def remove_fc(model):
+    if isinstance(model, torch.nn.DataParallel):
+        model.module.fc = None
+    else:
+        model.fc = None
+    return model

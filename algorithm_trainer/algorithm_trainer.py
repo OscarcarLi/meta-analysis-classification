@@ -319,7 +319,7 @@ class Generic_algorithm_trainer(object):
         self._optimizer_update_interval = optimizer_update_interval
         
 
-    def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1):
+    def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1, fixed_batches=None):
 
         if is_training:
             self._algorithm._model.train()
@@ -338,37 +338,63 @@ class Generic_algorithm_trainer(object):
         batch_sz = dataset_manager.batch_size
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
 
-        iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
-                        leave=False, file=sys.stdout, initial=start, position=0)
-        
+        if fixed_batches is None:
+            iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
+                            leave=False, file=sys.stdout, initial=start, position=0)
+        else:
+            iterator = tqdm(enumerate(zip(*fixed_batches), start=start if is_training else 1),
+                            leave=False, file=sys.stdout, initial=start, position=0)
+
 
         for i, batch in iterator:
 
-            ############## covariates #############
-            x_batch, y_batch = batch
-            original_shape = x_batch.shape
-            assert len(original_shape) == 5
-            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
-            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
-            shots_x = x_batch[:, :, :n_shot, :, :, :]
-            # (batch_sz, n_way, n_shot, channels , height , width)
-            query_x = x_batch[:, :, n_shot:, :, :, :]
-            # (batch_sz, n_way, n_query, channels , height , width)
-            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_shot, channels , height , width)
-            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_query, channels , height , width)
+            if fixed_batches is None:
+
+                ############## covariates #############
+                x_batch, y_batch = batch
+                original_shape = x_batch.shape
+                assert len(original_shape) == 5
+                # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+                x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
+                # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+                shots_x = x_batch[:, :, :n_shot, :, :, :]
+                # (batch_sz, n_way, n_shot, channels , height , width)
+                query_x = x_batch[:, :, n_shot:, :, :, :]
+                # (batch_sz, n_way, n_query, channels , height , width)
+                shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
+                # (batch_sz, n_way*n_shot, channels , height , width)
+                query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
+                # (batch_sz, n_way*n_query, channels , height , width)
+
+                ############## labels #############
+                shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+                    n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
+        
+            else:
+                ## to be used only in eval mode
+                assert is_training is False
+                shots_x, shots_y, query_x, query_y = batch
+                uniq_classes = np.unique(shots_y)
+                assert all(uniq_classes == np.unique(query_y))
+                conversion_dict = {v:k for k, v in enumerate(uniq_classes)}
+                # convert labels
+                for uniq_class in uniq_classes: 
+                    shots_y[shots_y==uniq_class] = conversion_dict[uniq_class]
+                    query_y[query_y==uniq_class] = conversion_dict[uniq_class]
+                    
+                batch_sz = 1 # hack, since batches are returned by fine tune method in classical trainer
+                shots_x = shots_x.unsqueeze(dim=0)
+                shots_y = shots_y.unsqueeze(dim=0)
+                query_x = query_x.unsqueeze(dim=0)
+                query_y = query_y.unsqueeze(dim=0)
+                original_shape = shots_x.shape
+                
+            
+            # sanity checks
             assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
             assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
-
-
-            ############## labels #############
-            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
-                n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
             assert shots_y.shape == (batch_sz, n_way*n_shot)
             assert query_y.shape == (batch_sz, n_way*n_query)
-
 
             # move labels and covariates to cuda
             shots_x = shots_x.cuda()
@@ -382,8 +408,6 @@ class Generic_algorithm_trainer(object):
                     sum_train_measurements_trajectory_over_meta_set, n=n_task_batches),
                     'test_loss_after': divide_measurements(
                         sum_test_measurements_after_adapt_over_meta_set, n=n_task_batches)}
-
-            batch_size = len(shots_x)
             
             if is_training and (i % self._optimizer_update_interval == 0):
                 self._outer_optimizer.zero_grad()
@@ -648,10 +672,124 @@ class Classical_algorithm_trainer(object):
             self.log_output(epoch, None,
                 {"val_loss":  np.mean(agg_loss),
                     "val_acc": np.mean(agg_accu) * 100.})    
+
+
+
+    def fine_tune(self, dataset_iterator, dataset_manager, label_offset=0, n_fine_tune_epochs=1):
+
+        self._model.train()
+
+        n_way = dataset_manager.n_way
+        n_shot = dataset_manager.n_shot
+        n_query = dataset_manager.n_query
+        batch_sz = dataset_manager.batch_size
+        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
+
+        all_val_tasks_shots_x = []
+        all_val_tasks_shots_y = []
+        all_val_tasks_query_x = []
+        all_val_tasks_query_y = []
+        
+        print("parsing val dataset once ... ")
+        for batch in tqdm(dataset_iterator, total=len(dataset_iterator)):
+
+            ############## covariates #############
+            x_batch, y_batch = batch
+            original_shape = x_batch.shape
+            assert len(original_shape) == 5
+            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
+            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+            shots_x = x_batch[:, :, :n_shot, :, :, :]
+            # (batch_sz, n_way, n_shot, channels , height , width)
+            query_x = x_batch[:, :, n_shot:, :, :, :]
+            # (batch_sz, n_way, n_query, channels , height , width)
+            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_shot, channels , height , width)
+            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_query, channels , height , width)
+            assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
+            assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
+
+
+            ############## labels #############
+            y_batch = y_batch.reshape(batch_sz, n_way, -1)
+            # batch_sz, n_way, n_shot+n_query
+            shots_y = y_batch[:, :, :n_shot].reshape(batch_sz, -1)
+            query_y = y_batch[:, :, n_shot:].reshape(batch_sz, -1)
+        
+            ### accumulate samples across tasks ###
+            all_val_tasks_shots_x.append(shots_x)
+            all_val_tasks_shots_y.append(shots_y)
+            all_val_tasks_query_x.append(query_x)
+            all_val_tasks_query_y.append(query_y)
+
+
+        ############## concatenate samples from all tasks #############
+        all_val_tasks_shots_x = torch.cat(all_val_tasks_shots_x, dim=0)
+        all_val_tasks_shots_y = torch.cat(all_val_tasks_shots_y, dim=0)
+        all_val_tasks_query_x = torch.cat(all_val_tasks_query_x, dim=0)
+        all_val_tasks_query_y = torch.cat(all_val_tasks_query_y, dim=0)
+
+        #### fix label offset before fine tuning ####
+        """This is mainly because at validation time the samples would be 
+        labelled using their flobal values: [64:79] for mini-imagenet for eg.,
+        this nneds to be reduced by 64 to get labels from 0 to 15.
+        """
+        all_val_tasks_shots_y -= label_offset
+        all_val_tasks_query_y -= label_offset
+
+        print("all_val_tasks_shots_x", all_val_tasks_shots_x.shape)
+        print("all_val_tasks_shots_y", all_val_tasks_shots_y.shape)
+        print("all_val_tasks_query_x", all_val_tasks_query_x.shape)
+        print("all_val_tasks_query_y", all_val_tasks_query_y.shape)
+
+        ## begin fine tuning ##
+        epoch = 0
+        for _ in range(n_fine_tune_epochs):
+            
+            epoch +=1 
+            iterator = tqdm(enumerate(zip(all_val_tasks_shots_x, all_val_tasks_shots_y), start=1),
+                            leave=False, file=sys.stdout, position=0)
+
+            agg_loss = []
+            agg_accu = []
+                     
+            for i, (shots_x, shots_y) in iterator:
+
+                analysis = (i % self._log_interval == 0)
+                batch_size = len(shots_x)
+                shots_x = shots_x.reshape(-1, *shots_x.shape[-3:]) 
+                shots_y = shots_y.reshape(-1)
+                batch_x = shots_x.cuda()
+                batch_y = shots_y.cuda()
+                
+                logits = self._model(batch_x)
+                loss = self._loss_func(logits, batch_y)
+                accu = accuracy(logits, batch_y)
+                
+                self._optimizer.zero_grad()
+                loss.backward()
+                if self._grad_norm > 0.:
+                    clip_grad_norm_(self._model.parameters(), self._grad_norm)
+                self._optimizer.step()
+                
+                agg_loss.append(loss.data.item())
+                agg_accu.append(accu)
+                
+                # logging
+                if analysis:
+                    self.log_output(epoch, i,
+                        {"train_loss":  np.mean(agg_loss),
+                            "train_acc": np.mean(agg_accu) * 100.}, write_tensorboard=False)
+                    agg_loss = []
+                    agg_accu = []
+
+        return self._model, (all_val_tasks_shots_x, all_val_tasks_shots_y, all_val_tasks_query_x, all_val_tasks_query_y)
         
 
     def log_output(self, epoch, iteration,
-                metrics_dict):
+                metrics_dict, write_tensorboard=True):
         if iteration is not None:
             log_array = ['Epoch {} Iteration {}'.format(epoch, iteration)]
         else:
@@ -659,7 +797,8 @@ class Classical_algorithm_trainer(object):
         for key in metrics_dict:
             log_array.append(
                 '{}: \t{:.2f}'.format(key, metrics_dict[key]))
-            self._writer.add_scalar(
-                key, metrics_dict[key], iteration)
+            if write_tensorboard:
+                self._writer.add_scalar(
+                    key, metrics_dict[key], iteration)
             log_array.append(' ') 
         tqdm.write('\n'.join(log_array))

@@ -11,9 +11,9 @@ import pprint
 import re
 
 from algorithm_trainer.models import gated_conv_net_original, resnet
-from algorithm_trainer.algorithm_trainer import Generic_algorithm_trainer, LR_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import LR, SVM, ProtoNet, ProtoSVM
-from algorithm_trainer.utils import optimizer_to_device
+from algorithm_trainer.algorithm_trainer import Generic_algorithm_trainer, LR_algorithm_trainer, Classical_algorithm_trainer
+from algorithm_trainer.algorithms.algorithm import LR, SVM, ProtoNet
+from algorithm_trainer.utils import optimizer_to_device, add_fc, remove_fc
 from data_layer.dataset_managers import MetaDataManager
 
 
@@ -74,13 +74,16 @@ def main(args):
             'Unrecognized model type {}'.format(args.model_type))
     print("Model\n" + "=="*27)    
     print(model)
+    prefc_feature_sz = model.prefc_feature_sz
 
 
     # load from checkpoint
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
         model_dict = model.state_dict()
-        chkpt_state_dict = torch.load(args.checkpoint)['model']
+        chkpt_state_dict = torch.load(args.checkpoint)
+        if 'model' in chkpt_state_dict:
+            chkpt_state_dict = chkpt_state_dict['model']
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
         if args.no_fc_layer:
             # remove "module." from key, possibly present as it was dumped by data-parallel
@@ -130,7 +133,7 @@ def main(args):
 
   
     if args.algorithm == 'LR':
-        algorithm = ImpRMAML_inner_algorithm(
+        algorithm = LR(
             model=model,
             embedding_model=embedding_model,
             inner_loss_func=loss_func,
@@ -139,7 +142,7 @@ def main(args):
             is_classification=True)
 
     elif args.algorithm == 'SVM':
-        algorithm = MetaOptnet(
+        algorithm = SVM(
             model=model,
             inner_loss_func=loss_func,
             n_way=args.n_way_train,
@@ -156,14 +159,6 @@ def main(args):
             n_query=args.n_query_train,
             device=args.device)
 
-    elif args.algorithm == 'ProtoSVM':
-        algorithm = ProtoSVM(
-            model=model,
-            inner_loss_func=loss_func,
-            n_way=args.num_classes_per_batch_meta_train,
-            n_shot=args.n_shot_train,
-            n_query=args.n_query_train,
-            device=args.device)
 
 
     if args.algorithm in ['LR']:
@@ -177,7 +172,7 @@ def main(args):
             outer_loop_grad_norm=args.grad_clip,
             hessian_inverse=args.hessian_inverse)
         
-    elif args.algorithm in ['SVM', 'Protonet', 'ProtoSVM']:
+    elif args.algorithm in ['SVM', 'Protonet']:
         trainer = Generic_algorithm_trainer(
             algorithm=algorithm,
             outer_loss_func=loss_func,
@@ -221,7 +216,33 @@ def main(args):
     else:
         if hasattr(trainer._algorithm, '_n_way'):
             trainer._algorithm._n_way = args.n_way_val
-        results = trainer.run(val_loader, val_datamgr, is_training=False, start=0)
+
+        # fine tune features on support set of tasks
+        if args.fine_tune:
+            # add fc layer to model backbone based on number of val classes
+            model_with_fc = add_fc(model, prefc_feature_sz, args.num_classes)
+            # instantiate classical trainer
+            fine_tuner = Classical_algorithm_trainer(
+                model=model_with_fc,
+                loss_func=loss_func,
+                optimizer=optimizer, writer=writer,
+                log_interval=args.log_interval, save_folder=save_folder, 
+                grad_norm=args.grad_clip
+            )
+            # fine tune on support samples of meta-validation set, make sure to return all val tasks as is
+            fine_tuned_model_with_fc, val_batches = fine_tuner.fine_tune(val_loader, val_datamgr, 
+                label_offset=args.label_offset, n_fine_tune_epochs=args.n_fine_tune_epochs)
+            # thorow away fc
+            fine_tuned_model_without_fc = remove_fc(fine_tuned_model_with_fc)
+            # set algorithm's model to be the fine tuned model
+            trainer._algorithm._model = fine_tuned_model_without_fc
+            # evaluate on query set of val tasks
+            results = trainer.run(val_loader, val_datamgr, 
+                is_training=False, start=0, fixed_batches=val_batches)   
+
+        else:  
+            results = trainer.run(val_loader, val_datamgr, is_training=False, start=0)
+        
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         
@@ -249,6 +270,10 @@ if __name__ == '__main__':
         help='will not add fc layer to model')
     parser.add_argument('--use-group-norm', type=str2bool, default=False,
         help='use group norm instead of batch norm')
+    parser.add_argument('--num-classes', type=int, default=200,
+        help='no of classes -- used during fine tuning')
+    parser.add_argument('--label-offset', type=int, default=0,
+        help='offset for label values during fine tuning stage')
     
     
     # Optimization
@@ -264,6 +289,9 @@ if __name__ == '__main__':
         help='for implicit last layer optimization, whether to use \
             hessian to solve linear equation or to use woodbury identity\
             on the hessian inverse')
+    parser.add_argument('--n-fine-tune-epochs', type=int, default=60000,
+        help='number of model fine tune epochs')
+    
     
     
     # Dataset
@@ -314,6 +342,8 @@ if __name__ == '__main__':
         help='no. of iterations validation.') 
     parser.add_argument('--train-aug', action='store_true', default=True,
         help='perform data augmentation during training')
+    parser.add_argument('--fine-tune', action='store_true', default=False,
+        help='fine tune features on the support set at eval time')
     args = parser.parse_args()
     
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number

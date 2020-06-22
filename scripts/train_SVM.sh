@@ -1,11 +1,16 @@
-python main.py \
+python main_meta.py \
 --algorithm SVM \
 --model-type resnet \
 --add-bias True \
 --no-fc-layer True \
+--checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
+--fine-tune \
+--n-fine-tune-epochs 2 \
+--num-classes 16 \
+--label-offset 64 \
 --optimizer adam \
 --lr 0.001 \
---optimizer-update-interval 2 \
+--optimizer-update-interval 1 \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
 --train-aug \
@@ -14,15 +19,16 @@ python main.py \
 --batch-size-val 10 \
 --n-way-train 5 \
 --n-way-val 5 \
---n-shot-train 5 \
---n-shot-val 5 \
+--n-shot-train 1 \
+--n-shot-val 1 \
 --n-query-train 15 \
 --n-query-val 15 \
 --n-iterations-train 60000 \
 --n-iterations-val 100 \
---output-folder SVM_miniimagenet_5w5s \
---device-number 2 \
---log-interval 50 \
+--output-folder eval_SVM_with_classical_backbone \
+--device-number 0,1,2,3 \
+--log-interval 200 \
 --save-interval 1000 \
 --val-interval 1000 \
---verbose True
+--verbose True \
+--eval

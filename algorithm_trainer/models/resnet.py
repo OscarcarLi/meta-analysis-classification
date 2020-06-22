@@ -129,11 +129,14 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        
+
+        self.prefc_feature_sz = 512 * block.expansion
         if distance_classifier and (no_fc_layer is False):
-            self.fc = distLinear(512 * block.expansion, num_classes)
+            self.fc = distLinear(self.prefc_feature_sz, num_classes)
         elif no_fc_layer is False:
-            self.fc = nn.Linear(512 * block.expansion, num_classes)
+            self.fc = nn.Linear(self.prefc_feature_sz, num_classes)
+        else:
+            self.fc = None
 
         self.no_fc_layer = no_fc_layer
         self.add_bias = add_bias
@@ -164,9 +167,9 @@ class ResNet(nn.Module):
         out = self.layer4(out)
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
-        if self.add_bias and self.no_fc_layer:
+        if self.add_bias and self.fc is None:
             out = torch.cat([out, 10.*torch.ones((out.size(0), 1), device=out.device)], dim=-1)
-        elif self.no_fc_layer is False:
+        elif self.fc is not None:
             out = self.fc.forward(out)
         return out
     
