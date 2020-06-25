@@ -10,6 +10,7 @@ import numpy as np
 import pprint
 from tensorboardX import SummaryWriter
 import re
+import gc
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet
@@ -141,6 +142,8 @@ def main(args):
     
     for iter_start in range(args.n_epochs):
         _ = classical_trainer.run(classical_val_loader, is_training=True, epoch=iter_start+1)
+        # clean up garbage and clear cuda cache as much as possible
+        gc.collect()
         results = adaptation_trainer.run(meta_val_loader, meta_val_datamgr)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)

@@ -802,7 +802,7 @@ class Classical_algorithm_trainer(object):
                         metrics, write_tensorboard=False)
                     agg_loss = []
                     agg_accu = []
-
+        
         return self._model, (all_val_tasks_shots_x, all_val_tasks_shots_y, all_val_tasks_query_x, all_val_tasks_query_y)
         
 
@@ -888,7 +888,7 @@ class Generic_adaptation_trainer(object):
 
         # iterator
         iterator = tqdm(enumerate(dataset_iterator, start=1),
-                        leave=False, file=sys.stdout, initial=start, position=0)
+                        leave=False, file=sys.stdout, initial=1, position=0)
         
         for i, batch in iterator:
         
@@ -961,12 +961,11 @@ class Generic_adaptation_trainer(object):
             test_loss_after_adapt = self._outer_loss_func(logits, query_y)
             test_accu_after_adapt = accuracy(logits, query_y)
             if self._aux_objective is not None:
-                with torch.no_grad:
-                    test_aux_loss = self.compute_aux_obj(query_x, query_y)
+                test_aux_loss = self.compute_aux_obj(query_x, query_y)
             val_task_acc.append(test_accu_after_adapt * 100.)
         
             # metrics
-            measurements_trajectory['aux_loss'] = [aux_loss_after_adaptation]
+            measurements_trajectory['aux_loss'] = [aux_loss_after_adaptation.item()]
             train_measurements_trajectory_over_batch = {
                 k:np.array([v]) for k,v in measurements_trajectory.items()
             }
