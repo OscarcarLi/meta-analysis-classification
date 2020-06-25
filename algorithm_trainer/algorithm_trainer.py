@@ -802,3 +802,228 @@ class Classical_algorithm_trainer(object):
                     key, metrics_dict[key], iteration)
             log_array.append(' ') 
         tqdm.write('\n'.join(log_array))
+
+
+
+
+"""Use a generic feature backbone but adapt it using 
+some auxiliary adaptation strategy.
+"""
+
+class Generic_adaptation_trainer(object):
+
+    def __init__(self, algorithm, aux_objective, outer_loss_func, outer_optimizer,
+            writer, log_interval, model_type, grad_clip=0., n_aux_objective_steps=5):
+
+        self._algorithm = algorithm
+        self._aux_objective = aux_objective
+        self._outer_loss_func = outer_loss_func
+        self._outer_optimizer = outer_optimizer
+        self._writer = writer
+        self._log_interval = log_interval 
+        # at log_interval will do gradient analysis
+        self._grad_clip = grad_clip
+        self._model_type = model_type
+        self._n_aux_objective_steps = n_aux_objective_steps 
+
+        
+
+
+    def optimize_auxiliary_obj(self, shots_x, shots_y):
+        for _ in range (self._n_aux_objective_steps):
+            self._outer_optimizer.zero_grad()
+            orig_shots_shape = shots_x.shape
+            features_x = self._algorithm._model(
+                shots_x.reshape(-1, *orig_shots_shape[2:])).reshape(*orig_shots_shape[:2], -1)
+            aux_loss = self._aux_objective(features_x, shots_y)
+            aux_loss.backward()
+            if self._grad_clip > 0.:
+                clip_grad_norm_(self._algorithm._model.parameters(), self._grad_clip)
+            self._outer_optimizer.step()
+        return aux_loss.item()
+        
+
+    def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1):
+
+        val_task_acc = []
+
+        # looping through the entire meta_dataset once
+        sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
+        sum_test_measurements_after_adapt_over_meta_set = defaultdict(float)
+        n_task_batches = 0
+
+        # meta-learning task configurations
+        n_way = dataset_manager.n_way
+        n_shot = dataset_manager.n_shot
+        n_query = dataset_manager.n_query
+        batch_sz = dataset_manager.batch_size
+        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
+
+        # iterator
+        iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
+                        leave=False, file=sys.stdout, initial=start, position=0)
+        
+        for i, batch in iterator:
+        
+            ############## covariates #############
+            x_batch, y_batch = batch
+            original_shape = x_batch.shape
+            assert len(original_shape) == 5
+            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
+            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+            shots_x = x_batch[:, :, :n_shot, :, :, :]
+            # (batch_sz, n_way, n_shot, channels , height , width)
+            query_x = x_batch[:, :, n_shot:, :, :, :]
+            # (batch_sz, n_way, n_query, channels , height , width)
+            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_shot, channels , height , width)
+            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_query, channels , height , width)
+
+            ############## labels #############
+            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+                n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
+    
+
+            # sanity checks
+            assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
+            assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
+            assert shots_y.shape == (batch_sz, n_way*n_shot)
+            assert query_y.shape == (batch_sz, n_way*n_query)
+
+            # move labels and covariates to cuda
+            shots_x = shots_x.cuda()
+            query_x = query_x.cuda()
+            shots_y = shots_y.cuda()
+            query_y = query_y.cuda()
+
+
+            # cpy model state dict and optimize model on a specific objective
+            if self._aux_objective is not None:
+                original_state_dict = self._algorithm._model.state_dict()
+                self._algorithm._model.train()
+                aux_loss = self.optimize_auxiliary_obj()
+            self._algorithm._model.eval()
+        
+            # forward pass on updated model
+            with torch.no_grad():
+                logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                    query=query_x, support=shots_x, 
+                    support_labels=shots_y)
+                assert len(set(shots_y)) == len(set(query_y))
+            if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                scale = self._algorithm._model.module.scale
+            else:
+                scale = self._algorithm._model.scale
+
+            # reshape logits
+            logits = scale * logits.reshape(-1, logits.size(-1))
+            query_y = query_y.reshape(-1)
+            assert logits.size(0) == query_y.size(0)
+            analysis = (i % self._log_interval == 0)
+
+            # reinstate original model for the next task
+            if self._aux_objective is not None:
+                self._algorithm._model.load_state_dict(original_state_dict)
+
+            # compute loss and accu
+            test_loss_after_adapt = self._outer_loss_func(logits, query_y)
+            test_accu_after_adapt = accuracy(logits, query_y)
+            if not is_training:
+                val_task_acc.append(test_accu_after_adapt * 100.)
+        
+            # metrics
+            train_measurements_trajectory_over_batch = {
+                k:np.array([v]) for k,v in measurements_trajectory.items()
+            }
+            test_measurements_after_adapt_over_batch = {
+                'loss': np.array([test_loss_after_adapt.item()]) , 
+                'accu': np.array([test_accu_after_adapt]),
+                'aux_loss': np.array([aux_loss])
+            }
+            update_sum_measurements(sum_test_measurements_after_adapt_over_meta_set,
+                                    test_measurements_after_adapt_over_batch)
+            update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
+                                               train_measurements_trajectory_over_batch)
+            n_task_batches += 1
+
+            # logging
+            if analysis:
+                self.log_output(i,
+                    train_measurements_trajectory_over_batch,
+                    test_measurements_after_adapt_over_batch,
+                    write_tensorboard=False)
+
+
+        results = {
+            'train_loss_trajectory': divide_measurements(
+                sum_train_measurements_trajectory_over_meta_set, n=n_task_batches),
+            'test_loss_after': divide_measurements(
+                sum_test_measurements_after_adapt_over_meta_set, n=n_task_batches)
+        }
+        mean, i95 = (np.mean(val_task_acc), 
+            1.96 * np.std(val_task_acc) / np.sqrt(len(val_task_acc)))
+        results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
+    
+        return results
+
+
+    def get_labels(self, y_batch, n_way, n_shot, n_query, batch_sz):
+        # original y_batch: (batch_sz*n_way, n_shot+n_query)
+        y_batch = y_batch.reshape(batch_sz, n_way, -1)
+        # batch_sz, n_way, n_shot+n_query
+        
+        for i in range(y_batch.shape[0]):
+            uniq_classes = np.unique(y_batch[i, :, :])
+            conversion_dict = {v:k for k, v in enumerate(uniq_classes)}
+            # convert labels
+            for uniq_class in uniq_classes: 
+                y_batch[i, y_batch[i]==uniq_class] = conversion_dict[uniq_class]
+            
+        shots_y = y_batch[:, :, :n_shot]
+        query_y = y_batch[:, :, n_shot:]
+        shots_y = shots_y.reshape(batch_sz, -1)
+        query_y = query_y.reshape(batch_sz, -1)
+        return shots_y, query_y
+        
+
+    def log_output(self, iteration,
+                train_measurements_trajectory_over_batch,
+                test_measurements_after_adapt_over_batch,
+                write_tensorboard=False, meta_val=False):
+
+        log_array = ['Iteration: {}'.format(iteration)]
+        key_list = ['loss', 'accu']
+        for key in key_list:
+            if not meta_val:
+                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+                avg_train_after = avg_train_trajectory[-1]
+            else:
+                avg_train_trajectory = train_measurements_trajectory_over_batch[key]
+                avg_test_after = test_measurements_after_adapt_over_batch[key]
+                avg_train_after = avg_train_trajectory[-1]
+
+            if 'accu' in key:
+                log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
+                log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
+            else:
+                log_array.append('train {} after: \t{:.3f}'.format(key, avg_train_after))
+                log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
+
+            if write_tensorboard:
+                if meta_val:
+                    self._writer.add_scalar('meta_val/train_{}_post'.format(key),
+                                                avg_train_trajectory[-1],
+                                                iteration)
+                    self._writer.add_scalar('meta_val/test_{}_post'.format(key), avg_test_after, iteration)
+                else:
+                    self._writer.add_scalar('meta_train/train_{}_post'.format(key),
+                                                avg_train_trajectory[-1],
+                                                iteration)
+                    self._writer.add_scalar('meta_train/test_{}_post'.format(key), avg_test_after, iteration)
+
+            log_array.append(' ') 
+        if not meta_val:
+            tqdm.write('\n'.join(log_array))

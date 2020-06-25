@@ -1,9 +1,13 @@
 python main_meta.py \
 --algorithm Protonet \
 --model-type resnet \
---checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
 --add-bias True \
 --no-fc-layer True \
+--checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
+--fine-tune \
+--n-fine-tune-epochs 2 \
+--num-classes 16 \
+--label-offset 64 \
 --optimizer adam \
 --lr 0.001 \
 --optimizer-update-interval 1 \
@@ -11,16 +15,16 @@ python main_meta.py \
 --dataset-path data/filelists/miniImagenet \
 --train-aug \
 --img-side-len 84 \
---batch-size-train 8 \
+--batch-size-train 10 \
 --batch-size-val 10 \
 --n-way-train 5 \
 --n-way-val 5 \
---n-shot-train 1 \
---n-shot-val 1 \
+--n-shot-train 5 \
+--n-shot-val 5 \
 --n-query-train 15 \
 --n-query-val 15 \
 --n-iterations-train 10000 \
---n-iterations-val 400 \
+--n-iterations-val 100 \
 --output-folder eval_Protonet_with_classical_backbone \
 --device-number 0,1,2,3 \
 --log-interval 50 \

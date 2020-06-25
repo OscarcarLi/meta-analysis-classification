@@ -76,12 +76,11 @@ def main(args):
         model_dict = model.state_dict()
         chkpt_state_dict = torch.load(args.checkpoint)['model']
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
-        if args.no_fc_layer:
-            # remove "module." from key, possibly present as it was dumped by data-parallel
-            for key in chkpt_state_dict_cpy.keys():
-                if 'module.' in key:
-                    new_key = re.sub('module\.', '',  key)
-                    chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
+        # remove "module." from key, possibly present as it was dumped by data-parallel
+        for key in chkpt_state_dict_cpy.keys():
+            if 'module.' in key:
+                new_key = re.sub('module\.', '',  key)
+                chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
         chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
         model_dict.update(chkpt_state_dict)
         updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
