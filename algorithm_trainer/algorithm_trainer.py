@@ -607,7 +607,7 @@ To train model on all classes together
 class Classical_algorithm_trainer(object):
 
     def __init__(self, model, loss_func, optimizer, writer,
-        log_interval, save_folder, grad_norm):
+        log_interval, save_folder, grad_clip, label_offset=0):
 
         self._model = model
         self._loss_func = loss_func
@@ -615,7 +615,8 @@ class Classical_algorithm_trainer(object):
         self._writer = writer
         self._log_interval = log_interval 
         self._save_folder = save_folder
-        self._grad_norm = grad_norm
+        self._grad_clip = grad_clip
+        self._label_offset = label_offset
 
 
     def run(self, dataset_iterator, epoch=None, is_training=True):
@@ -629,49 +630,60 @@ class Classical_algorithm_trainer(object):
                         leave=False, file=sys.stdout, position=0)
         agg_loss = []
         agg_accu = []
+        val_loss = []
+        val_accu = []
         
         for i, batch in iterator:
 
             analysis = (i % self._log_interval == 0)
             batch_size = len(batch)
             batch_x, batch_y = batch
+            batch_y = batch_y - self._label_offset
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
-
+                
             
             logits = self._model(batch_x)
             loss = self._loss_func(logits, batch_y)
-            accu = accuracy(logits, batch_y)
-            
+            accu = None
+            if isinstance(self._loss_func, torch.nn.CrossEntropyLoss):
+                accu = accuracy(output_x, batch_y)
+                
             if is_training:
                 self._optimizer.zero_grad()
                 loss.backward()
-                if self._grad_norm > 0.:
-                    clip_grad_norm_(self._model.parameters(), self._grad_norm)
+                if self._grad_clip > 0.:
+                    clip_grad_norm_(self._model.parameters(), self._grad_clip)
                 self._optimizer.step()
             
             agg_loss.append(loss.data.item())
-            agg_accu.append(accu)
+            if accu is not None:
+                agg_accu.append(accu)
             
             # logging
             if analysis and is_training:
-                self.log_output(epoch, i,
-                    {"train_loss":  np.mean(agg_loss),
-                        "train_acc": np.mean(agg_accu) * 100.})
+                metrics = {"train_loss":  np.mean(agg_loss)}
+                if accu is not None:
+                    metrics["train_acc"] = np.mean(agg_accu) * 100.  
+                self.log_output(epoch, i,metrics)
+                val_loss.append(np.mean(agg_loss))
+                if accu is not None:
+                    val_accu.append(np.mean(agg_accu)) 
                 agg_loss = []
                 agg_accu = []
 
         # save model and log tboard for eval
-        if is_training:
+        if is_training and self._save_folder is not None:
             save_name = "classical_{0}_{1:03d}.pt".format('resnet', epoch)
             save_path = os.path.join(self._save_folder, save_name)
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._model.state_dict()}, f)
 
         else:
-            self.log_output(epoch, None,
-                {"val_loss":  np.mean(agg_loss),
-                    "val_acc": np.mean(agg_accu) * 100.})    
+            metrics = {"val_loss":  np.mean(val_loss)}
+            if len(val_accu):
+                metrics["val_acc"] = np.mean(val_accu) * 100.  
+            self.log_output(epoch, None, metrics)    
 
 
 
@@ -756,7 +768,8 @@ class Classical_algorithm_trainer(object):
             agg_accu = []
                      
             for i, (shots_x, shots_y) in iterator:
-
+                
+                shots_y = shots_y - self._label_offset
                 analysis = (i % self._log_interval == 0)
                 batch_size = len(shots_x)
                 shots_x = shots_x.reshape(-1, *shots_x.shape[-3:]) 
@@ -764,9 +777,11 @@ class Classical_algorithm_trainer(object):
                 batch_x = shots_x.cuda()
                 batch_y = shots_y.cuda()
                 
-                logits = self._model(batch_x)
-                loss = self._loss_func(logits, batch_y)
-                accu = accuracy(logits, batch_y)
+                output_x = self._model(batch_x)
+                loss = self._loss_func(output_x, batch_y)
+                accu = None
+                if isinstance(self._loss_func, torch.nn.CrossEntropyLoss):
+                    accu = accuracy(output_x, batch_y)
                 
                 self._optimizer.zero_grad()
                 loss.backward()
@@ -775,13 +790,16 @@ class Classical_algorithm_trainer(object):
                 self._optimizer.step()
                 
                 agg_loss.append(loss.data.item())
-                agg_accu.append(accu)
+                if accu is not None:
+                    agg_accu.append(accu)
                 
                 # logging
                 if analysis:
+                    metrics = {"train_loss":  np.mean(agg_loss)}
+                    if accu is not None:
+                        metrics["train_acc"] = np.mean(agg_accu) * 100.  
                     self.log_output(epoch, i,
-                        {"train_loss":  np.mean(agg_loss),
-                            "train_acc": np.mean(agg_accu) * 100.}, write_tensorboard=False)
+                        metrics, write_tensorboard=False)
                     agg_loss = []
                     agg_accu = []
 
@@ -789,7 +807,7 @@ class Classical_algorithm_trainer(object):
         
 
     def log_output(self, epoch, iteration,
-                metrics_dict, write_tensorboard=True):
+                metrics_dict):
         if iteration is not None:
             log_array = ['Epoch {} Iteration {}'.format(epoch, iteration)]
         else:
@@ -797,7 +815,7 @@ class Classical_algorithm_trainer(object):
         for key in metrics_dict:
             log_array.append(
                 '{}: \t{:.2f}'.format(key, metrics_dict[key]))
-            if write_tensorboard:
+            if self._writer is not None and write_tensorboard:
                 self._writer.add_scalar(
                     key, metrics_dict[key], iteration)
             log_array.append(' ') 
@@ -813,10 +831,11 @@ some auxiliary adaptation strategy.
 class Generic_adaptation_trainer(object):
 
     def __init__(self, algorithm, aux_objective, outer_loss_func, outer_optimizer,
-            writer, log_interval, model_type, grad_clip=0., n_aux_objective_steps=5):
+            writer, log_interval, model_type, grad_clip=0., n_aux_objective_steps=5,
+            label_offset=0):
 
         self._algorithm = algorithm
-        self._aux_objective = aux_objective
+        self._aux_objective = torch.nn.CrossEntropyLoss()
         self._outer_loss_func = outer_loss_func
         self._outer_optimizer = outer_optimizer
         self._writer = writer
@@ -825,18 +844,23 @@ class Generic_adaptation_trainer(object):
         self._grad_clip = grad_clip
         self._model_type = model_type
         self._n_aux_objective_steps = n_aux_objective_steps 
+        self._label_offset = label_offset
 
-        
 
+    def compute_aux_obj(self, x, y):
+        orig_shots_shape = x.shape
+        features_x = self._algorithm._model(
+                x.reshape(-1, *orig_shots_shape[2:])).reshape(*orig_shots_shape[:2], -1)
+        feature_sz = features_x.shape[-1]
+        aux_loss = self._aux_objective(
+            features_x.reshape(-1, feature_sz), y.reshape(-1))
+        return aux_loss
 
     def optimize_auxiliary_obj(self, shots_x, shots_y):
         aux_loss_before_adaptation = None
         for _ in range (self._n_aux_objective_steps):
             self._outer_optimizer.zero_grad()
-            orig_shots_shape = shots_x.shape
-            features_x = self._algorithm._model(
-                shots_x.reshape(-1, *orig_shots_shape[2:])).reshape(*orig_shots_shape[:2], -1)
-            aux_loss = self._aux_objective(features_x, shots_y)
+            aux_loss = self.compute_aux_obj(shots_x, shots_y)
             aux_loss.backward()
             if self._grad_clip > 0.:
                 clip_grad_norm_(self._algorithm._model.parameters(), self._grad_clip)
@@ -846,7 +870,7 @@ class Generic_adaptation_trainer(object):
         return aux_loss_before_adaptation, aux_loss.item()
         
 
-    def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1):
+    def run(self, dataset_iterator, dataset_manager, meta_val=False):
 
         val_task_acc = []
 
@@ -863,13 +887,14 @@ class Generic_adaptation_trainer(object):
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
 
         # iterator
-        iterator = tqdm(enumerate(dataset_iterator, start=start if is_training else 1),
+        iterator = tqdm(enumerate(dataset_iterator, start=1),
                         leave=False, file=sys.stdout, initial=start, position=0)
         
         for i, batch in iterator:
         
             ############## covariates #############
             x_batch, y_batch = batch
+            y_batch = y_batch - self._label_offset
             original_shape = x_batch.shape
             assert len(original_shape) == 5
             # (batch_sz*n_way, n_shot+n_query, channels , height , width)
@@ -916,7 +941,7 @@ class Generic_adaptation_trainer(object):
                 logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
                     query=query_x, support=shots_x, 
                     support_labels=shots_y)
-                assert len(set(shots_y)) == len(set(query_y))
+            assert len(set(shots_y)) == len(set(query_y))
             if isinstance(self._algorithm._model, torch.nn.DataParallel):
                 scale = self._algorithm._model.module.scale
             else:
@@ -935,18 +960,20 @@ class Generic_adaptation_trainer(object):
             # compute loss and accu
             test_loss_after_adapt = self._outer_loss_func(logits, query_y)
             test_accu_after_adapt = accuracy(logits, query_y)
-            if not is_training:
-                val_task_acc.append(test_accu_after_adapt * 100.)
+            if self._aux_objective is not None:
+                with torch.no_grad:
+                    test_aux_loss = self.compute_aux_obj(query_x, query_y)
+            val_task_acc.append(test_accu_after_adapt * 100.)
         
             # metrics
-            measurements_trajectory['aux_loss'] = [aux_loss_before_adaptation]
+            measurements_trajectory['aux_loss'] = [aux_loss_after_adaptation]
             train_measurements_trajectory_over_batch = {
                 k:np.array([v]) for k,v in measurements_trajectory.items()
             }
             test_measurements_after_adapt_over_batch = {
                 'loss': np.array([test_loss_after_adapt.item()]) , 
                 'accu': np.array([test_accu_after_adapt]),
-                'aux_loss': np.array([aux_loss_after_adaptation])
+                'aux_loss': np.array([test_aux_loss.item()])
             }
             update_sum_measurements(sum_test_measurements_after_adapt_over_meta_set,
                                     test_measurements_after_adapt_over_batch)
@@ -997,20 +1024,15 @@ class Generic_adaptation_trainer(object):
     def log_output(self, iteration,
                 train_measurements_trajectory_over_batch,
                 test_measurements_after_adapt_over_batch,
-                write_tensorboard=False, meta_val=False):
+                write_tensorboard=False):
 
         log_array = ['Iteration: {}'.format(iteration)]
         key_list = ['loss', 'accu', 'aux_loss']
         for key in key_list:
-            if not meta_val:
-                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
-                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
-                avg_train_after = avg_train_trajectory[-1]
-            else:
-                avg_train_trajectory = train_measurements_trajectory_over_batch[key]
-                avg_test_after = test_measurements_after_adapt_over_batch[key]
-                avg_train_after = avg_train_trajectory[-1]
-
+            avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+            avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+            avg_train_after = avg_train_trajectory[-1]
+        
             if 'accu' in key:
                 log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
                 log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
@@ -1019,17 +1041,10 @@ class Generic_adaptation_trainer(object):
                 log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
 
             if write_tensorboard:
-                if meta_val:
-                    self._writer.add_scalar('meta_val/train_{}_post'.format(key),
-                                                avg_train_trajectory[-1],
-                                                iteration)
-                    self._writer.add_scalar('meta_val/test_{}_post'.format(key), avg_test_after, iteration)
-                else:
-                    self._writer.add_scalar('meta_train/train_{}_post'.format(key),
-                                                avg_train_trajectory[-1],
-                                                iteration)
-                    self._writer.add_scalar('meta_train/test_{}_post'.format(key), avg_test_after, iteration)
+                self._writer.add_scalar('train_{}_post'.format(key),
+                                            avg_train_trajectory[-1],
+                                            iteration)
+                self._writer.add_scalar('test_{}_post'.format(key), avg_test_after, iteration)
 
             log_array.append(' ') 
-        if not meta_val:
-            tqdm.write('\n'.join(log_array))
+        tqdm.write('\n'.join(log_array))

@@ -13,10 +13,9 @@ import re
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet
-from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer
+from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer, Classical_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet
-from data_layer.dataset_managers import MetaDataManager
-from data_layer.datasets import MetaDataset
+from data_layer.dataset_managers import MetaDataManager, ClassicalDataManager
 from analysis.objectives import var_reduction_disc
 
 
@@ -55,7 +54,9 @@ def main(args):
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
         # remove "module." from key, possibly present as it was dumped by data-parallel
         for key in chkpt_state_dict_cpy.keys():
-            if 'module.' in key:
+            if args.cpy_fc_layer is False and 'fc.' in key:
+                _  = chkpt_state_dict.pop(key)
+            elif 'module.' in key:
                 new_key = re.sub('module\.', '',  key)
                 chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
         chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
@@ -81,10 +82,12 @@ def main(args):
     # data loader
     image_size = args.img_side_len
     val_file = os.path.join(args.dataset_path, 'val.json')
-    val_datamgr = MetaDataManager(
+    meta_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    val_loader = val_datamgr.get_data_loader(val_file, aug=False)
+    meta_val_loader = meta_val_datamgr.get_data_loader(val_file, aug=False)
+    classical_val_datamgr = ClassicalDataManager(image_size, batch_size=320)
+    classical_val_loader = classical_val_datamgr.get_data_loader(val_file, aug=False)
 
     # algorithm
     if args.algorithm == 'SVM':
@@ -112,22 +115,36 @@ def main(args):
 
     
     # Iteratively optimize some objective and evaluate performance
-    print("##"*27, f"OBJECTIVE: {aux_func.__name__}", "##"*27)
-    trainer = Generic_adaptation_trainer(
+    if aux_func:
+        print("##"*27, f"AUX OBJECTIVE: {aux_func.__name__}", "##"*27)
+    adaptation_trainer = Generic_adaptation_trainer(
         algorithm=algorithm,
-        aux_objective=aux_func,
+        aux_objective=None,
         outer_loss_func=loss_func,
         outer_optimizer=optimizer, 
         writer=writer,
         log_interval=args.log_interval, grad_clip=args.grad_clip,
         model_type=args.model_type,
-        n_aux_objective_steps=args.n_aux_objective_steps)
+        n_aux_objective_steps=args.n_aux_objective_steps,
+        label_offset=args.label_offset)
+    classical_trainer = Classical_algorithm_trainer(
+        model=model,
+        loss_func=aux_func,
+        optimizer=optimizer, writer=writer,
+        log_interval=args.log_interval, save_folder=None, 
+        grad_clip=args.grad_clip,
+        label_offset=args.label_offset
+    )
+    
     
     # print results
-    results = trainer.run(val_loader, val_datamgr, is_training=False, start=0)
-    pp = pprint.PrettyPrinter(indent=4)
-    pp.pprint(results)
-        
+    
+    for iter_start in range(args.n_epochs):
+        _ = classical_trainer.run(classical_val_loader, is_training=True, epoch=iter_start+1)
+        results = adaptation_trainer.run(meta_val_loader, meta_val_datamgr)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
+            
 
 
 
@@ -153,6 +170,8 @@ if __name__ == '__main__':
         help='offset for label values during fine tuning stage')
     parser.add_argument('--no-fc-layer', type=str2bool, default=True,
         help='will not add fc layer to model')
+    parser.add_argument('--cpy-fc-layer', type=str2bool, default=False,
+        help='copy fc layer from saved checkpoint model')
 
     # Optimization
     parser.add_argument('--optimizer', type=str, default='adam',

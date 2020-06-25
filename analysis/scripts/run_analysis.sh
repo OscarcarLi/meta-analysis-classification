@@ -4,10 +4,12 @@ export PYTHONPATH='.'
 python analysis/main_analysis.py \
 --algorithm SVM \
 --model-type resnet \
---add-bias True \
+--add-bias False \
 --no-fc-layer True \
+--cpy-fc-layer False \
 --checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
---n-aux-objective-steps 5 \
+--n-epochs 10 \
+--n-aux-objective-steps 50 \
 --num-classes 16 \
 --label-offset 64 \
 --optimizer adam \

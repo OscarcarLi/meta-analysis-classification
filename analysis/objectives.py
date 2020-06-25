@@ -3,6 +3,7 @@ import torch
 
 
 def var_reduction_disc(batch_x, batch_y):
+    
     all_classes = np.unique(batch_y.detach().cpu().numpy())
     class_centres = {}
     for y in all_classes:
@@ -15,6 +16,7 @@ def var_reduction_disc(batch_x, batch_y):
                 disc_direction = class_centres[y] - class_centres[y_hat]
                 class_features = batch_x[batch_y==y, :]
                 projection = class_features @  disc_direction
-                obj += torch.var(projection)
-                cnt += 1
+                if len(projection) > 1:
+                    obj += torch.var(projection)
+                    cnt += 1
     return obj / cnt

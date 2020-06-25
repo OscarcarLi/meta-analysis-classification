@@ -120,7 +120,7 @@ def main(args):
         loss_func=loss_func,
         optimizer=optimizer, writer=writer,
         log_interval=args.log_interval, save_folder=save_folder, 
-        grad_norm=args.model_grad_clip
+        grad_clip=args.grad_clip
     )
     
     lambda_epoch = lambda e: 1.0 if e < args.n_epochs // 2  else 0.1
