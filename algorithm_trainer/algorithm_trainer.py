@@ -830,6 +830,7 @@ class Generic_adaptation_trainer(object):
 
 
     def optimize_auxiliary_obj(self, shots_x, shots_y):
+        aux_loss_before_adaptation = None
         for _ in range (self._n_aux_objective_steps):
             self._outer_optimizer.zero_grad()
             orig_shots_shape = shots_x.shape
@@ -840,7 +841,9 @@ class Generic_adaptation_trainer(object):
             if self._grad_clip > 0.:
                 clip_grad_norm_(self._algorithm._model.parameters(), self._grad_clip)
             self._outer_optimizer.step()
-        return aux_loss.item()
+            if aux_loss_before_adaptation is None:
+                aux_loss_before_adaptation = aux_loss.item()
+        return aux_loss_before_adaptation, aux_loss.item()
         
 
     def run(self, dataset_iterator, dataset_manager, is_training=False, meta_val=False, start=1, stop=1):
@@ -900,11 +903,12 @@ class Generic_adaptation_trainer(object):
 
 
             # cpy model state dict and optimize model on a specific objective
-            aux_loss = 0.
+            aux_loss_before_adaptation = aux_loss_after_adaptation = 0.
             if self._aux_objective is not None:
                 original_state_dict = self._algorithm._model.state_dict()
                 self._algorithm._model.train()
-                aux_loss = self.optimize_auxiliary_obj(shots_x, shots_y)
+                aux_loss_before_adaptation, aux_loss_after_adaptation = self.optimize_auxiliary_obj(
+                    shots_x, shots_y)
             self._algorithm._model.eval()
         
             # forward pass on updated model
@@ -935,13 +939,14 @@ class Generic_adaptation_trainer(object):
                 val_task_acc.append(test_accu_after_adapt * 100.)
         
             # metrics
+            measurements_trajectory['aux_loss'] = [aux_loss_before_adaptation]
             train_measurements_trajectory_over_batch = {
                 k:np.array([v]) for k,v in measurements_trajectory.items()
             }
             test_measurements_after_adapt_over_batch = {
                 'loss': np.array([test_loss_after_adapt.item()]) , 
                 'accu': np.array([test_accu_after_adapt]),
-                'aux_loss': np.array([aux_loss])
+                'aux_loss': np.array([aux_loss_after_adaptation])
             }
             update_sum_measurements(sum_test_measurements_after_adapt_over_meta_set,
                                     test_measurements_after_adapt_over_batch)
