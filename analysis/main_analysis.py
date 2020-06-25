@@ -9,13 +9,15 @@ import torch.nn as nn
 import numpy as np
 import pprint
 from tensorboardX import SummaryWriter
+import re
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet
 from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet
 from data_layer.dataset_managers import MetaDataManager
 from data_layer.datasets import MetaDataset
-from analysis.objectives import *
+from analysis.objectives import var_reduction_disc
 
 
 """ Always configure aux func before running analysis.
@@ -34,7 +36,7 @@ def main(args):
     # load checkpoint
     if args.model_type == 'resnet':
         model = resnet.ResNet18(num_classes=args.num_classes, 
-            distance_classifier=args.distance_classifier, add_bias=args.add_bias)
+            distance_classifier=args.distance_classifier, add_bias=args.add_bias, no_fc_layer=args.no_fc_layer)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes,
@@ -47,14 +49,15 @@ def main(args):
     if args.checkpoint != '':
         print(f"loading from {args.checkpoint}")
         model_dict = model.state_dict()
-        chkpt_state_dict = torch.load(args.checkpoint)['model']
+        chkpt_state_dict = torch.load(args.checkpoint)
+        if 'model' in chkpt_state_dict:
+            chkpt_state_dict = chkpt_state_dict['model']
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
-        if args.no_fc_layer:
-            # remove "module." from key, possibly present as it was dumped by data-parallel
-            for key in chkpt_state_dict_cpy.keys():
-                if 'module.' in key:
-                    new_key = re.sub('module\.', '',  key)
-                    chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
+        # remove "module." from key, possibly present as it was dumped by data-parallel
+        for key in chkpt_state_dict_cpy.keys():
+            if 'module.' in key:
+                new_key = re.sub('module\.', '',  key)
+                chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
         chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
         model_dict.update(chkpt_state_dict)
         updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
@@ -68,6 +71,7 @@ def main(args):
         
 
     # optimizer
+    loss_func = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam([
         {'params': model.parameters(), 'lr': args.lr},
     ])
@@ -82,9 +86,33 @@ def main(args):
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
     val_loader = val_datamgr.get_data_loader(val_file, aug=False)
 
-    print("##"*27, f"OBJECTIVE: {aux_func.__name__}", "##"*27)
+    # algorithm
+    if args.algorithm == 'SVM':
+        algorithm = SVM(
+            model=model,
+            inner_loss_func=loss_func,
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device=args.device)
 
+    elif args.algorithm == 'Protonet':
+        algorithm = ProtoNet(
+            model=model,
+            inner_loss_func=loss_func,
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device=args.device)
+    else:
+        raise ValueError(
+            'Unrecognized algorithm {}'.format(args.algorithm))
+
+
+
+    
     # Iteratively optimize some objective and evaluate performance
+    print("##"*27, f"OBJECTIVE: {aux_func.__name__}", "##"*27)
     trainer = Generic_adaptation_trainer(
         algorithm=algorithm,
         aux_objective=aux_func,
@@ -111,6 +139,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Analysis of Inner Solver methods for Meta Learning')
 
+    # Algorithm
+    parser.add_argument('--algorithm', type=str, help='type of algorithm')
+
     # Model
     parser.add_argument('--model-type', type=str, default='resnet',
         help='type of the model')
@@ -124,6 +155,8 @@ if __name__ == '__main__':
         help='will not add fc layer to model')
 
     # Optimization
+    parser.add_argument('--optimizer', type=str, default='adam',
+        help='optimizer')
     parser.add_argument('--lr', type=float, default=0.001,
         help='learning rate for the global update')
     parser.add_argument('--grad-clip', type=float, default=0.0,
@@ -159,8 +192,8 @@ if __name__ == '__main__':
     
 
     # Miscellaneous
-    parser.add_argument('--output-folder', type=str, default='maml',
-        help='name of the output folder')
+    parser.add_argument('--device', type=str, default='cuda',
+        help='set the device (cpu or cuda)')
     parser.add_argument('--device-number', type=str, default='0',
         help='gpu device number')
     parser.add_argument('--log-interval', type=int, default=100,
@@ -169,6 +202,11 @@ if __name__ == '__main__':
         help='path to saved parameters.')
     parser.add_argument('--train-aug', action='store_true', default=True,
         help='perform data augmentation during training')
+    parser.add_argument('--n-iterations-train', type=int, default=60000,
+        help='no. of iterations train.') 
+    parser.add_argument('--n-iterations-val', type=int, default=100,
+        help='no. of iterations validation.') 
+    
     
     args = parser.parse_args()
 

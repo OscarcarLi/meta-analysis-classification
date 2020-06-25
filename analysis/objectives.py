@@ -3,7 +3,7 @@ import torch
 
 
 def var_reduction_disc(batch_x, batch_y):
-    all_classes = np.unique(batch_y)
+    all_classes = np.unique(batch_y.detach().cpu().numpy())
     class_centres = {}
     for y in all_classes:
         class_centres[y] = torch.mean(batch_x[batch_y==y, :], dim=0)

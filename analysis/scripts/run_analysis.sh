@@ -21,7 +21,6 @@ python analysis/main_analysis.py \
 --n-shot-val 5 \
 --n-query-val 15 \
 --n-iterations-val 100 \
---output-folder analyse_SVM_with_classical_backbone \
+--device cuda \
 --device-number 0,1,2,3 \
---log-interval 200 \
---eval
+--log-interval 5

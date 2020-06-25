@@ -903,7 +903,7 @@ class Generic_adaptation_trainer(object):
             if self._aux_objective is not None:
                 original_state_dict = self._algorithm._model.state_dict()
                 self._algorithm._model.train()
-                aux_loss = self.optimize_auxiliary_obj()
+                aux_loss = self.optimize_auxiliary_obj(shots_x, shots_y)
             self._algorithm._model.eval()
         
             # forward pass on updated model
