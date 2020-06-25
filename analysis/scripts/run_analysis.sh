@@ -13,7 +13,7 @@ python analysis/main_analysis.py \
 --num-classes 16 \
 --label-offset 64 \
 --optimizer adam \
---lr 0.001 \
+--lr 0.0001 \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
 --train-aug \
@@ -25,4 +25,4 @@ python analysis/main_analysis.py \
 --n-iterations-val 100 \
 --device cuda \
 --device-number 0,1,2,3 \
---log-interval 5
+--log-interval 200

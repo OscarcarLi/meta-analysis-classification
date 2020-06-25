@@ -666,11 +666,12 @@ class Classical_algorithm_trainer(object):
                 if accu is not None:
                     metrics["train_acc"] = np.mean(agg_accu) * 100.  
                 self.log_output(epoch, i,metrics)
-                val_loss.append(np.mean(agg_loss))
-                if accu is not None:
-                    val_accu.append(np.mean(agg_accu)) 
                 agg_loss = []
                 agg_accu = []
+            val_loss.append(np.mean(agg_loss))
+            if accu is not None:
+                val_accu.append(np.mean(agg_accu)) 
+                
 
         # save model and log tboard for eval
         if is_training and self._save_folder is not None:
@@ -835,7 +836,7 @@ class Generic_adaptation_trainer(object):
             label_offset=0):
 
         self._algorithm = algorithm
-        self._aux_objective = torch.nn.CrossEntropyLoss()
+        self._aux_objective = aux_objective
         self._outer_loss_func = outer_loss_func
         self._outer_optimizer = outer_optimizer
         self._writer = writer
@@ -961,19 +962,21 @@ class Generic_adaptation_trainer(object):
             test_loss_after_adapt = self._outer_loss_func(logits, query_y)
             test_accu_after_adapt = accuracy(logits, query_y)
             if self._aux_objective is not None:
-                test_aux_loss = self.compute_aux_obj(query_x, query_y)
+                test_aux_loss = self.compute_aux_obj(query_x, query_y).item()
             val_task_acc.append(test_accu_after_adapt * 100.)
         
             # metrics
-            measurements_trajectory['aux_loss'] = [aux_loss_after_adaptation.item()]
+            if self._aux_objective is not None:
+                measurements_trajectory['aux_loss'] = [aux_loss_after_adaptation]
             train_measurements_trajectory_over_batch = {
                 k:np.array([v]) for k,v in measurements_trajectory.items()
             }
             test_measurements_after_adapt_over_batch = {
                 'loss': np.array([test_loss_after_adapt.item()]) , 
-                'accu': np.array([test_accu_after_adapt]),
-                'aux_loss': np.array([test_aux_loss.item()])
+                'accu': np.array([test_accu_after_adapt])
             }
+            if self._aux_objective is not None:
+                test_measurements_after_adapt_over_batch['aux_loss'] =  np.array([test_aux_loss])
             update_sum_measurements(sum_test_measurements_after_adapt_over_meta_set,
                                     test_measurements_after_adapt_over_batch)
             update_sum_measurements_trajectory(sum_train_measurements_trajectory_over_meta_set,
@@ -1028,22 +1031,24 @@ class Generic_adaptation_trainer(object):
         log_array = ['Iteration: {}'.format(iteration)]
         key_list = ['loss', 'accu', 'aux_loss']
         for key in key_list:
-            avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
-            avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
-            avg_train_after = avg_train_trajectory[-1]
-        
-            if 'accu' in key:
-                log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
-                log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
-            else:
-                log_array.append('train {} after: \t{:.3f}'.format(key, avg_train_after))
-                log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
+            try:
+                avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
+                avg_test_after = np.mean(test_measurements_after_adapt_over_batch[key])
+                avg_train_after = avg_train_trajectory[-1]
+            
+                if 'accu' in key:
+                    log_array.append('train {} after: \t{:.2f}%'.format(key, 100 * avg_train_after))
+                    log_array.append('test {} after: \t{:.2f}%'.format(key, 100 * avg_test_after))
+                else:
+                    log_array.append('train {} after: \t{:.3f}'.format(key, avg_train_after))
+                    log_array.append('test {} after: \t{:.3f}'.format(key, avg_test_after))
 
-            if write_tensorboard:
-                self._writer.add_scalar('train_{}_post'.format(key),
-                                            avg_train_trajectory[-1],
-                                            iteration)
-                self._writer.add_scalar('test_{}_post'.format(key), avg_test_after, iteration)
-
-            log_array.append(' ') 
+                if write_tensorboard:
+                    self._writer.add_scalar('train_{}_post'.format(key),
+                                                avg_train_trajectory[-1],
+                                                iteration)
+                    self._writer.add_scalar('test_{}_post'.format(key), avg_test_after, iteration)
+                log_array.append(' ')
+            except:
+                continue 
         tqdm.write('\n'.join(log_array))

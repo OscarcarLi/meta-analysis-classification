@@ -21,7 +21,7 @@ from analysis.objectives import var_reduction_disc
 
 
 """ Always configure aux func before running analysis.
-Find entire list in objectives file. Can be None too
+Find entire list in objectives file.
 """
 
 aux_func = var_reduction_disc
@@ -139,6 +139,9 @@ def main(args):
     
     
     # print results
+    results = adaptation_trainer.run(meta_val_loader, meta_val_datamgr)
+    pp = pprint.PrettyPrinter(indent=4)
+    pp.pprint(results)
     
     for iter_start in range(args.n_epochs):
         _ = classical_trainer.run(classical_val_loader, is_training=True, epoch=iter_start+1)
