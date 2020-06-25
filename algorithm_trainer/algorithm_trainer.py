@@ -900,6 +900,7 @@ class Generic_adaptation_trainer(object):
 
 
             # cpy model state dict and optimize model on a specific objective
+            aux_loss = 0.
             if self._aux_objective is not None:
                 original_state_dict = self._algorithm._model.state_dict()
                 self._algorithm._model.train()
@@ -994,7 +995,7 @@ class Generic_adaptation_trainer(object):
                 write_tensorboard=False, meta_val=False):
 
         log_array = ['Iteration: {}'.format(iteration)]
-        key_list = ['loss', 'accu']
+        key_list = ['loss', 'accu', 'aux_loss']
         for key in key_list:
             if not meta_val:
                 avg_train_trajectory = np.mean(train_measurements_trajectory_over_batch[key], axis=0)
