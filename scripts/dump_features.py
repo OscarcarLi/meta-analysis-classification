@@ -84,7 +84,7 @@ def dump_features_for_dataset(model, dataset):
         
     for label in features_dict.keys():
         features_dict[label] = torch.cat(features_dict[label], dim=0).numpy()
-        print(f"Got features of shape {features_dict[label].shape} for label {label}")
+        # print(f"Got features of shape {features_dict[label].shape} for label {label}")
 
     return features_dict
 

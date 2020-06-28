@@ -321,6 +321,7 @@ class Implicit_Gradient_based_algorithm_trainer(object):
             self._algorithm._model.train()
         else:
             self._algorithm._model.eval()
+            val_task_acc = []
 
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
@@ -370,9 +371,12 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 test_loss_after_adapt /= batch_size # now we are doing this one by one so need to divide individually
 
                 if self._algorithm.is_classification:
+                    task_accuracy = accuracy(test_pred_after_adapt, test_task.y)
                     test_measurements_after_adapt_over_batch['accu'].append(
-                        accuracy(test_pred_after_adapt, test_task.y)
+                        task_accuracy
                     )
+                    if not is_training:
+                        val_task_acc.append(task_accuracy * 100.)
                 
                 if is_training:
                     X_test = features_test.detach().cpu().numpy()
@@ -451,6 +455,11 @@ class Implicit_Gradient_based_algorithm_trainer(object):
                 results['train_loss_trajectory'],
                 results['test_loss_after'],
                 write_tensorboard=True, meta_val=True)
+
+        if not is_training:
+            mean, i95 = (np.mean(val_task_acc), 
+                1.96 * np.std(val_task_acc) / np.sqrt(len(val_task_acc)))
+            results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
         
         return results
 
@@ -578,6 +587,7 @@ class InnerSolver_algorithm_trainer(object):
             self._algorithm._model.train()
         else:
             self._algorithm._model.eval()
+            val_task_acc = []
 
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)
@@ -628,6 +638,8 @@ class InnerSolver_algorithm_trainer(object):
             # compute loss abd accu
             test_loss_after_adapt = self._outer_loss_func(logits, test_task_batch_y)
             test_accu_after_adapt = accuracy(logits, test_task_batch_y)
+            if not is_training:
+                val_task_acc.append(test_accu_after_adapt * 100.)
 
             if is_training:
                 test_loss_after_adapt.backward()
@@ -684,6 +696,11 @@ class InnerSolver_algorithm_trainer(object):
                 results['train_loss_trajectory'],
                 results['test_loss_after'],
                 write_tensorboard=True, meta_val=True)
+
+        if not is_training:
+            mean, i95 = (np.mean(val_task_acc), 
+                1.96 * np.std(val_task_acc) / np.sqrt(len(val_task_acc)))
+            results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
         
         return results
 
