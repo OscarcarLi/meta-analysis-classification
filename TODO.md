@@ -19,3 +19,27 @@ files checked
 - should we use rnn to produce mmaml's layer modulations
 - implement RegConvEmbeddingModel
 - implement RegMAML
+
+05/14
+- implemented cv for logistic regression
+- haven't checked whether it is compatible with the original single number setting
+- currently on gpu0,1 running mini imagenet one without cv tuning, the other with cv tuning
+05/19
+- integrate different number of classes/ways for development branch
+- run a last-layer model on set of all possible examples for a validation task
+05/23
+- careful batch normalization
+- batch normalization and relu is switched for gated_net_original
+- data parallelism might only do batch normalization on the same gpu
+https://pytorch.org/docs/stable/nn.html?highlight=syncbatchnorm#torch.nn.SyncBatchNorm
+- on cpu instead of gpu
+
+05/31
+- group norm now works
+- read on the metaoptnet implementation
+- read on protonet once it's readyu
+- implement the NIL algorithm
+- look into hypothesis testing
+- check representer theorem
+
+tensorboard --logdir=LR10w1s:./mini_10w1s_LR,LR10w5s:./mini_10w5s_LR,ProtoNet10w1s:./mini_10w1s_protonet/,ProtoNet10w5s:./mini_10w5s_protonet/,SVM10w1s:./mini_10w1s_SVM/,SVM10w5s:./mini_10w5s_SVM/
