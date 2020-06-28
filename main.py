@@ -748,6 +748,12 @@ if __name__ == '__main__':
         help='Use original MAML implementation')
     parser.add_argument('--disable-norm', action='store_true',
         help='disable batchnorm after linear layers in a fully connected model')
+    parser.add_argument('--retain-activation', type=str2bool, default=False,
+        help='if True, use activation function in the last layer; otherwise dont use activation in the last layer')
+    parser.add_argument('--use-group-norm', type=str2bool, default=False,
+        help='use group norm instead of batch norm')
+    parser.add_argument('--add-bias', type=str2bool, default=False,
+        help='add bias term inner loop')
     # parser.add_argument('--bias-transformation-size', type=int, default=0,
     #     help='size of bias transformation vector that is concatenated with '
     #          'input')
@@ -810,6 +816,8 @@ if __name__ == '__main__':
         help='momentum param gamma')
 
     # Optimization
+    parser.add_argument('--optimizer', type=str, default='adam',
+        help='optimizer')
     parser.add_argument('--slow-lr', type=float, default=0.001,
         help='learning rate for the global update of MAML')
     parser.add_argument('--model-grad-clip', type=float, default=0.0,
@@ -832,12 +840,6 @@ if __name__ == '__main__':
         help='for implicit last layer optimization, whether to use hessian to solve linear equation or to use woodbury identity on the hessian inverse')
     parser.add_argument('--no-modulation', type=str2bool, default=False,
         help='dont propose any modulation matrix')
-    parser.add_argument('--retain-activation', type=str2bool, default=False,
-        help='if True, use activation function in the last layer; otherwise dont use activation in the last layer')
-    parser.add_argument('--add-bias', type=str2bool, default=False,
-        help='add bias term inner loop')
-    parser.add_argument('--use-group-norm', type=str2bool, default=False,
-        help='use group norm instead of batch norm')
     
     # parser.add_argument('--no-modulation', type=str2bool, default=False,
     #     help='dont propose any modulation matrix')
@@ -849,29 +851,28 @@ if __name__ == '__main__':
     #     help='path to store datasets')
     parser.add_argument('--num-train-classes', type=int, default=1100,
         help='how many classes for training')
-    parser.add_argument('--num-classes-per-batch', type=int, default=5,
-        help='how many classes per task')
-    
-    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=15,
-        help='how many samples per class for validation (meta train)')
-    parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
-        help='how many samples per class for validation (meta val)')
-    parser.add_argument('--num-val-samples-per-class-meta-test', type=int, default=15,
-        help='how many samples per class for validation (meta test)')
-    
-    parser.add_argument('--num-train-samples-per-class-meta-train', type=int, default=5,
-        help='how many samples per class for train (meta train)')
-    parser.add_argument('--num-train-samples-per-class-meta-val', type=int, default=5,
-        help='how many samples per class for train (meta val)')
-    parser.add_argument('--num-train-samples-per-class-meta-test', type=int, default=5,
-        help='how many samples per class for train (meta test)')
-    
+    # parser.add_argument('--num-classes-per-batch', type=int, default=5,
+    #     help='how many classes per task')
     parser.add_argument('--num-classes-per-batch-meta-train', type=int, default=5,
         help='how classes per task for train (meta train)')
     parser.add_argument('--num-classes-per-batch-meta-val', type=int, default=5,
         help='how classes per task for train (meta val)')
     parser.add_argument('--num-classes-per-batch-meta-test', type=int, default=5,
         help='how classes per task for train (meta test)')
+
+    parser.add_argument('--num-train-samples-per-class-meta-train', type=int, default=5,
+        help='how many samples per class for train (meta train)')
+    parser.add_argument('--num-train-samples-per-class-meta-val', type=int, default=5,
+        help='how many samples per class for train (meta val)')
+    parser.add_argument('--num-train-samples-per-class-meta-test', type=int, default=5,
+        help='how many samples per class for train (meta test)')
+
+    parser.add_argument('--num-val-samples-per-class-meta-train', type=int, default=15,
+        help='how many samples per class for validation (meta train)')
+    parser.add_argument('--num-val-samples-per-class-meta-val', type=int, default=15,
+        help='how many samples per class for validation (meta val)')
+    parser.add_argument('--num-val-samples-per-class-meta-test', type=int, default=15,
+        help='how many samples per class for validation (meta test)')
     
     parser.add_argument('--img-side-len', type=int, default=28,
         help='width and height of the input images')
@@ -914,8 +915,6 @@ if __name__ == '__main__':
         help='name of the output folder')
     parser.add_argument('--device', type=str, default='cuda',
         help='set the device (cpu or cuda)')
-    parser.add_argument('--optimizer', type=str, default='adam',
-        help='optimizer')
     parser.add_argument('--device-number', type=str, default='0',
                         help='gpu device number')
     parser.add_argument('--num-workers', type=int, default=4,
