@@ -15,7 +15,7 @@ from algorithm_trainer.algorithms.grad import quantile_marks, get_grad_norm_from
 from algorithm_trainer.utils import accuracy
 from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_grad_with_respect_to_w
 from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
-
+from analysis.objectives import var_reduction
 
 
 
@@ -606,11 +606,12 @@ To train model on all classes together
 
 class Classical_algorithm_trainer(object):
 
-    def __init__(self, model, loss_func, optimizer, writer,
-        log_interval, save_folder, grad_clip, label_offset=0):
+    def __init__(self, model,optimizer, writer, log_interval, save_folder, 
+        grad_clip, loss_funcs=[('cross. ent.', torch.nn.CrossEntropyLoss())], lambdas=[1.0], label_offset=0):
 
         self._model = model
-        self._loss_func = loss_func
+        self._loss_funcs = loss_funcs
+        self._lambdas = lambdas
         self._optimizer = optimizer
         self._writer = writer
         self._log_interval = log_interval 
@@ -628,10 +629,8 @@ class Classical_algorithm_trainer(object):
          
         iterator = tqdm(enumerate(dataset_iterator, start=1),
                         leave=False, file=sys.stdout, position=0)
-        agg_loss = []
-        agg_accu = []
-        val_loss = []
-        val_accu = []
+        aggregate = defaultdict(list)
+        val_aggregate = defaultdict(list)
         
         for i, batch in iterator:
 
@@ -642,12 +641,17 @@ class Classical_algorithm_trainer(object):
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
                 
-            
-            logits = self._model(batch_x)
-            loss = self._loss_func(logits, batch_y)
+            # loss computation + metrics
+            output_x = self._model(batch_x)
+            loss = 0.
+            for j, (loss_name, loss_func) in enumerate(self._loss_funcs):
+                loss_value = self._lambdas[j] * loss_func(output_x, batch_y) 
+                loss += loss_value
+                aggregate[loss_name].append(loss_value.item())
             accu = None
-            if isinstance(self._loss_func, torch.nn.CrossEntropyLoss):
-                accu = accuracy(output_x, batch_y)
+            if 'cross_ent' in list(zip(*self._loss_funcs))[0]:
+                accu = accuracy(output_x, batch_y) * 100.
+                aggregate['accu'].append(accu)
                 
             if is_training:
                 self._optimizer.zero_grad()
@@ -655,23 +659,15 @@ class Classical_algorithm_trainer(object):
                 if self._grad_clip > 0.:
                     clip_grad_norm_(self._model.parameters(), self._grad_clip)
                 self._optimizer.step()
-            
-            agg_loss.append(loss.data.item())
-            if accu is not None:
-                agg_accu.append(accu)
-            
+                
             # logging
             if analysis and is_training:
-                metrics = {"train_loss":  np.mean(agg_loss)}
-                if accu is not None:
-                    metrics["train_acc"] = np.mean(agg_accu) * 100.  
-                self.log_output(epoch, i,metrics)
-                agg_loss = []
-                agg_accu = []
-            val_loss.append(np.mean(agg_loss))
-            if accu is not None:
-                val_accu.append(np.mean(agg_accu)) 
-                
+                metrics = {}
+                for name, values in aggregate.items():
+                    metrics[name] = np.mean(values)
+                    val_aggregate["val_" + name].append(np.mean(values))
+                self.log_output(epoch, i, metrics)
+                aggregate = defaultdict(list)    
 
         # save model and log tboard for eval
         if is_training and self._save_folder is not None:
@@ -680,11 +676,10 @@ class Classical_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._model.state_dict()}, f)
 
-        else:
-            metrics = {"val_loss":  np.mean(val_loss)}
-            if len(val_accu):
-                metrics["val_acc"] = np.mean(val_accu) * 100.  
-            self.log_output(epoch, None, metrics)    
+        metrics = {}
+        for name, values in val_aggregate.items():
+            metrics[name] = np.mean(values)
+        self.log_output(epoch, None, metrics)    
 
 
 
@@ -816,7 +811,7 @@ class Classical_algorithm_trainer(object):
         for key in metrics_dict:
             log_array.append(
                 '{}: \t{:.2f}'.format(key, metrics_dict[key]))
-            if self._writer is not None and write_tensorboard:
+            if self._writer is not None:
                 self._writer.add_scalar(
                     key, metrics_dict[key], iteration)
             log_array.append(' ') 
@@ -874,6 +869,7 @@ class Generic_adaptation_trainer(object):
     def run(self, dataset_iterator, dataset_manager, meta_val=False):
 
         val_task_acc = []
+        self._algorithm._model.eval()
 
         # looping through the entire meta_dataset once
         sum_train_measurements_trajectory_over_meta_set = defaultdict(float)

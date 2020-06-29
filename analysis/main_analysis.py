@@ -17,7 +17,7 @@ from algorithm_trainer.models import gated_conv_net_original, resnet
 from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer, Classical_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet
 from data_layer.dataset_managers import MetaDataManager, ClassicalDataManager
-from analysis.objectives import var_reduction_disc
+from analysis.objectives import var_reduction_disc, var_reduction_disc_perp, var_reduction
 
 
 """ Always configure aux func before running analysis.
@@ -36,7 +36,7 @@ def main(args):
     # load checkpoint
     if args.model_type == 'resnet':
         model = resnet.ResNet18(num_classes=args.num_classes, 
-            distance_classifier=args.distance_classifier, add_bias=args.add_bias, no_fc_layer=args.no_fc_layer)
+            classifier_type=args.classifier_type, add_bias=args.add_bias, no_fc_layer=args.no_fc_layer)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes,
@@ -87,7 +87,7 @@ def main(args):
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
     meta_val_loader = meta_val_datamgr.get_data_loader(val_file, aug=False)
-    classical_val_datamgr = ClassicalDataManager(image_size, batch_size=320)
+    classical_val_datamgr = ClassicalDataManager(image_size, batch_size=640)
     classical_val_loader = classical_val_datamgr.get_data_loader(val_file, aug=False)
 
     # algorithm
@@ -95,18 +95,18 @@ def main(args):
         algorithm = SVM(
             model=model,
             inner_loss_func=loss_func,
-            n_way=args.n_way_train,
-            n_shot=args.n_shot_train,
-            n_query=args.n_query_train,
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
             device=args.device)
 
     elif args.algorithm == 'Protonet':
         algorithm = ProtoNet(
             model=model,
             inner_loss_func=loss_func,
-            n_way=args.n_way_train,
-            n_shot=args.n_shot_train,
-            n_query=args.n_query_train,
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
             device=args.device)
     else:
         raise ValueError(
@@ -178,6 +178,8 @@ if __name__ == '__main__':
         help='will not add fc layer to model')
     parser.add_argument('--cpy-fc-layer', type=str2bool, default=False,
         help='copy fc layer from saved checkpoint model')
+    parser.add_argument('--classifier-type', type=str, default='linear',
+        help='classifier type [distance based, linear, GDA]')
 
     # Optimization
     parser.add_argument('--optimizer', type=str, default='adam',

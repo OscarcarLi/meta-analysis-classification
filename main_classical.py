@@ -15,6 +15,7 @@ from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer
 from algorithm_trainer.utils import optimizer_to_device
 from data_layer.dataset_managers import ClassicalDataManager
 from data_layer.datasets import ClassicalDataset
+from analysis.objectives import var_reduction_disc
 
 
 
@@ -58,7 +59,7 @@ def main(args):
 
     if args.model_type == 'resnet':
         model = resnet.ResNet18(num_classes=args.num_classes, 
-            distance_classifier=args.distance_classifier)
+            classifier_type=args.classifier_type)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes,
@@ -103,10 +104,16 @@ def main(args):
     #                OPTIMIZER CREATION                #
     ####################################################
 
-
-    loss_func = nn.CrossEntropyLoss()
+    loss_dict = {
+        'cross_ent': torch.nn.CrossEntropyLoss(),
+        'var_disc': var_reduction_disc
+    }
+    loss_funcs = []
+    for loss_name, lambda_value in zip(args.loss_names, args.lambdas):
+        print(f"Adding loss : {loss_name} with lambda value {lambda_value}")
+        loss_funcs.append((loss_name, loss_dict[loss_name]))
     optimizer = torch.optim.Adam([
-        {'params': model.parameters(), 'lr': args.lr},
+        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': 1e-4},
     ])
     print("Total n_epochs: ", args.n_epochs)
 
@@ -117,7 +124,8 @@ def main(args):
 
     trainer = Classical_algorithm_trainer(
         model=model,
-        loss_func=loss_func,
+        loss_funcs=loss_funcs,
+        lambdas=args.lambdas,
         optimizer=optimizer, writer=writer,
         log_interval=args.log_interval, save_folder=save_folder, 
         grad_clip=args.grad_clip
@@ -131,12 +139,6 @@ def main(args):
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
         train_result = trainer.run(train_loader, is_training=True, epoch=iter_start+1)
-        
-        # validation
-        tqdm.write("\nStarting validation")
-        val_result = trainer.run(val_loader, is_training=False)
-        tqdm.write("Finished validation\n" + "=="*27)
-        
         # scheduler step
         lr_scheduler.step()
 
@@ -153,13 +155,17 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--model-type', type=str, default='gatedconv',
         help='type of the model')
-    parser.add_argument('--distance-classifier', action='store_true', default=False,
-        help='use a distance classifer (cosine based)')
+    parser.add_argument('--classifier-type', type=str, default='linear',
+        help='classifier type [distance based, linear, GDA]')
+    parser.add_argument('--loss-names', type=str, nargs='+', default='cross_ent',
+        help='names of various loss functions that are part fo overall objective')
+    parser.add_argument('--lambdas', type=float, nargs='+', default='1.0',
+        help='scalar factor multiplied ot each loss type')
 
     # Optimization
     parser.add_argument('--lr', type=float, default=0.001,
         help='learning rate for the global update')
-    parser.add_argument('--model-grad-clip', type=float, default=0.0,
+    parser.add_argument('--grad-clip', type=float, default=0.0,
         help='gradient clipping')
     parser.add_argument('--n-epochs', type=int, default=60000,
         help='number of model training epochs')

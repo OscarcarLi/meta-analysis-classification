@@ -86,6 +86,50 @@ class distLinear(nn.Module):
 
         return scores
 
+
+class gaussianDA(nn.Module):
+    
+    def __init__(self, indim, outdim):
+        super(gaussianDA, self).__init__()
+        self.mu = nn.Linear(indim, outdim, bias=False)
+        self.inv_diag_C = nn.Linear(indim, outdim, bias=False) 
+        self.indim = indim
+        self.outdim = outdim
+        
+
+    def forward(self, x):
+        
+        batch_sz, feature_sz = x.size()
+        assert feature_sz == self.indim
+        x = x.unsqueeze(1).repeat_interleave(self.outdim, dim=1).unsqueeze(2) 
+        # batch_sz x outdim x 1 x feature_sz
+        mu = self.mu.weight.unsqueeze(0).repeat_interleave(batch_sz, dim=0).unsqueeze(2)
+        # batch_sz x outdim x 1 x feature_sz
+        inv_diag_C = torch.diag_embed(self.inv_diag_C.weight).unsqueeze(0).repeat_interleave(batch_sz, dim=0)
+        # batch_sz x outdim x feature_sz x feature_sz
+
+        # reshape for bmm
+        x = x.reshape(-1, 1, self.indim)
+        # (batch_sz*outdim) x 1 x feature_sz
+        mu = mu.reshape(-1, 1, self.indim)
+        # (batch_sz*outdim) x 1 x feature_sz
+        inv_diag_C = inv_diag_C.reshape(-1, self.indim, self.indim)
+        # (batch_sz*outdim) x feature_sz x feature_sz
+        
+        # print(f"x: {x.shape}, mu:{mu.shape}, inv_diag_C:{inv_diag_C.shape}")
+        # compute logits and reshape
+        logits = torch.bmm(torch.bmm(x - mu, inv_diag_C), (x - mu).transpose(1, 2))
+        # (batch_sz*outdim) x 1 x 1
+        logits = -logits.squeeze()
+        # (batch_sz*outdim)
+        logits = logits.reshape(batch_sz, self.outdim)
+        # batch_sz x outdim
+        
+        # print("logits", logits.shape)
+        return logits
+
+
+
 class BasicBlock(nn.Module):
 
     expansion = 1
@@ -116,7 +160,7 @@ class BasicBlock(nn.Module):
 class ResNet(nn.Module):
 
     def __init__(self, block, layers, num_classes=None, no_fc_layer=False,
-            zero_init_residual=False, distance_classifier=False, add_bias=False):
+            zero_init_residual=False, classifier_type='linear', add_bias=False):
 
         super(ResNet, self).__init__()
         self.inplanes = 64
@@ -131,10 +175,14 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.prefc_feature_sz = 512 * block.expansion
-        if distance_classifier and (no_fc_layer is False):
-            self.fc = distLinear(self.prefc_feature_sz, num_classes)
-        elif no_fc_layer is False:
+        if no_fc_layer is True:
+            self.fc = None
+        elif classifier_type == 'linear':
             self.fc = nn.Linear(self.prefc_feature_sz, num_classes)
+        elif classifier_type == 'distance-classifier':
+            self.fc = distLinear(self.prefc_feature_sz, num_classes)
+        elif classifier_type == 'gda':
+            self.fc = gaussianDA(self.prefc_feature_sz, num_classes)
         else:
             self.fc = None
 
@@ -149,7 +197,7 @@ class ResNet(nn.Module):
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
                 conv1x1(self.inplanes, planes * block.expansion, stride),
-                nn.BatchNorm2d(planes * block.expansion),
+                get_norm_layer(planes * block.expansion),
             )
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))

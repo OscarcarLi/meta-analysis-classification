@@ -225,7 +225,7 @@ def main(args):
                 loss_func=loss_func,
                 optimizer=optimizer, writer=writer,
                 log_interval=args.log_interval, save_folder=save_folder, 
-                grad_norm=args.grad_clip
+                grad_clip=args.grad_clip
             )
             # fine tune on support samples of meta-validation set, make sure to return all val tasks as is
             fine_tuned_model_with_fc, val_batches = fine_tuner.fine_tune(val_loader, val_datamgr, 
