@@ -618,6 +618,7 @@ class Classical_algorithm_trainer(object):
         self._save_folder = save_folder
         self._grad_clip = grad_clip
         self._label_offset = label_offset
+        self._global_iteration = 0
 
 
     def run(self, dataset_iterator, epoch=None, is_training=True):
@@ -633,6 +634,8 @@ class Classical_algorithm_trainer(object):
         val_aggregate = defaultdict(list)
         
         for i, batch in iterator:
+
+            self._global_iteration += 1
 
             analysis = (i % self._log_interval == 0)
             batch_size = len(batch)
@@ -813,7 +816,7 @@ class Classical_algorithm_trainer(object):
                 '{}: \t{:.2f}'.format(key, metrics_dict[key]))
             if self._writer is not None:
                 self._writer.add_scalar(
-                    key, metrics_dict[key], iteration)
+                    key, metrics_dict[key], self._global_iteration)
             log_array.append(' ') 
         tqdm.write('\n'.join(log_array))
 

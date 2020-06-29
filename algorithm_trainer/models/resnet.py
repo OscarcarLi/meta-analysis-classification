@@ -184,7 +184,7 @@ class ResNet(nn.Module):
         elif classifier_type == 'gda':
             self.fc = gaussianDA(self.prefc_feature_sz, num_classes)
         else:
-            self.fc = None
+            raise ValueError("classifier type not found")
 
         self.no_fc_layer = no_fc_layer
         self.add_bias = add_bias

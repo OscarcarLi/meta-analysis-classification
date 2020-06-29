@@ -46,11 +46,14 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'base.json')
-    train_datamgr = ClassicalDataManager(image_size, batch_size=args.train_batch_size)
-    train_loader = train_datamgr.get_data_loader(train_file, aug=args.train_aug)
-    val_datamgr = ClassicalDataManager(image_size, batch_size=args.val_batch_size)
-    val_loader = val_datamgr.get_data_loader(val_file, aug=False)
+    train_datamgrs = [
+        ClassicalDataManager(image_size, batch_size=args.train_batch_size),
+        ClassicalDataManager(image_size, batch_size=args.train_batch_size * 12)
+    ]
+    train_loaders = [
+        train_datamgrs[0].get_data_loader(train_file, aug=args.train_aug),
+        train_datamgrs[1].get_data_loader(train_file, aug=args.train_aug),
+    ]
     
 
     ####################################################
@@ -122,23 +125,35 @@ def main(args):
     ####################################################
 
 
-    trainer = Classical_algorithm_trainer(
-        model=model,
-        loss_funcs=loss_funcs,
-        lambdas=args.lambdas,
-        optimizer=optimizer, writer=writer,
-        log_interval=args.log_interval, save_folder=save_folder, 
-        grad_clip=args.grad_clip
-    )
-    
+    trainers = [
+        Classical_algorithm_trainer(
+            model=model,
+            loss_funcs=[loss_funcs[0]],
+            lambdas=[args.lambdas[0]],
+            optimizer=optimizer, writer=writer,
+            log_interval=args.log_interval, save_folder=save_folder, 
+            grad_clip=args.grad_clip
+        ),
+        Classical_algorithm_trainer(
+            model=model,
+            loss_funcs=[loss_funcs[1]],
+            lambdas=[args.lambdas[1]],
+            optimizer=optimizer, writer=writer,
+            log_interval=args.log_interval // 16, save_folder=save_folder, 
+            grad_clip=args.grad_clip
+        )
+    ]
+
     lambda_epoch = lambda e: 1.0 if e < args.n_epochs // 2  else 0.1
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     
-    for iter_start in range(args.n_epochs):
+    for iter_start in range(1, args.n_epochs):
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
-        train_result = trainer.run(train_loader, is_training=True, epoch=iter_start+1)
+        trainers[0].run(train_loaders[0], is_training=True, epoch=iter_start)
+        if iter_start % 10 == 0:
+            trainers[1].run(train_loaders[1], is_training=True, epoch=iter_start)
         # scheduler step
         lr_scheduler.step()
 
