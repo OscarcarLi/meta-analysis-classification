@@ -1088,20 +1088,17 @@ class Generic_adaptation_trainer(object):
 
 
 
-
 """
 To meta-learn and transfer-learn the feat. extractor
 """
 
 class MetaClassical_algorithm_trainer(object):
 
-    def __init__(self, model, optimizer, writer, log_interval, save_folder, grad_clip,
-        loss, label_offset=0):
+    def __init__(self, model, optimizer, writer, log_interval, 
+        save_folder, grad_clip, loss_func, label_offset=0):
 
         self._model = model
-        self._loss = loss
-        self._aux_loss = aux_loss
-        self._gamma = gamma
+        self._loss_func = loss_func
         self._optimizer = optimizer
         self._writer = writer
         self._log_interval = log_interval 
@@ -1125,7 +1122,12 @@ class MetaClassical_algorithm_trainer(object):
         
         # metrics aggregation
         aggregate = defaultdict(list)
-        val_aggregate = defaultdict(list)
+        
+        # constants
+        n_way = mt_manager.n_way
+        n_shot = mt_manager.n_shot
+        n_query = mt_manager.n_query
+        mt_batch_sz = mt_manager.batch_size
         
         for i, (tf_batch, mt_batch) in iterator:
             
@@ -1133,7 +1135,7 @@ class MetaClassical_algorithm_trainer(object):
             self._global_iteration += 1
             
             analysis = (i % self._log_interval == 0)
-            batch_size = len(batch)
+            tf_batch_sz = len(batch)
             
             # fetch samples
             tf_batch_x, tf_batch_y = tf_batch
@@ -1148,33 +1150,69 @@ class MetaClassical_algorithm_trainer(object):
             aggregate['tf_loss'].append(tf_loss.item())
             aggregate['tf_accu'].append(tf_accu)
 
-            # meta-learning loss computation + metrics
-            aux_batch_y = aux_batch_y - self._label_offset
-            aux_batch_x = aux_batch_x.cuda()
-            aux_batch_y = aux_batch_y.cuda()
-            aux_output_x = self._model(aux_batch_x, features_only=True)
-            aux_loss_value = aux_loss_func(aux_output_x, aux_batch_y, self._model.module.fc)
-                loss +=  self._gamma * aux_loss_value
-                aggregate[aux_loss_name].append(aux_loss_value.item())
-            
-            
-                
-                
+            # meta-learning data creation
+            mt_batch_x, mt_batch_y = mt_batch
+            mt_batch_x = mt_batch_x.cuda()
+            mt_batch_y = mt_batch_y.cuda()
+            mt_batch_y = mt_batch_y - self._label_offset
+            original_shape = x_batch.shape
+            assert len(original_shape) == 5
+            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+            x_batch = x_batch.reshape(mt_batch_sz, n_way, *original_shape[-4:])
+            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+            shots_x = x_batch[:, :, :n_shot, :, :, :]
+            # (batch_sz, n_way, n_shot, channels , height , width)
+            query_x = x_batch[:, :, n_shot:, :, :, :]
+            # (batch_sz, n_way, n_query, channels , height , width)
+            shots_x = shots_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_shot, channels , height , width)
+            query_x = query_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
+            # (batch_sz, n_way*n_query, channels , height , width)
+            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+                n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
+            assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
+            assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
+            assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
+            assert query_y.shape == (mt_batch_sz, n_way*n_query)
+
+            # meta-learning loss computation and metrics
+            logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                query=query_x, support=shots_x, 
+                support_labels=shots_y)
+            assert len(set(shots_y)) == len(set(query_y))
+            if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                scale = self._algorithm._model.module.scale
+            else:
+                scale = self._algorithm._model.scale
+            logits = scale * logits.reshape(-1, logits.size(-1))
+            query_y = query_y.reshape(-1)
+            assert logits.size(0) == query_y.size(0)
+            mt_loss = self._loss_func(logits, query_y)
+            mt_accu = accuracy(logits, query_y) * 100.
+            aggregate['mt_outer_loss'].append(tf_loss.item())
+            aggregate['mt_outer_accu'].append(mt_accu)
+            for k,v in measurements_trajectory:
+                aggregate[k].append(measurements_trajectory[v][-1])
+
+            # combine tf and mt losses
+            loss = tf_loss + mt_loss
+                    
+            # logging
+            if analysis and is_training:
+                metrics = {}
+                for name, values in aggregate.items():
+                    metrics[name] = np.mean(values)
+                self.log_output(epoch, i, metrics)
+                aggregate = defaultdict(list)    
+
+            # optimizer step
             if is_training:
                 self._optimizer.zero_grad()
                 loss.backward()
                 if self._grad_clip > 0.:
                     clip_grad_norm_(self._model.parameters(), self._grad_clip)
                 self._optimizer.step()
-                
-            # logging
-            if analysis and is_training:
-                metrics = {}
-                for name, values in aggregate.items():
-                    metrics[name] = np.mean(values)
-                    val_aggregate["val_" + name].append(np.mean(values))
-                self.log_output(epoch, i, metrics)
-                aggregate = defaultdict(list)    
+
 
         # save model and log tboard for eval
         if is_training and self._save_folder is not None:
@@ -1183,131 +1221,8 @@ class MetaClassical_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._model.state_dict()}, f)
 
-        metrics = {}
-        for name, values in val_aggregate.items():
-            metrics[name] = np.mean(values)
-        self.log_output(epoch, None, metrics)    
 
 
-
-    def fine_tune(self, dataset_iterator, dataset_manager, label_offset=0, n_fine_tune_epochs=1):
-
-        self._model.train()
-
-        n_way = dataset_manager.n_way
-        n_shot = dataset_manager.n_shot
-        n_query = dataset_manager.n_query
-        batch_sz = dataset_manager.batch_size
-        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
-
-        all_val_tasks_shots_x = []
-        all_val_tasks_shots_y = []
-        all_val_tasks_query_x = []
-        all_val_tasks_query_y = []
-        
-        print("parsing val dataset once ... ")
-        for batch in tqdm(dataset_iterator, total=len(dataset_iterator)):
-
-            ############## covariates #############
-            x_batch, y_batch = batch
-            original_shape = x_batch.shape
-            assert len(original_shape) == 5
-            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
-            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
-            shots_x = x_batch[:, :, :n_shot, :, :, :]
-            # (batch_sz, n_way, n_shot, channels , height , width)
-            query_x = x_batch[:, :, n_shot:, :, :, :]
-            # (batch_sz, n_way, n_query, channels , height , width)
-            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_shot, channels , height , width)
-            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_query, channels , height , width)
-            assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
-            assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
-
-
-            ############## labels #############
-            y_batch = y_batch.reshape(batch_sz, n_way, -1)
-            # batch_sz, n_way, n_shot+n_query
-            shots_y = y_batch[:, :, :n_shot].reshape(batch_sz, -1)
-            query_y = y_batch[:, :, n_shot:].reshape(batch_sz, -1)
-        
-            ### accumulate samples across tasks ###
-            all_val_tasks_shots_x.append(shots_x)
-            all_val_tasks_shots_y.append(shots_y)
-            all_val_tasks_query_x.append(query_x)
-            all_val_tasks_query_y.append(query_y)
-
-
-        ############## concatenate samples from all tasks #############
-        all_val_tasks_shots_x = torch.cat(all_val_tasks_shots_x, dim=0)
-        all_val_tasks_shots_y = torch.cat(all_val_tasks_shots_y, dim=0)
-        all_val_tasks_query_x = torch.cat(all_val_tasks_query_x, dim=0)
-        all_val_tasks_query_y = torch.cat(all_val_tasks_query_y, dim=0)
-
-        #### fix label offset before fine tuning ####
-        """This is mainly because at validation time the samples would be 
-        labelled using their flobal values: [64:79] for mini-imagenet for eg.,
-        this nneds to be reduced by 64 to get labels from 0 to 15.
-        """
-        all_val_tasks_shots_y -= label_offset
-        all_val_tasks_query_y -= label_offset
-
-        print("all_val_tasks_shots_x", all_val_tasks_shots_x.shape)
-        print("all_val_tasks_shots_y", all_val_tasks_shots_y.shape)
-        print("all_val_tasks_query_x", all_val_tasks_query_x.shape)
-        print("all_val_tasks_query_y", all_val_tasks_query_y.shape)
-
-        ## begin fine tuning ##
-        epoch = 0
-        for _ in range(n_fine_tune_epochs):
-            
-            epoch +=1 
-            iterator = tqdm(enumerate(zip(all_val_tasks_shots_x, all_val_tasks_shots_y), start=1),
-                            leave=False, file=sys.stdout, position=0)
-
-            agg_loss = []
-            agg_accu = []
-                     
-            for i, (shots_x, shots_y) in iterator:
-                
-                shots_y = shots_y - self._label_offset
-                analysis = (i % self._log_interval == 0)
-                batch_size = len(shots_x)
-                shots_x = shots_x.reshape(-1, *shots_x.shape[-3:]) 
-                shots_y = shots_y.reshape(-1)
-                batch_x = shots_x.cuda()
-                batch_y = shots_y.cuda()
-                
-                output_x = self._model(batch_x)
-                loss = self._loss_func(output_x, batch_y)
-                accu = None
-                if isinstance(self._loss_func, torch.nn.CrossEntropyLoss):
-                    accu = accuracy(output_x, batch_y)
-                
-                self._optimizer.zero_grad()
-                loss.backward()
-                if self._grad_norm > 0.:
-                    clip_grad_norm_(self._model.parameters(), self._grad_norm)
-                self._optimizer.step()
-                
-                agg_loss.append(loss.data.item())
-                if accu is not None:
-                    agg_accu.append(accu)
-                
-                # logging
-                if analysis:
-                    metrics = {"train_loss":  np.mean(agg_loss)}
-                    if accu is not None:
-                        metrics["train_acc"] = np.mean(agg_accu) * 100.  
-                    self.log_output(epoch, i,
-                        metrics, write_tensorboard=False)
-                    agg_loss = []
-                    agg_accu = []
-        
-        return self._model, (all_val_tasks_shots_x, all_val_tasks_shots_y, all_val_tasks_query_x, all_val_tasks_query_y)
-        
 
     def log_output(self, epoch, iteration,
                 metrics_dict):
