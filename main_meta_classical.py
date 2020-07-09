@@ -185,7 +185,7 @@ def main(args):
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
-        trainer.run(tf_loader, mt_loader, mt_datamgr, is_training=True, epoch=iter_start)
+        trainer.run(tf_loader, mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1)
 
         # validation
         if iter_start % 50 == 0:
@@ -274,7 +274,7 @@ if __name__ == '__main__':
         help='perform data augmentation during training')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
-    parser.add_argument('--restart-iter', type=int, default=1,
+    parser.add_argument('--restart-iter', type=int, default=0,
         help='iteration at restart') 
     parser.add_argument('--n-tf-updates', type=int, default=1,
         help='no of tf updates before meta update') 

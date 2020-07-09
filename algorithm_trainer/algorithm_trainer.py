@@ -1121,8 +1121,9 @@ class MetaClassical_algorithm_trainer(object):
 
         
         # loaders and iterators
-        iterator = tqdm(enumerate(zip(tf_loader, mt_loader), start=1),
+        tf_iterator = tqdm(enumerate(tf_loader, start=1),
                         leave=False, file=sys.stdout, position=0)
+        mt_iterator = iter(mt_loader)
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -1135,7 +1136,7 @@ class MetaClassical_algorithm_trainer(object):
         
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, mt_batch_sz: {mt_batch_sz}")
 
-        for i, (tf_batch, mt_batch) in iterator:
+        for i, tf_batch in tf_iterator:
             
             # global iterator count
             self._global_iteration += 1
@@ -1159,7 +1160,7 @@ class MetaClassical_algorithm_trainer(object):
 
             # meta-learning data creation
             if self._global_iteration % self._n_tf_updates == 0:
-                mt_batch_x, mt_batch_y = mt_batch
+                mt_batch_x, mt_batch_y = next(mt_iterator)
                 mt_batch_x = mt_batch_x.cuda()
                 mt_batch_y = mt_batch_y.cuda()
                 mt_batch_y = mt_batch_y - self._label_offset
