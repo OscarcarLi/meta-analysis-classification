@@ -665,9 +665,9 @@ class ProtoCosineNet(Algorithm):
         labels_support = support_labels.reshape(-1)
         
         loss = self._inner_loss_func(logits_support, labels_support)
-        accu = accuracy(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support) * 100.
         measurements_trajectory['mt_inner_loss'].append(loss.item())
-        measurements_trajectory['mt_inner_accu'].append(accu) * 100.
+        measurements_trajectory['mt_inner_accu'].append(accu)
 
         return logits_query, measurements_trajectory
 
