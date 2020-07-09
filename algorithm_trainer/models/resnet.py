@@ -10,14 +10,14 @@ from torch.nn.utils.weight_norm import WeightNorm
 
 
 # Batch norm scheme
-def get_norm_layer(num_channels, norm_layer='group_norm'):
+def get_norm_layer(num_channels, norm_layer='batch_norm'):
     if norm_layer=='batch_norm':
         return torch.nn.BatchNorm2d(num_channels,
                     affine=True)
     elif norm_layer=='group_norm':
-        num_groups = min(32, num_channels // 2) 
+        num_groups = num_channels // 16 
         return torch.nn.GroupNorm(num_channels=num_channels,
-                    num_groups=32)
+                    num_groups=num_groups)
     else:
         raise ValueError('Unrecognized norm type {}'.format(norm_layer))
 
@@ -35,16 +35,6 @@ def init_module(model, zero_init_residual):
             m.weight.data.fill_(1)
             m.bias.data.zero_()
 
-    # Zero-initialize the last BN in each residual branch,
-    # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-    # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-    if zero_init_residual:
-        for m in model.modules():
-            if isinstance(m, Bottleneck):
-                nn.init.constant_(m.bn3.weight, 0)
-            elif isinstance(m, BasicBlock):
-                nn.init.constant_(m.bn2.weight, 0)
-
 
 # Basic ResNet model
 
@@ -59,30 +49,28 @@ def conv1x1(in_planes, out_planes, stride=1):
 
 
 class distLinear(nn.Module):
-    def __init__(self, indim, outdim, class_wise_learnable_norm=True):
+    def __init__(self, indim, outdim):
         super(distLinear, self).__init__()
-        self.L = nn.Linear(indim, outdim, bias = False)
-        self.class_wise_learnable_norm = class_wise_learnable_norm   
-        if self.class_wise_learnable_norm:      
-            WeightNorm.apply(self.L, 'weight', dim=0) #split the weight update component to direction and norm      
+        self.L = nn.Linear( indim, outdim, bias = False)
+        self.class_wise_learnable_norm = True 
+        if self.class_wise_learnable_norm:
+            WeightNorm.apply(self.L, 'weight', dim=0) #split the weight update component to direction and norm
 
+        # self.scale_factor = 30
         if outdim <=200:
-            self.scale_factor = 2; 
-            #a fixed scale factor to scale the output of cos value into a reasonably large input for softmax
+            self.scale_factor = 2; #a fixed scale factor to scale the output of cos value into a reasonably large input for softmax
         else:
-            self.scale_factor = 10; 
-            #in omniglot, a larger scale factor is required to handle >1000 output classes.
+            self.scale_factor = 10; #in omniglot, a larger scale factor is required to handle >1000 output classes.
 
     def forward(self, x):
-        x_norm = torch.norm(x, p=2, dim=1).unsqueeze(1).expand_as(x)
-        x_normalized = x.div(x_norm + 0.00001)
+        x_norm = torch.norm(x, p=2, dim =1).unsqueeze(1).expand_as(x)
+        x_normalized = x.div(x_norm+ 0.00001)
         if not self.class_wise_learnable_norm:
             L_norm = torch.norm(self.L.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.L.weight.data)
             self.L.weight.data = self.L.weight.data.div(L_norm + 0.00001)
         cos_dist = self.L(x_normalized) 
-        #matrix product by forward function, but when using WeightNorm, 
-        #this also multiply the cosine distance by a class-wise learnable norm
-        scores = self.scale_factor * (cos_dist) 
+        #matrix product by forward function, but when using WeightNorm, this will also multiply the cosine distance by a class-wise learnable norm
+        scores = self.scale_factor* (cos_dist)
 
         return scores
 
@@ -206,7 +194,7 @@ class ResNet(nn.Module):
             layers.append(block(self.inplanes, planes))
         return nn.Sequential(*layers)
 
-    def forward(self, x):
+    def forward(self, x, features_only=False):
 
         out = self.relu(self.bn1(self.conv1(x)))
         out = self.layer1(out)
@@ -215,6 +203,8 @@ class ResNet(nn.Module):
         out = self.layer4(out)
         out = self.avgpool(out)
         out = out.view(out.size(0), -1)
+        if features_only:
+            return out
         if self.add_bias and self.fc is None:
             out = torch.cat([out, 10.*torch.ones((out.size(0), 1), device=out.device)], dim=-1)
         elif self.fc is not None:

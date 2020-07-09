@@ -2,6 +2,9 @@
 data/
 saves/
 logs/
+features_dump/
+train_dir/
+*out
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

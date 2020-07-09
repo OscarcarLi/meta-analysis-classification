@@ -13,9 +13,9 @@ import re
 import gc
 
 
-from algorithm_trainer.models import gated_conv_net_original, resnet
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2
 from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer, Classical_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune
 from data_layer.dataset_managers import MetaDataManager, ClassicalDataManager
 from analysis.objectives import var_reduction_disc, var_reduction_disc_perp, var_reduction
 
@@ -35,7 +35,7 @@ def main(args):
     
     # load checkpoint
     if args.model_type == 'resnet':
-        model = resnet.ResNet18(num_classes=args.num_classes, 
+        model = resnet_2.ResNet18(num_classes=args.num_classes, 
             classifier_type=args.classifier_type, add_bias=args.add_bias, no_fc_layer=args.no_fc_layer)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
@@ -62,10 +62,13 @@ def main(args):
                 chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
         chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
         model_dict.update(chkpt_state_dict)
+        model.load_state_dict(model_dict)                
         updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
         print(f"Updated {len(updated_keys)} keys using chkpt")
         print("Following keys updated :", "\n".join(sorted(updated_keys)))
-        model.load_state_dict(model_dict)                
+        missed_keys = set(model_dict).difference(set(chkpt_state_dict))
+        print(f"Missed {len(missed_keys)} keys")
+        print("Following keys missed :", "\n".join(sorted(missed_keys)))
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number
     print('Using GPUs: ', os.environ["CUDA_VISIBLE_DEVICES"])
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
@@ -108,6 +111,17 @@ def main(args):
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
             device=args.device)
+    
+    elif args.algorithm == 'Finetune':
+        algorithm = Finetune(
+            model=model,
+            inner_loss_func=loss_func,
+            n_updates=100,
+            classifier_type=args.classifier_type,
+            final_feat_dim=model.module.final_feat_dim,
+            n_way=args.n_way_val,
+            device=args.device)
+
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
@@ -118,6 +132,7 @@ def main(args):
     # Iteratively optimize some objective and evaluate performance
     if aux_func:
         print("##"*27, f"AUX OBJECTIVE: {aux_func.__name__}", "##"*27)
+   
     adaptation_trainer = Generic_adaptation_trainer(
         algorithm=algorithm,
         aux_objective=None,
@@ -128,14 +143,6 @@ def main(args):
         model_type=args.model_type,
         n_aux_objective_steps=args.n_aux_objective_steps,
         label_offset=args.label_offset)
-    classical_trainer = Classical_algorithm_trainer(
-        model=model,
-        loss_func=aux_func,
-        optimizer=optimizer, writer=writer,
-        log_interval=args.log_interval, save_folder=None, 
-        grad_clip=args.grad_clip,
-        label_offset=args.label_offset
-    )
     
     
     # print results
@@ -144,9 +151,9 @@ def main(args):
     pp.pprint(results)
     
     for iter_start in range(args.n_epochs):
-        _ = classical_trainer.run(classical_val_loader, is_training=True, epoch=iter_start+1)
+        # _ = classical_trainer.run(classical_val_loader, is_training=True, epoch=iter_start+1)
         # clean up garbage and clear cuda cache as much as possible
-        gc.collect()
+        # gc.collect()
         results = adaptation_trainer.run(meta_val_loader, meta_val_datamgr)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)

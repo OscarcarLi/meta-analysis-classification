@@ -1,9 +1,8 @@
-python main_classical.py \
---algorithm SVM \
+python main_meta_classical.py \
+--algorithm ProtonetCosine \
 --model-type resnet \
---classifier-type prin-comp-classifier \
+--classifier-type distance-classifier \
 --img-side-len 224 \
---gamma 2. \
 --lr 0.001 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
@@ -11,17 +10,18 @@ python main_classical.py \
 --n-epochs 400 \
 --num-classes-train 64 \
 --batch-size-train 32 \
---n-iterations-val 5 \
+--n-way-train 32 \
+--n-shot-train 1 \
+--n-query-train 15 \
 --num-classes-val 16 \
 --batch-size-val 3 \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
+--n-iterations-val 5 \
 --label-offset 64 \
---output-folder classical_miniimagenet_dc_bn_with_rfc_var_ortho \
---restart-iter 0 \
+--output-folder meta_classical_miniimagenet_dc_bn \
 --device cuda \
 --device-number 0,1,2,3 \
---log-interval 500 \
+--log-interval 250 \
 --train-aug
-# --checkpoint train_dir/classical_miniimagenet_dc_bn_with_var_ortho_2/classical_resnet_050.pt

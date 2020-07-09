@@ -12,8 +12,8 @@ import re
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2
-from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer
-from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune
+from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet
 from algorithm_trainer.utils import optimizer_to_device
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
 from analysis.objectives import var_reduction_disc, var_reduction_ortho, rfc_and_pc
@@ -139,7 +139,7 @@ def main(args):
     #                CLASSICAL TRAINER                 #
     ####################################################
 
-    trainer = Classical_algorithm_trainer(
+    trainer = MetaClassical_algorithm_trainer(
         model=model,
         optimizer=optimizer,
         writer=writer,
@@ -157,34 +157,14 @@ def main(args):
     ####################################################
 
     # algorithm
-    if args.algorithm == 'SVM':
-        algorithm = SVM(
+    if args.algorithm == 'ProtonetCosine':
+        algorithm = ProtoCosineNet(
             model=model_val,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_val,
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
             device='cuda')
-
-    elif args.algorithm == 'Protonet':
-        algorithm = ProtoNet(
-            model=model_val,
-            inner_loss_func=torch.nn.CrossEntropyLoss(),
-            n_way=args.n_way_val,
-            n_shot=args.n_shot_val,
-            n_query=args.n_query_val,
-            device='cuda')
-    elif args.algorithm == 'Finetune':
-        algorithm = Finetune(
-            model=model_val,
-            inner_loss_func=torch.nn.CrossEntropyLoss(),
-            n_updates=500,
-            classifier_type=args.classifier_type,
-            aux_loss=var_reduction_ortho,
-            final_feat_dim=model.module.final_feat_dim,
-            n_way=args.n_way_val,
-            device='cuda')
-
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))

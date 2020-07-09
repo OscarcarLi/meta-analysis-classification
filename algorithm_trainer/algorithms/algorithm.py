@@ -14,6 +14,7 @@ from algorithm_trainer.algorithms.grad import soft_clip, get_grad_norm, get_grad
 from algorithm_trainer.utils import accuracy
 from algorithm_trainer.algorithms.logistic_regression_utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from algorithm_trainer.utils import spectral_norm
+from algorithm_trainer.models.resnet_2 import distLinear, gaussianDA, orthonormalDistLinear
 
 # metaoptnet
 from algorithm_trainer.algorithms.metaoptnet_utils import one_hot, computeGramMatrix, binv, batched_kronecker
@@ -188,9 +189,9 @@ class SVM(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
                 
 
         tasks_per_batch = query.size(0)
@@ -352,9 +353,9 @@ class ProtoNet(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
         
 
         tasks_per_batch = query.size(0)
@@ -449,3 +450,232 @@ class ProtoNet(Algorithm):
         # for model saving and reloading
         return {'model': self._model.state_dict()}
 
+
+
+
+
+
+class Finetune(Algorithm):
+
+    def __init__(self, model, inner_loss_func, device, 
+        n_updates, classifier_type, final_feat_dim, n_way, aux_loss=None):
+        
+        self._model = model
+        self._device = device
+        self._inner_loss_func = inner_loss_func
+        self._n_updates = n_updates
+        self._aux_loss = aux_loss
+
+        if classifier_type == 'linear':
+            self._fc = nn.Linear(final_feat_dim, n_way)
+        elif classifier_type == 'distance-classifier':
+            self._fc = distLinear(final_feat_dim, n_way)
+        elif classifier_type == 'gda':
+            self._fc = gaussianDA(final_feat_dim, n_way)
+        elif classifier_type == 'ortho-classifier':
+            self._fc = orthonormalDistLinear(final_feat_dim, n_way)
+        else:
+            raise ValueError("classifier type not found")
+
+        self._model.eval()
+        self.to(self._device)
+   
+    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False):
+        """
+        Finetunes last layer using GD.
+
+        Parameters:
+        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
+        support_labels: a (n_tasks_per_batch, n_support) Tensor.
+        n_way: a scalar. Represents the number of classes in a few-shot classification task.
+        n_shot: a scalar. Represents the number of support examples given per class.
+        normalize: a boolean. Represents whether if we want to normalize the distances by the embedding dimension.
+        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        """
+
+        measurements_trajectory = defaultdict(list)
+
+        assert(query.dim() == 5)
+        assert(support.dim() == 5)
+        
+
+        n_tasks = query.size(0)
+        assert support.size(0) == n_tasks
+        assert support_labels.size(0) == n_tasks
+
+        logits_query = []
+        avg_loss = 0.
+        abg_accu = 0.
+        
+        self._model.eval()
+        self._fc.train()
+
+        for i in range(n_tasks):
+
+            task_support = support[i]
+            task_query = query[i]
+            task_support_labels = support_labels[i] 
+
+            # save model dict
+            # saved_model_dict = self._model.state_dict()
+
+            # set optimizer
+            optimizer = torch.optim.Adam(self._fc.parameters(),
+                lr = 0.001, weight_decay=0.001)
+
+            # optimize last layer
+            for j in range(self._n_updates):
+                optimizer.zero_grad()
+                features = self._model(task_support, features_only=True)
+                features = features.detach()
+                logits = self._fc(features)
+                loss = self._inner_loss_func(logits, task_support_labels)
+                if self._aux_loss is not None and (j % 10 == 0):
+                    loss += self._aux_loss(features, task_support_labels, self._fc)
+                loss.backward()
+                optimizer.step()
+            
+            # metrics
+            avg_loss += loss.item()
+            avg_accu = accuracy(logits, task_support_labels)
+
+            # predict query logits
+            task_logits_query = self._fc(self._model(task_query, features_only=True))
+            logits_query.append(task_logits_query)
+
+            # reset model dict
+            # self._model.load_state_dict(saved_model_dict)
+
+        logits_query = torch.cat(logits_query, dim=0)
+        measurements_trajectory['loss'].append(avg_loss)
+        measurements_trajectory['accu'].append(avg_accu)
+
+        return logits_query, measurements_trajectory
+
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+        self._fc.to(device, **kwargs)
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}
+
+
+
+
+
+class ProtoCosineNet(Algorithm):
+
+    def __init__(self, model, inner_loss_func, device, 
+            n_way, n_shot, n_query):
+        
+        self._model = model
+        self._device = device
+        self._inner_loss_func = inner_loss_func
+        self._n_way = n_way
+        self._n_shot = n_shot
+        self._n_query = n_query
+        self.to(self._device)
+   
+    def inner_loop_adapt(self, support, support_labels, query):
+        """
+        Constructs the prototype representation of each class(=mean of support vectors of each class) and 
+        returns the classification score (=cosine distance to each class prototype) on the query set.
+        
+        This model is the classification head described in:
+        Prototypical Networks for Few-shot Learning
+        (Snell et al., NIPS 2017).
+        
+        Parameters:
+        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
+        support_labels: a (n_tasks_per_batch, n_support) Tensor.
+        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        """
+
+        measurements_trajectory = defaultdict(list)
+
+        assert(query.dim() == 5)
+        assert(support.dim() == 5)
+        
+        # get features
+        orig_query_shape = query.shape
+        orig_support_shape = support.shape
+        support = self._model(
+            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
+        
+
+        tasks_per_batch = query.size(0)
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        d = query.size(2)                 # dimension
+
+        n_way = self._n_way               # n_classes in a task
+        n_query = self._n_query           # n_query samples per class
+        n_shot = self._n_shot             # n_support samples per class
+        normalize = self._normalize
+
+        assert(query.dim() == 3)
+        assert(support.dim() == 3)
+        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
+        assert(total_n_support == n_way * n_shot)
+        assert(total_n_query == n_way * n_query)
+
+        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * total_n_support), n_way)
+        support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, total_n_support, n_way)
+    
+        labels_train_transposed = support_labels_one_hot.transpose(1,2)
+        # this makes it tasks_per_batch x n_way x total_n_support
+
+        prototypes = torch.bmm(labels_train_transposed, support)
+        # [batch_size x n_way x d] =
+        #     [batch_size x n_way x total_n_support] * [batch_size x total_n_support x d]
+
+        prototypes = prototypes.div(
+            labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
+        )
+        # Divide with the number of examples per base category.
+        prototypes = prototypes.div(torch.norm(prototypes, dim=2, keepdim=True)+0.00001)
+        query = query.div(torch.norm(query, dim=2, keepdim=True)+0.00001)
+        support = support.div(torch.norm(support, dim=2, keepdim=True)+0.00001)
+        # Project onto hyper-sphere.
+
+        
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        logits_query = computeGramMatrix(query, prototypes)
+        # batch_size x total_n_query x n_way
+        
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        logits_support = computeGramMatrix(support, prototypes)
+        # batch_size x total_n_support x n_way
+
+        # compute loss and acc on support
+        logits_support = logits_support.reshape(-1, logits_support.size(-1))
+        labels_support = support_labels.reshape(-1)
+        
+        loss = self._inner_loss_func(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support)
+        measurements_trajectory['inner_loss'].append(loss.item())
+        measurements_trajectory['inner_accu'].append(accu)
+
+        return logits_query, measurements_trajectory
+
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}
