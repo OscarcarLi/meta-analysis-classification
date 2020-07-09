@@ -8,9 +8,10 @@ python main_meta_classical.py \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
 --n-epochs 400 \
+--n-tf-updates 10 \
 --num-classes-train 64 \
 --batch-size-train 32 \
---n-way-train 32 \
+--n-way-train 5 \
 --n-shot-train 1 \
 --n-query-train 15 \
 --num-classes-val 16 \

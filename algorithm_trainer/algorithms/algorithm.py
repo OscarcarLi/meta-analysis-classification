@@ -538,7 +538,7 @@ class Finetune(Algorithm):
             
             # metrics
             avg_loss += loss.item()
-            avg_accu = accuracy(logits, task_support_labels)
+            avg_accu = accuracy(logits, task_support_labels) * 100.
 
             # predict query logits
             task_logits_query = self._fc(self._model(task_query, features_only=True))
@@ -617,8 +617,7 @@ class ProtoCosineNet(Algorithm):
         n_way = self._n_way               # n_classes in a task
         n_query = self._n_query           # n_query samples per class
         n_shot = self._n_shot             # n_support samples per class
-        normalize = self._normalize
-
+        
         assert(query.dim() == 3)
         assert(support.dim() == 3)
         assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
@@ -668,7 +667,7 @@ class ProtoCosineNet(Algorithm):
         loss = self._inner_loss_func(logits_support, labels_support)
         accu = accuracy(logits_support, labels_support)
         measurements_trajectory['mt_inner_loss'].append(loss.item())
-        measurements_trajectory['mt_inner_accu'].append(accu)
+        measurements_trajectory['mt_inner_accu'].append(accu) * 100.
 
         return logits_query, measurements_trajectory
 

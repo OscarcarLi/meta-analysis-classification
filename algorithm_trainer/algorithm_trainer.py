@@ -19,6 +19,26 @@ from analysis.objectives import var_reduction
 
 
 
+
+def get_labels(y_batch, n_way, n_shot, n_query, batch_sz):
+    # original y_batch: (batch_sz*n_way, n_shot+n_query)
+    y_batch = y_batch.reshape(batch_sz, n_way, -1)
+    # batch_sz, n_way, n_shot+n_query
+    
+    for i in range(y_batch.shape[0]):
+        uniq_classes = np.unique(y_batch[i, :, :].cpu().numpy())
+        conversion_dict = {v:k for k, v in enumerate(uniq_classes)}
+        # convert labels
+        for uniq_class in uniq_classes: 
+            y_batch[i, y_batch[i]==uniq_class] = conversion_dict[uniq_class]
+        
+    shots_y = y_batch[:, :, :n_shot]
+    query_y = y_batch[:, :, n_shot:]
+    shots_y = shots_y.reshape(batch_sz, -1)
+    query_y = query_y.reshape(batch_sz, -1)
+    return shots_y, query_y
+
+
 def update_sum_measurements(sum_measurements, measurements):
     for key in measurements.keys():
         sum_measurements[key] += np.sum(measurements[key])
@@ -367,7 +387,7 @@ class Generic_algorithm_trainer(object):
                 # (batch_sz, n_way*n_query, channels , height , width)
 
                 ############## labels #############
-                shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+                shots_y, query_y = get_labels(y_batch, n_way=n_way, 
                     n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
         
             else:
@@ -507,24 +527,6 @@ class Generic_algorithm_trainer(object):
         
         return results
 
-
-    def get_labels(self, y_batch, n_way, n_shot, n_query, batch_sz):
-        # original y_batch: (batch_sz*n_way, n_shot+n_query)
-        y_batch = y_batch.reshape(batch_sz, n_way, -1)
-        # batch_sz, n_way, n_shot+n_query
-        
-        for i in range(y_batch.shape[0]):
-            uniq_classes = np.unique(y_batch[i, :, :])
-            conversion_dict = {v:k for k, v in enumerate(uniq_classes)}
-            # convert labels
-            for uniq_class in uniq_classes: 
-                y_batch[i, y_batch[i]==uniq_class] = conversion_dict[uniq_class]
-            
-        shots_y = y_batch[:, :, :n_shot]
-        query_y = y_batch[:, :, n_shot:]
-        shots_y = shots_y.reshape(batch_sz, -1)
-        query_y = query_y.reshape(batch_sz, -1)
-        return shots_y, query_y
         
 
     def log_output(self, iteration,
@@ -939,7 +941,7 @@ class Generic_adaptation_trainer(object):
             # (batch_sz, n_way*n_query, channels , height , width)
 
             ############## labels #############
-            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
+            shots_y, query_y = get_labels(y_batch, n_way=n_way, 
                 n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
     
 
@@ -1094,10 +1096,11 @@ To meta-learn and transfer-learn the feat. extractor
 
 class MetaClassical_algorithm_trainer(object):
 
-    def __init__(self, model, optimizer, writer, log_interval, 
-        save_folder, grad_clip, loss_func, label_offset=0):
+    def __init__(self, model, algorithm, optimizer, writer, log_interval, 
+        save_folder, grad_clip, loss_func, label_offset=0, n_tf_updates=1):
 
         self._model = model
+        self._algorithm = algorithm
         self._loss_func = loss_func
         self._optimizer = optimizer
         self._writer = writer
@@ -1105,6 +1108,7 @@ class MetaClassical_algorithm_trainer(object):
         self._save_folder = save_folder
         self._grad_clip = grad_clip
         self._label_offset = label_offset
+        self._n_tf_updates = n_tf_updates
         self._global_iteration = 0
         
 
@@ -1129,13 +1133,15 @@ class MetaClassical_algorithm_trainer(object):
         n_query = mt_manager.n_query
         mt_batch_sz = mt_manager.batch_size
         
+        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, mt_batch_sz: {mt_batch_sz}")
+
         for i, (tf_batch, mt_batch) in iterator:
             
             # global iterator count
             self._global_iteration += 1
             
             analysis = (i % self._log_interval == 0)
-            tf_batch_sz = len(batch)
+            tf_batch_sz = len(tf_batch)
             
             # fetch samples
             tf_batch_x, tf_batch_y = tf_batch
@@ -1149,53 +1155,55 @@ class MetaClassical_algorithm_trainer(object):
             tf_accu = accuracy(tf_output, tf_batch_y) * 100.
             aggregate['tf_loss'].append(tf_loss.item())
             aggregate['tf_accu'].append(tf_accu)
+            loss = tf_loss # only tf-loss
 
             # meta-learning data creation
-            mt_batch_x, mt_batch_y = mt_batch
-            mt_batch_x = mt_batch_x.cuda()
-            mt_batch_y = mt_batch_y.cuda()
-            mt_batch_y = mt_batch_y - self._label_offset
-            original_shape = x_batch.shape
-            assert len(original_shape) == 5
-            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.reshape(mt_batch_sz, n_way, *original_shape[-4:])
-            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
-            shots_x = x_batch[:, :, :n_shot, :, :, :]
-            # (batch_sz, n_way, n_shot, channels , height , width)
-            query_x = x_batch[:, :, n_shot:, :, :, :]
-            # (batch_sz, n_way, n_query, channels , height , width)
-            shots_x = shots_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_shot, channels , height , width)
-            query_x = query_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_query, channels , height , width)
-            shots_y, query_y = self.get_labels(y_batch, n_way=n_way, 
-                n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
-            assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
-            assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
-            assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
-            assert query_y.shape == (mt_batch_sz, n_way*n_query)
+            if self._global_iteration % self._n_tf_updates == 0:
+                mt_batch_x, mt_batch_y = mt_batch
+                mt_batch_x = mt_batch_x.cuda()
+                mt_batch_y = mt_batch_y.cuda()
+                mt_batch_y = mt_batch_y - self._label_offset
+                original_shape = mt_batch_x.shape
+                assert len(original_shape) == 5
+                # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+                mt_batch_x = mt_batch_x.reshape(mt_batch_sz, n_way, *original_shape[-4:])
+                # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+                shots_x = mt_batch_x[:, :, :n_shot, :, :, :]
+                # (batch_sz, n_way, n_shot, channels , height , width)
+                query_x = mt_batch_x[:, :, n_shot:, :, :, :]
+                # (batch_sz, n_way, n_query, channels , height , width)
+                shots_x = shots_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
+                # (batch_sz, n_way*n_shot, channels , height , width)
+                query_x = query_x.reshape(mt_batch_sz, -1, *original_shape[-3:])
+                # (batch_sz, n_way*n_query, channels , height , width)
+                shots_y, query_y = get_labels(mt_batch_y, n_way=n_way, 
+                    n_shot=n_shot, n_query=n_query, batch_sz=mt_batch_sz)
+                assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
+                assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
+                assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
+                assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
-            # meta-learning loss computation and metrics
-            logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                query=query_x, support=shots_x, 
-                support_labels=shots_y)
-            assert len(set(shots_y)) == len(set(query_y))
-            if isinstance(self._algorithm._model, torch.nn.DataParallel):
-                scale = self._algorithm._model.module.scale
-            else:
-                scale = self._algorithm._model.scale
-            logits = scale * logits.reshape(-1, logits.size(-1))
-            query_y = query_y.reshape(-1)
-            assert logits.size(0) == query_y.size(0)
-            mt_loss = self._loss_func(logits, query_y)
-            mt_accu = accuracy(logits, query_y) * 100.
-            aggregate['mt_outer_loss'].append(tf_loss.item())
-            aggregate['mt_outer_accu'].append(mt_accu)
-            for k,v in measurements_trajectory:
-                aggregate[k].append(measurements_trajectory[v][-1])
+                # meta-learning loss computation and metrics
+                logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                    query=query_x, support=shots_x, 
+                    support_labels=shots_y)
+                assert len(set(shots_y)) == len(set(query_y))
+                if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                    scale = self._algorithm._model.module.scale
+                else:
+                    scale = self._algorithm._model.scale
+                logits = scale * logits.reshape(-1, logits.size(-1))
+                query_y = query_y.reshape(-1)
+                assert logits.size(0) == query_y.size(0)
+                mt_loss = self._loss_func(logits, query_y)
+                mt_accu = accuracy(logits, query_y) * 100.
+                aggregate['mt_outer_loss'].append(tf_loss.item())
+                aggregate['mt_outer_accu'].append(mt_accu)
+                for k in measurements_trajectory:
+                    aggregate[k].append(measurements_trajectory[k][-1])
 
-            # combine tf and mt losses
-            loss = tf_loss + mt_loss
+                # combine tf and mt losses
+                loss = tf_loss + mt_loss
                     
             # logging
             if analysis and is_training:

@@ -47,19 +47,18 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    train_datamgrs = [
-        ClassicalDataManager(image_size, batch_size=args.batch_size_train),
-        ClassicalDataManager(image_size, batch_size=args.batch_size_train * 16)
-    ]
-    train_loaders = [
-        train_datamgrs[0].get_data_loader(train_file, aug=args.train_aug),
-        train_datamgrs[1].get_data_loader(train_file, aug=args.train_aug),
-    ]
+    tf_datamgr = ClassicalDataManager(image_size, batch_size=args.batch_size_train)
+    tf_loader = tf_datamgr.get_data_loader(train_file, aug=args.train_aug)
+    mt_datamgr = MetaDataManager(
+        image_size, batch_size=5, n_episodes=len(tf_loader),
+        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train)
+    mt_loader = mt_datamgr.get_data_loader(train_file, aug=args.train_aug)
+    
     val_file = os.path.join(args.dataset_path, 'val.json')
-    meta_val_datamgr = MetaDataManager(
+    mt_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    meta_val_loader = meta_val_datamgr.get_data_loader(val_file, aug=False)
+    mt_val_loader = mt_val_datamgr.get_data_loader(val_file, aug=False)
     
     
 
@@ -70,13 +69,10 @@ def main(args):
     if args.model_type == 'resnet':
         model = resnet_2.ResNet18(num_classes=args.num_classes_train, 
             classifier_type=args.classifier_type)
-        model_val = resnet_2.ResNet18(num_classes=args.num_classes_val, add_bias=False, no_fc_layer=True)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes_train,
             verbose=True, retain_activation=True, use_group_norm=True, add_bias=False)
-        model_val = ImpRegConvModel(num_classes=args.num_classes_val, img_side_len=image_size,
-            retain_activation=True, use_group_norm=True, add_bias=False)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -113,53 +109,32 @@ def main(args):
     print('Using GPUs: ', os.environ["CUDA_VISIBLE_DEVICES"])
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
     model.cuda()
-    model_val = torch.nn.DataParallel(model_val, device_ids=range(torch.cuda.device_count()))
-    model_val.cuda()
-    
         
 
     ####################################################
     #                OPTIMIZER CREATION                #
     ####################################################
 
-    # loss_dict = {
-    #     'cross_ent': torch.nn.CrossEntropyLoss(),
-    #     'var_disc': var_reduction_disc
-    # }
-    # loss_funcs = []
-    # for loss_name, lambda_value in zip(args.loss_names, args.lambdas):
-    #     print(f"Adding loss : {loss_name} with lambda value {lambda_value}")
-    #     loss_funcs.append((loss_name, loss_dict[loss_name]))
     optimizer = torch.optim.Adam([
         {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay},
     ])
     print("Total n_epochs: ", args.n_epochs)
 
     ####################################################
-    #                CLASSICAL TRAINER                 #
-    ####################################################
-
-    trainer = MetaClassical_algorithm_trainer(
-        model=model,
-        optimizer=optimizer,
-        writer=writer,
-        log_interval=args.log_interval, 
-        save_folder=save_folder, 
-        grad_clip=args.grad_clip,
-        loss=('cross_ent', torch.nn.CrossEntropyLoss()),
-        # aux_loss=('var_ortho', var_reduction_ortho),
-        gamma=args.gamma,
-        update_gap=16
-    )
-
-    ####################################################
-    #                  META VALIDATOR                  #
+    #                     TRAINER                      #
     ####################################################
 
     # algorithm
     if args.algorithm == 'ProtonetCosine':
-        algorithm = ProtoCosineNet(
-            model=model_val,
+        algorithm_train = ProtoCosineNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
+        algorithm_val = ProtoCosineNet(
+            model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_val,
             n_shot=args.n_shot_val,
@@ -169,16 +144,31 @@ def main(args):
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
 
+    trainer = MetaClassical_algorithm_trainer(
+        model=model,
+        algorithm=algorithm_train,
+        optimizer=optimizer,
+        writer=writer,
+        log_interval=args.log_interval, 
+        save_folder=save_folder, 
+        grad_clip=args.grad_clip,
+        loss_func=torch.nn.CrossEntropyLoss(),
+        n_tf_updates=args.n_tf_updates 
+    )
+
+
+    ####################################################
+    #                  META VALIDATOR                  #
+    ####################################################
+
     val_trainer = Generic_adaptation_trainer(
-        algorithm=algorithm,
+        algorithm=algorithm_val,
         aux_objective=None,
         outer_loss_func=torch.nn.CrossEntropyLoss(),
-        outer_optimizer=optimizer, 
+        outer_optimizer=None, 
         writer=writer,
         log_interval=args.log_interval,
-        model_type=args.model_type,
-        n_aux_objective_steps=0,
-        label_offset=args.label_offset
+        model_type=args.model_type
     )
 
     ####################################################
@@ -186,28 +176,20 @@ def main(args):
     ####################################################
 
 
-
     lambda_epoch = lambda e: 1.0 if e < 200  else (0.1 if e < 360 else (0.01))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     
-
     for iter_start in range(args.restart_iter, args.n_epochs):
 
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
-        trainer.run(train_loaders, is_training=True, epoch=iter_start)
+        trainer.run(tf_loader, mt_loader, mt_datamgr, is_training=True, epoch=iter_start)
 
         # validation
         if iter_start % 50 == 0:
-            model_state_dict = model.state_dict()
-            model_val_state_dict = model_val.state_dict()
-            backbone_state_dict = {k: v for k, v in model_state_dict.items() if k in model_val_state_dict}
-            model_val_state_dict.update(backbone_state_dict)
-            updated_keys = set(model_val_state_dict).intersection(set(backbone_state_dict))
-            print(f"Updating model_val backbone with {len(updated_keys)} parameters")
-            results = val_trainer.run(meta_val_loader, meta_val_datamgr)
+            results = val_trainer.run(mt_val_loader, mt_val_datamgr)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
     
@@ -294,7 +276,8 @@ if __name__ == '__main__':
         help='no. of iterations validation.') 
     parser.add_argument('--restart-iter', type=int, default=1,
         help='iteration at restart') 
-    
+    parser.add_argument('--n-tf-updates', type=int, default=1,
+        help='no of tf updates before meta update') 
 
     args = parser.parse_args()
 
