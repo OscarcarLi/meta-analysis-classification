@@ -121,7 +121,7 @@ This would beed additional params: [n_way, n_shot, n_query, n_eposide]
 """
 
 class MetaDataManager(DataManager):
-    def __init__(self, image_size, n_way, n_shot, n_query, batch_size, n_episodes=100):        
+    def __init__(self, image_size, n_way, n_shot, n_query, batch_size, fix_support=False, n_episodes=100):        
         super(MetaDataManager, self).__init__()
         self.image_size = image_size
         self.n_way = n_way
@@ -130,6 +130,7 @@ class MetaDataManager(DataManager):
         self.n_query = n_query
         self.n_episodes = n_episodes
         self.trans_loader = TransformLoader(image_size)
+        self.fix_support = fix_support
 
     def get_data_loader(self, data_file, aug): #parameters that would change on train/val set
         """
@@ -137,7 +138,7 @@ class MetaDataManager(DataManager):
         aug: boolean to set data augmentation
         """
         transform = self.trans_loader.get_composed_transform(aug)
-        dataset = MetaDataset(data_file, per_task_batch_size=self.n_shot+self.n_query, transform=transform)
+        dataset = MetaDataset(data_file, n_shot=self.n_shot, n_query=self.n_query, transform=transform, fix_support=self.fix_support)
         sampler = EpisodicBatchSampler(len(dataset), n_way=self.n_way, 
             n_episodes=self.n_episodes, n_tasks=self.batch_size)  
         data_loader_params = dict(batch_sampler=sampler, num_workers=12, pin_memory=True)       

@@ -11,7 +11,7 @@ from tensorboardX import SummaryWriter
 import re
 
 
-from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet
 from algorithm_trainer.utils import optimizer_to_device
@@ -47,11 +47,9 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    tf_datamgr = ClassicalDataManager(image_size, batch_size=args.batch_size_train)
-    tf_loader = tf_datamgr.get_data_loader(train_file, aug=args.train_aug)
     mt_datamgr = MetaDataManager(
-        image_size, batch_size=5, n_episodes=len(tf_loader),
-        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train)
+        image_size, batch_size=args.batch_size_train, n_episodes=1000,
+        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support)
     mt_loader = mt_datamgr.get_data_loader(train_file, aug=args.train_aug)
     
     val_file = os.path.join(args.dataset_path, 'val.json')
@@ -68,11 +66,16 @@ def main(args):
 
     if args.model_type == 'resnet':
         model = resnet_2.ResNet18(num_classes=args.num_classes_train, 
-            classifier_type=args.classifier_type)
-    elif args.model_type == 'conv64':
-        model = ImpRegConvModel(
-            input_channels=3, num_channels=64, img_side_len=image_size, num_classes=args.num_classes_train,
-            verbose=True, retain_activation=True, use_group_norm=True, add_bias=False)
+            classifier_type=None, no_fc_layer=True)
+    elif args.model_type == 'resnet12':
+        if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
+            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
+                num_classes=args.num_classes_train, classifier_type=args.classifier_type)
+        else:
+            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
+                num_classes=args.num_classes_train, classifier_type=args.classifier_type)elif args.model_type == 'conv64':
+        model = conv64.Conv64(num_classes=args.num_classes_train, 
+            classifier_type=None, no_fc_layer=True)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -116,7 +119,7 @@ def main(args):
     ####################################################
 
     optimizer = torch.optim.Adam([
-        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay},
+        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
     ])
     print("Total n_epochs: ", args.n_epochs)
 
@@ -140,6 +143,21 @@ def main(args):
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
             device='cuda')
+    elif args.algorithm == 'Protonet':
+        algorithm_train = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
+        algorithm_val = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
+            device='cuda')
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
@@ -152,8 +170,7 @@ def main(args):
         log_interval=args.log_interval, 
         save_folder=save_folder, 
         grad_clip=args.grad_clip,
-        loss_func=torch.nn.CrossEntropyLoss(),
-        n_tf_updates=args.n_tf_updates 
+        loss_func=torch.nn.CrossEntropyLoss()
     )
 
 
@@ -176,26 +193,26 @@ def main(args):
     ####################################################
 
 
-    lambda_epoch = lambda e: 1.0 if e < 200  else (0.1 if e < 360 else (0.01))
+    lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     
-    for iter_start in range(args.restart_iter, args.n_epochs):
+    for iter_start in range(0, args.n_epochs):
 
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
-        trainer.run(tf_loader, mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1)
+        
+        trainer.run(mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1)
 
         # validation
-        if iter_start % 50 == 0:
-            results = val_trainer.run(mt_val_loader, mt_val_datamgr)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
+        results = val_trainer.run(mt_val_loader, mt_val_datamgr)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
     
         # scheduler step
         lr_scheduler.step()
-
+        
 
 
 if __name__ == '__main__':
@@ -278,6 +295,8 @@ if __name__ == '__main__':
         help='iteration at restart') 
     parser.add_argument('--n-tf-updates', type=int, default=1,
         help='no of tf updates before meta update') 
+    parser.add_argument('--fix-support', action='store_true', default=False,
+        help='fix support set')
 
     args = parser.parse_args()
 

@@ -325,7 +325,7 @@ class ProtoNet(Algorithm):
         self._normalize = normalize
         self.to(self._device)
    
-    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False):
+    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False, scale=1.):
         """
         Constructs the prototype representation of each class(=mean of support vectors of each class) and 
         returns the classification score (=L2 distance to each class prototype) on the query set.
@@ -431,14 +431,14 @@ class ProtoNet(Algorithm):
 
         
         # compute loss and acc on support
-        logits_support = logits_support.reshape(-1, logits_support.size(-1))
+        logits_support = logits_support.reshape(-1, logits_support.size(-1)) * scale
         labels_support = support_labels.reshape(-1)
         
 
         loss = self._inner_loss_func(logits_support, labels_support)
-        accu = accuracy(logits_support, labels_support)
-        measurements_trajectory['loss'].append(loss.item())
-        measurements_trajectory['accu'].append(accu)
+        accu = accuracy(logits_support, labels_support) * 100.
+        measurements_trajectory['mt_inner_loss'].append(loss.item())
+        measurements_trajectory['mt_inner_accu'].append(accu)
 
         return logits_query, measurements_trajectory
 
@@ -579,7 +579,7 @@ class ProtoCosineNet(Algorithm):
         self._n_query = n_query
         self.to(self._device)
    
-    def inner_loop_adapt(self, support, support_labels, query):
+    def inner_loop_adapt(self, support, support_labels, query, scale=1.):
         """
         Constructs the prototype representation of each class(=mean of support vectors of each class) and 
         returns the classification score (=cosine distance to each class prototype) on the query set.
@@ -607,8 +607,13 @@ class ProtoCosineNet(Algorithm):
             support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
             query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
-        
 
+
+        # support = support.div(torch.norm(support, dim=2, keepdim=True)+0.00001)
+        # query = query.div(torch.norm(query, dim=2, keepdim=True)+0.00001)
+        # Project onto hyper-sphere.
+
+        
         tasks_per_batch = query.size(0)
         total_n_support = support.size(1) # support samples across all classes in a task
         total_n_query = query.size(1)     # query samples across all classes in a task
@@ -638,9 +643,139 @@ class ProtoCosineNet(Algorithm):
             labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
         )
         # Divide with the number of examples per base category.
-        prototypes = prototypes.div(torch.norm(prototypes, dim=2, keepdim=True)+0.00001)
-        query = query.div(torch.norm(query, dim=2, keepdim=True)+0.00001)
-        support = support.div(torch.norm(support, dim=2, keepdim=True)+0.00001)
+        # prototypes = prototypes.div(torch.norm(prototypes, dim=2, keepdim=True)+0.00001)
+        # Project onto hyper-sphere.
+
+        
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        logits_query = computeGramMatrix(query, prototypes)
+        # batch_size x total_n_query x n_way
+        
+        ################################################
+        # Compute the classification score for query
+        ################################################
+
+        # Distance Matrix Vectorization Trick
+        logits_support = computeGramMatrix(support, prototypes)
+        # batch_size x total_n_support x n_way
+
+        # compute loss and acc on support
+        logits_support = logits_support.reshape(-1, logits_support.size(-1)) * scale
+        labels_support = support_labels.reshape(-1)
+        
+        loss = self._inner_loss_func(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support) * 100.
+        measurements_trajectory['loss'].append(loss.item())
+        measurements_trajectory['accu'].append(accu)
+
+        return logits_query, measurements_trajectory
+
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+class ProtoCosineNetCorrected2(Algorithm):
+
+    def __init__(self, model, inner_loss_func, device, 
+            n_way, n_shot, n_query):
+        
+        self._model = model
+        self._device = device
+        self._inner_loss_func = inner_loss_func
+        self._n_way = n_way
+        self._n_shot = n_shot
+        self._n_query = n_query
+        self.to(self._device)
+   
+    def inner_loop_adapt(self, support, support_labels, query):
+        """
+        Constructs the prototype representation of each class(=mean of support vectors of each class) and 
+        returns the classification score (=cosine distance to each class prototype) on the query set.
+        
+        This model is the classification head described in:
+        Prototypical Networks for Few-shot Learning
+        (Snell et al., NIPS 2017).
+        
+        Parameters:
+        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
+        support_labels: a (n_tasks_per_batch, n_support) Tensor.
+        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        """
+
+        measurements_trajectory = defaultdict(list)
+
+        assert(query.dim() == 5)
+        assert(support.dim() == 5)
+        
+        # get features
+        orig_query_shape = query.shape
+        orig_support_shape = support.shape
+        support = self._model(
+            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
+        query = self._model(
+            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
+
+
+        # support = support.div(torch.norm(support, dim=2, keepdim=True)+0.00001)
+        # query = query.div(torch.norm(query, dim=2, keepdim=True)+0.00001)
+        # Project onto hyper-sphere.
+
+        
+        tasks_per_batch = query.size(0)
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        d = query.size(2)                 # dimension
+
+        n_way = self._n_way               # n_classes in a task
+        n_query = self._n_query           # n_query samples per class
+        n_shot = self._n_shot             # n_support samples per class
+        
+        assert(query.dim() == 3)
+        assert(support.dim() == 3)
+        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
+        assert(total_n_support == n_way * n_shot)
+        assert(total_n_query == n_way * n_query)
+
+        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * total_n_support), n_way)
+        support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, total_n_support, n_way)
+    
+        labels_train_transposed = support_labels_one_hot.transpose(1,2)
+        # this makes it tasks_per_batch x n_way x total_n_support
+
+        prototypes = torch.bmm(labels_train_transposed, support)
+        # [batch_size x n_way x d] =
+        #     [batch_size x n_way x total_n_support] * [batch_size x total_n_support x d]
+
+        prototypes = prototypes.div(
+            labels_train_transposed.sum(dim=2, keepdim=True).expand_as(prototypes)
+        )
+        prototypes = (n_way) / (n_way - 1) * (prototypes - prototypes.mean(dim=1, keepdim=True))
+        # Divide with the number of examples per base category.
+        # prototypes = prototypes.div(torch.norm(prototypes, dim=2, keepdim=True)+0.00001)
         # Project onto hyper-sphere.
 
         
@@ -666,8 +801,8 @@ class ProtoCosineNet(Algorithm):
         
         loss = self._inner_loss_func(logits_support, labels_support)
         accu = accuracy(logits_support, labels_support) * 100.
-        measurements_trajectory['mt_inner_loss'].append(loss.item())
-        measurements_trajectory['mt_inner_accu'].append(accu)
+        measurements_trajectory['loss'].append(loss.item())
+        measurements_trajectory['accu'].append(accu)
 
         return logits_query, measurements_trajectory
 

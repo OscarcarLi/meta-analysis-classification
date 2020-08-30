@@ -7,6 +7,7 @@ import math
 import numpy as np
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import WeightNorm
+from  algorithm_trainer.models.dropblock import DropBlock
 
 # Basic ResNet model
 
@@ -42,6 +43,84 @@ class distLinear(nn.Module):
         scores = self.scale_factor* (cos_dist) 
 
         return scores
+
+
+
+
+class avgLinear(nn.Module):
+    def __init__(self, indim, outdim, momentum=0.99):
+        super(avgLinear, self).__init__()
+        self.L = nn.Parameter(torch.randn(outdim, indim), requires_grad=False)
+        self.Lg = nn.Linear(indim, outdim, bias = False)
+        self.gbeta = nn.Parameter(torch.FloatTensor([1.0]))
+        self.scale_factor = nn.Parameter(torch.FloatTensor([1.0]))
+        self.M = torch.nn.Linear(indim, indim, bias=False)
+        self.momentum = momentum
+        self.indim = indim
+        self.outdim = outdim
+
+        for param in self.Lg.parameters():
+            param.requires_grad = False
+        
+        
+        # if outdim <=200:
+        #     self.scale_factor = 2; #a fixed scale factor to scale the output of cos value into a reasonably large input for softmax, for to reproduce the result of CUB with ResNet10, use 4. see the issue#31 in the github 
+        # else:
+        #     self.scale_factor = 10; #in omniglot, a larger scale factor is required to handle >1000 output classes.
+
+    def K(a, b):
+        """ linear kernel
+        """
+        return self.M(a) @ self.M(b).T 
+
+    def forward(self, x):
+        # x_norm = torch.norm(x, p=2, dim =1).unsqueeze(1).expand_as(x)
+        # x_normalized = x.div(x_norm+ 0.00001)
+        Lg_norm = torch.norm(self.Lg.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.Lg.weight.data)
+        self.Lg.weight.data = self.Lg.weight.data.div(Lg_norm + 0.00001)
+        # self.L = self.L.to(x.device)
+        # (x @ self.L.T) +
+        scores = self.scale_factor * (self.gbeta * (self.K(x, self.L)) + self.K(x, self.Lg.weight))
+        #matrix product by forward function, but when using WeightNorm, this also multiply the cosine distance by a class-wise learnable norm, see the issue#4&8 in the github
+        # scores = self.scale_factor* (cos_dist) 
+        return scores
+
+    def update(self, x, y):
+
+        # with torch.no_grad():
+            # x_norm = torch.norm(x, p=2, dim =1).unsqueeze(1).expand_as(x)
+            # x = x.div(x_norm+ 0.00001)
+        # self.L = torch.randn(self.outdim, self.indim, device=x.device)
+        for c in np.unique(y.cpu().numpy()):
+            c_feat = torch.mean(x[y==c, :], dim=0)
+            # c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
+            # self.L.weight[c, :] = self.L.weight[c, :] + c_feat
+            # self.L.weight[c, :] = self.L.weight[c, :].div(len(self.L.weight[c, :]))
+            # self.L.weight[c, :] = self.momentum * self.L.weight[c, :] + (1-self.momentum) * c_feat
+            c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
+            self.L.data[c, :] = c_feat
+        # assert self.L.shape[0] == self.outdim
+        # self.L = c_feat
+        # L_norm = torch.norm(self.L.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.L.weight.data)
+        # self.L.weight.data = self.L.weight.data.div(L_norm + 0.00001)
+        
+                
+
+    def update_full(self, x, y):
+
+        with torch.no_grad():
+            # x_norm = torch.norm(x, p=2, dim =1).unsqueeze(1).expand_as(x)
+            # x = x.div(x_norm+ 0.00001)
+            for c in np.unique(y.cpu().numpy()):
+                c_feat = torch.sum(x[y==c, :], dim=0) / 600.
+                # c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
+                # self.L.weight[c, :] = self.L.weight[c, :] + c_feat
+                # self.L.weight[c, :] = self.L.weight[c, :].div(len(self.L.weight[c, :]))
+                self.Lg.weight[c, :] = self.Lg.weight[c, :] + c_feat
+            # L_norm = torch.norm(self.L.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.L.weight.data)
+            # self.L.weight.data = self.L.weight.data.div(L_norm + 0.00001)
+        
+                
 
 
 class gaussianDA(nn.Module):
@@ -306,7 +385,8 @@ class ConvNet(nn.Module):
 class ResNet(nn.Module):
     
     def __init__(self,block,list_of_num_layers, list_of_out_dims, flatten=True,
-        no_fc_layer=False, add_bias=False, classifier_type='linear', num_classes=None, lowdim=16):
+        no_fc_layer=False, add_bias=False, classifier_type='linear', num_classes=None, lowdim=0):
+        
         # list_of_num_layers specifies number of layers in each stage
         # list_of_out_dims specifies number of output channel for each stage
         super(ResNet,self).__init__()
@@ -343,17 +423,20 @@ class ResNet(nn.Module):
 
         self.lowdim = lowdim
         if self.lowdim > 0:
-            trunk.append(torch.nn.Linear(self.final_feat_dim, self.lowdim))
+            trunk.append(torch.nn.Linear(self.final_feat_dim, self.lowdim, bias=False))
             self.final_feat_dim = self.lowdim
 
         self.trunk = nn.Sequential(*trunk)
-
+        self.classifier_type  = classifier_type
+        
         if no_fc_layer is True:
             self.fc = None
         elif classifier_type == 'linear':
             self.fc = nn.Linear(self.final_feat_dim, num_classes)
         elif classifier_type == 'distance-classifier':
             self.fc = distLinear(self.final_feat_dim, num_classes)
+        elif classifier_type == 'avg-classifier':
+            self.fc = avgLinear(self.final_feat_dim, num_classes)
         elif classifier_type == 'gda':
             self.fc = gaussianDA(self.final_feat_dim, num_classes)
         elif classifier_type == 'ortho-classifier':
@@ -370,6 +453,9 @@ class ResNet(nn.Module):
 
     def forward(self,x,features_only=False):
         out = self.trunk(x)
+        # with torch.no_grad():
+        out_norm = torch.norm(out, dim=1, keepdim=True)+0.00001
+        out = out.div(out_norm)
         if features_only:
             return out
         if self.add_bias and self.fc is None:

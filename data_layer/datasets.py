@@ -7,6 +7,8 @@ import os
 identity = lambda x:x
 
 
+
+
 class ClassicalDataset:
 
     def __init__(self, data_file, transform, target_transform=identity):
@@ -14,7 +16,9 @@ class ClassicalDataset:
             self.data_file = json.load(f)
         self.transform = transform
         self.target_transform = target_transform
-
+        self.label2target = {v:k for k,v in enumerate(np.unique(self.data_file['image_labels']))}
+        self.data_file['image_labels'] = list(map(
+            lambda x: self.label2target[x], self.data_file['image_labels']))
 
     def __getitem__(self,i):
         image_path = os.path.join(self.data_file['image_names'][i])
@@ -31,10 +35,18 @@ class ClassicalDataset:
 
 class MetaDataset:
 
-    def __init__(self, data_file, per_task_batch_size, transform):
+    def __init__(self, data_file, n_shot, n_query, transform, fix_support=False):
         
+        self.fix_support = fix_support
+        self.n_shot = n_shot
+        self.n_query = n_query
+
         with open(data_file, 'r') as f:
             self.meta = json.load(f)
+
+        self.label2target = {v:k for k,v in enumerate(np.unique(self.meta['image_labels']))}
+        self.meta['image_labels'] = list(map(
+            lambda x: self.label2target[x], self.meta['image_labels']))
  
         self.cl_list = np.unique(self.meta['image_labels']).tolist()
 
@@ -45,17 +57,40 @@ class MetaDataset:
         for x,y in zip(self.meta['image_names'],self.meta['image_labels']):
             self.sub_meta[y].append(x)
 
-        self.sub_dataloader = [] 
-        sub_data_loader_params = dict(batch_size = per_task_batch_size, # (n_support + n_query) * n_tasks
-                                  shuffle = True,
-                                  num_workers = 0, #use main thread only or may receive multiple batches
-                                  pin_memory = False)        
-        for cl in self.cl_list:
-            sub_dataset = SubMetaDataset(self.sub_meta[cl], cl, transform = transform)
-            self.sub_dataloader.append(
-                torch.utils.data.DataLoader(sub_dataset, **sub_data_loader_params))
+        sub_data_loader_params_batch_size = n_query
+        if not fix_support:
+            sub_data_loader_params_batch_size += n_shot
+        
+        if sub_data_loader_params_batch_size > 0:
+            self.sub_dataloader = [] 
+            sub_data_loader_params = dict(batch_size = sub_data_loader_params_batch_size, # (n_support + n_query) * n_tasks
+                                    shuffle = True,
+                                    num_workers = 0, #use main thread only or may receive multiple batches
+                                    pin_memory = False)        
+            for cl in self.cl_list:
+                sub_dataset = SubMetaDataset(self.sub_meta[cl], cl, transform = transform)
+                self.sub_dataloader.append(
+                    torch.utils.data.DataLoader(sub_dataset, **sub_data_loader_params))
+
+        if fix_support:
+            
+            self.fix_support_sub_dataloader = [] 
+            fix_support_sub_data_loader_params = dict(batch_size = n_shot, # (n_support) * n_tasks
+                                    shuffle = False,
+                                    num_workers = 0, #use main thread only or may receive multiple batches
+                                    pin_memory = False)        
+            for cl in self.cl_list:
+                fix_support_sub_dataset = SubMetaDataset(self.sub_meta[cl][:n_shot], cl, transform = transform)
+                self.fix_support_sub_dataloader.append(
+                    torch.utils.data.DataLoader(fix_support_sub_dataset, **fix_support_sub_data_loader_params))
+    
 
     def __getitem__(self,i):
+        if self.fix_support and self.n_query > 0:
+            return torch.cat([next(iter(self.fix_support_sub_dataloader[i]))[0], next(iter(self.sub_dataloader[i]))[0]], dim=0), \
+                 torch.cat([next(iter(self.fix_support_sub_dataloader[i]))[1], next(iter(self.sub_dataloader[i]))[1]], dim=0)
+        elif self.fix_support:
+            return next(iter(self.fix_support_sub_dataloader[i]))
         return next(iter(self.sub_dataloader[i]))
 
     def __len__(self):
