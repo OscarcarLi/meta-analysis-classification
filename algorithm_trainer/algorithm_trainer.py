@@ -652,7 +652,7 @@ class Classical_algorithm_trainer(object):
         self._num_classes = num_classes
 
 
-    def run(self, dataset_loaders, aux_batch_xLg, aux_batch_yLg, epoch=None, is_training=True, grad_analysis=False):
+    def run(self, dataset_loader, dataset_mgr, epoch=None, is_training=True, grad_analysis=False):
 
         if is_training:
             self._model.train()
@@ -672,43 +672,26 @@ class Classical_algorithm_trainer(object):
         erm_loss_name, erm_loss_func = self._loss
         if self._aux_loss is not None:
             aux_loss_name, aux_loss_func = self._aux_loss
-        if self._aux_loss is not None or self._model.module.classifier_type == 'avg-classifier':
             self._gamma = min(0.5, (1.01 * self._gamma))
             print("gamma: {:.4f}".format(self._gamma))
 
         # loaders and iterators
-        erm_loader, aux_loader = dataset_loaders
-        erm_iterator = tqdm(enumerate(erm_loader, start=1),
+        iterator = tqdm(enumerate(dataset_loader, start=1),
                         leave=False, file=sys.stdout, position=0)
-        aux_iterator = iter(aux_loader)
-
-        # if self._model.module.classifier_type == 'avg-classifier' and epoch % 1 == 0 and self._model.module.fc.lambd < 1. and self._model.module.fc.lambd > 0.:
-        #     with torch.no_grad():
-        #         self._model.eval()
-        #         print("Updating feature means")
-        #         self._model.module.fc.Lg.weight.fill_(0.)
-        #         for i, batch in erm_naug_iterator:
-        #             batch_x, batch_y = batch
-        #             batch_y = batch_y - self._label_offset
-        #             batch_x = batch_x.cuda()
-        #             batch_y = batch_y.cuda()
-        #             features_x = self._model(batch_x, features_only=True)
-        #             self._model.module.fc.update_Lg_full(features_x, batch_y)
-        #     self._model.train()
-        #     # erm_iterator = tqdm(enumerate(erm_loader, start=1),
-        #     #             leave=False, file=sys.stdout, position=0)
-        #     # divide and project onto hypersphere
-        #     self._model.module.fc.divide_Lg()
-        #     # self._model.module.fc.project_Lg()
-
 
         # metrics aggregation
         aggregate = defaultdict(list)
         val_aggregate = defaultdict(list)
         # torch.autograd.set_detect_anomaly(True)
 
-        
-        for i, batch in erm_iterator:
+        # constants
+        n_way = dataset_mgr.n_way
+        n_shot = dataset_mgr.n_shot
+        n_query = dataset_mgr.n_query
+        mt_batch_sz = dataset_mgr.batch_size        
+        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, mt_batch_sz: {mt_batch_sz}")
+
+        for i, batch in iterator:
             
             # global iterator count
             self._global_iteration += 1
@@ -721,92 +704,42 @@ class Classical_algorithm_trainer(object):
             batch_y = batch_y - self._label_offset
             batch_x = batch_x.cuda()
             batch_y = batch_y.cuda()
+            
+            # fix BN stats issue with multi-gpu support -> swap ways and shot
+            assert batch_x.dim() == 5 # bsz*nway x nshot+n_query x 3 x 84 x 84
+            assert batch_y.dim() == 2 # bsz*nway x nshot+n_query
+            batch_x = batch_x.reshape(mt_batch_sz, n_way, n_shot+n_query, *(batch_x.shape[-3:]))
+            batch_y = batch_y.reshape(mt_batch_sz, n_way, n_shot+n_query)
+            batch_x = batch_x.transpose(1, 2)
+            # bsz x nshot+n_query x nway x 3 x 84 x 84
+            batch_y = batch_y.transpose(1, 2)
+            # bsz x nshot+n_query x nway x 3 x 84 x 84                             
             batch_x = batch_x.reshape(-1, *(batch_x.shape[-3:]))
             batch_y = batch_y.reshape(-1)
-                
-                                
+                                    
             # loss computation + metrics
-            if self._model.module.classifier_type == 'avg-classifier' and self._model.module.fc.lambd < 1.:
-                try:
-                    aux_batch_x, aux_batch_y = next(aux_iterator)
-                except StopIteration:
-                    aux_iterator = iter(aux_loader)
-                    aux_batch_x, aux_batch_y = next(aux_iterator)
-                aux_batch_y = aux_batch_y - self._label_offset
-                aux_batch_x = aux_batch_x.cuda()
-                aux_batch_x = aux_batch_x.reshape(-1, *(aux_batch_x.shape[-3:]))
-                aux_batch_y = aux_batch_y.cuda()
-                aux_batch_y = aux_batch_y.reshape(-1)
-                
-                aux_features_x = self._model(aux_batch_x, features_only=True)
-                # print("aux_features_x", aux_features_x.shape)
-                # self._model.module.fc.update_L(aux_features_x, aux_batch_y)
-                
+            if self._model.module.classifier_type == 'cvx-classifier': 
+                if self._model.module.fc.lambd < 1.:
+                    support_features_x = self._model(batch_x[:n_shot*n_way], features_only=True)                
+                    self._model.module.fc.update_L(support_features_x, batch_y[:n_shot*n_way])
+                else:
+                    self._model.module.fc.update_L(None, None)
 
-                aux_batch_yLg = aux_batch_yLg - self._label_offset
-                aux_batch_xLg = aux_batch_xLg.cuda()
-                aux_batch_xLg = aux_batch_xLg.reshape(-1, *(aux_batch_xLg.shape[-3:]))
-                aux_batch_yLg = aux_batch_yLg.cuda()
-                aux_batch_yLg = aux_batch_yLg.reshape(-1)
-                
-                aux_features_xLg = self._model(aux_batch_xLg, features_only=True)
-                # print("aux_features_x", aux_features_x.shape)
-                self._model.module.fc.update_L(aux_features_x, aux_batch_y, aux_features_xLg, aux_batch_yLg)
-                
-                
-                
-                # penalty = self._gamma * self._model.module.fc.compute_loss()
-                # loss = penalty
-                # aggregate['prox term'].append(penalty.item())
-                # loss = smooth_loss(
-                #     self._model.module.fc(aux_features_x), aux_batch_y, self._num_classes, self._eps)
-                # loss = erm_loss_func(self._model.module.fc(aux_features_x), aux_batch_y)
-                loss = 0.
-            else:
-                self._model.module.fc.update_L(None, None)
-                loss = 0.
 
-            features_x = self._model(batch_x, features_only=True)
-            # print("features_x", features_x.shape)
-            output_x = self._model.module.fc(features_x)
-            # print(batch_y[:10], output_x[:10])
-            # erm_loss_value = erm_loss_func(output_x, batch_y)
+            query_features_x = self._model(batch_x[n_shot*n_way:], features_only=True)
+            output_x = self._model.module.fc(query_features_x)
             erm_loss_value = smooth_loss(
-                output_x, batch_y, self._num_classes, self._eps)
-            loss += erm_loss_value
+                output_x, batch_y[n_shot*n_way:], self._num_classes, self._eps)
+            loss = erm_loss_value
             aggregate[erm_loss_name].append(erm_loss_value.item())
-            if self._global_iteration % self._update_gap == 0 and self._aux_loss is not None:
-                # try:
-                #     aux_batch_x, aux_batch_y = next(aux_iterator)        
-                # except StopIteration:
-                #     aux_iterator = iter(aux_loader)
-                #     aux_batch_x, aux_batch_y = next(aux_iterator)
-                # aux_batch_y = aux_batch_y - self._label_offset
-                # aux_batch_x = aux_batch_x.cuda()
-                # aux_batch_y = aux_batch_y.cuda()
-                # aux_output_x = self._model(aux_batch_x, features_only=True)
-                # aux_loss_value = aux_loss_func(aux_output_x, aux_batch_y, self._model.module.fc)
-                aux_loss_value = self._gamma * aux_loss_func(features_x, batch_y)
-                loss +=  aux_loss_value
-                aggregate[aux_loss_name].append(aux_loss_value.item())
             accu = None
             if 'cross_ent' == erm_loss_name:
-                accu = accuracy(output_x, batch_y) * 100.
+                accu = accuracy(output_x, batch_y[n_shot*n_way:]) * 100.
                 aggregate['accu'].append(accu)
                 
             if is_training:
                 self._optimizer.zero_grad()
-                # opt_lambd.zero_grad()
                 loss.backward()
-                # print(batch_y)
-                # print(self._model.module.fc.L.grad, self._model.module.fc.L.grad.shape)
-                # for name, param in self._model.named_parameters():
-                #     # if "scale" in name:
-                #     # print(name)
-                #     if param.grad is not None:
-                #         # print("param:", param)
-                #         print(name, "grad:", torch.norm(param.grad))
-
                 if self._grad_clip > 0.:
                     clip_grad_norm_(self._model.parameters(), self._grad_clip)
                 if not grad_analysis:
@@ -902,126 +835,6 @@ class Classical_algorithm_trainer(object):
             })
 
 
-
-
-    def fine_tune(self, dataset_iterator, dataset_manager, label_offset=0, n_fine_tune_epochs=1):
-
-        self._model.train()
-
-        n_way = dataset_manager.n_way
-        n_shot = dataset_manager.n_shot
-        n_query = dataset_manager.n_query
-        batch_sz = dataset_manager.batch_size
-        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
-
-        all_val_tasks_shots_x = []
-        all_val_tasks_shots_y = []
-        all_val_tasks_query_x = []
-        all_val_tasks_query_y = []
-        
-        print("parsing val dataset once ... ")
-        for batch in tqdm(dataset_iterator, total=len(dataset_iterator)):
-
-            ############## covariates #############
-            x_batch, y_batch = batch
-            original_shape = x_batch.shape
-            assert len(original_shape) == 5
-            # (batch_sz*n_way, n_shot+n_query, channels , height , width)
-            x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
-            # (batch_sz, n_way, n_shot+n_query, channels , height , width)
-            shots_x = x_batch[:, :, :n_shot, :, :, :]
-            # (batch_sz, n_way, n_shot, channels , height , width)
-            query_x = x_batch[:, :, n_shot:, :, :, :]
-            # (batch_sz, n_way, n_query, channels , height , width)
-            shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_shot, channels , height , width)
-            query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
-            # (batch_sz, n_way*n_query, channels , height , width)
-            assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
-            assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
-
-
-            ############## labels #############
-            y_batch = y_batch.reshape(batch_sz, n_way, -1)
-            # batch_sz, n_way, n_shot+n_query
-            shots_y = y_batch[:, :, :n_shot].reshape(batch_sz, -1)
-            query_y = y_batch[:, :, n_shot:].reshape(batch_sz, -1)
-        
-            ### accumulate samples across tasks ###
-            all_val_tasks_shots_x.append(shots_x)
-            all_val_tasks_shots_y.append(shots_y)
-            all_val_tasks_query_x.append(query_x)
-            all_val_tasks_query_y.append(query_y)
-
-
-        ############## concatenate samples from all tasks #############
-        all_val_tasks_shots_x = torch.cat(all_val_tasks_shots_x, dim=0)
-        all_val_tasks_shots_y = torch.cat(all_val_tasks_shots_y, dim=0)
-        all_val_tasks_query_x = torch.cat(all_val_tasks_query_x, dim=0)
-        all_val_tasks_query_y = torch.cat(all_val_tasks_query_y, dim=0)
-
-        #### fix label offset before fine tuning ####
-        """This is mainly because at validation time the samples would be 
-        labelled using their flobal values: [64:79] for mini-imagenet for eg.,
-        this nneds to be reduced by 64 to get labels from 0 to 15.
-        """
-        all_val_tasks_shots_y -= label_offset
-        all_val_tasks_query_y -= label_offset
-
-        print("all_val_tasks_shots_x", all_val_tasks_shots_x.shape)
-        print("all_val_tasks_shots_y", all_val_tasks_shots_y.shape)
-        print("all_val_tasks_query_x", all_val_tasks_query_x.shape)
-        print("all_val_tasks_query_y", all_val_tasks_query_y.shape)
-
-        ## begin fine tuning ##
-        epoch = 0
-        for _ in range(n_fine_tune_epochs):
-            
-            epoch +=1 
-            iterator = tqdm(enumerate(zip(all_val_tasks_shots_x, all_val_tasks_shots_y), start=1),
-                            leave=False, file=sys.stdout, position=0)
-
-            agg_loss = []
-            agg_accu = []
-                     
-            for i, (shots_x, shots_y) in iterator:
-                
-                shots_y = shots_y - self._label_offset
-                analysis = (i % self._log_interval == 0)
-                batch_size = len(shots_x)
-                shots_x = shots_x.reshape(-1, *shots_x.shape[-3:]) 
-                shots_y = shots_y.reshape(-1)
-                batch_x = shots_x.cuda()
-                batch_y = shots_y.cuda()
-                
-                output_x = self._model(batch_x)
-                loss = self._loss_func(output_x, batch_y)
-                accu = None
-                if isinstance(self._loss_func, torch.nn.CrossEntropyLoss):
-                    accu = accuracy(output_x, batch_y)
-                
-                self._optimizer.zero_grad()
-                loss.backward()
-                if self._grad_norm > 0.:
-                    clip_grad_norm_(self._model.parameters(), self._grad_norm)
-                self._optimizer.step()
-                
-                agg_loss.append(loss.data.item())
-                if accu is not None:
-                    agg_accu.append(accu)
-                
-                # logging
-                if analysis:
-                    metrics = {"train_loss":  np.mean(agg_loss)}
-                    if accu is not None:
-                        metrics["train_acc"] = np.mean(agg_accu) * 100.  
-                    self.log_output(epoch, i,
-                        metrics, write_tensorboard=False)
-                    agg_loss = []
-                    agg_accu = []
-        
-        return self._model, (all_val_tasks_shots_x, all_val_tasks_shots_y, all_val_tasks_query_x, all_val_tasks_query_y)
-        
 
     def log_output(self, epoch, iteration,
                 metrics_dict):
@@ -1289,7 +1102,7 @@ To meta-learn and transfer-learn the feat. extractor
 class MetaClassical_algorithm_trainer(object):
 
     def __init__(self, model, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, loss_func, label_offset=0, n_tf_updates=1):
+        save_folder, grad_clip, loss_func, label_offset=0):
 
         self._model = model
         self._algorithm = algorithm
@@ -1300,7 +1113,6 @@ class MetaClassical_algorithm_trainer(object):
         self._save_folder = save_folder
         self._grad_clip = grad_clip
         self._label_offset = label_offset
-        self._n_tf_updates = n_tf_updates
         self._global_iteration = 0
         
 
@@ -1327,11 +1139,38 @@ class MetaClassical_algorithm_trainer(object):
         
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, mt_batch_sz: {mt_batch_sz}")
 
+
+        # from algorithm_trainer.mini_imagenet import MiniImageNet
+        # from algorithm_trainer.samplers import CategoriesSampler
+        # import torch
+        # import torch.nn.functional as F
+        # from torch.utils.data import DataLoader
+
+        # trainset = MiniImageNet('train')
+        # train_sampler = CategoriesSampler(trainset.label, 1000,
+        #                               n_way, n_shot + n_query)
+        # train_loader = DataLoader(dataset=trainset, batch_sampler=train_sampler,
+        #                       num_workers=8, pin_memory=True)
+        # mt_iterator = tqdm(enumerate(train_loader, start=1),
+        #                 leave=False, file=sys.stdout, position=0)
+
+
         for i, mt_batch in mt_iterator:
             
             # global iterator count
             self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
+
+            # data, _ = [_.cuda() for _ in mt_batch]
+            # p = n_shot * n_way
+            # shots_x, query_x = data[:p], data[p:]
+            # shots_x = shots_x.unsqueeze(0)
+            # query_x = query_x.unsqueeze(0)
+            # shots_y = torch.arange(n_way).repeat(n_shot).type(torch.cuda.LongTensor)
+            # query_y = torch.arange(n_way).repeat(n_query).type(torch.cuda.LongTensor)
+            # shots_y = shots_y.unsqueeze(0)
+            # query_y = query_y.unsqueeze(0)
+            
 
             # meta-learning data creation
             mt_batch_x, mt_batch_y = mt_batch
@@ -1359,11 +1198,23 @@ class MetaClassical_algorithm_trainer(object):
             assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
             # meta-learning loss computation and metrics
+            if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                obj = self._algorithm._model.module
+            else:
+                obj = self._algorithm._model
+            if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
+                scale = obj.fc.scale_factor
+                # print("setting scale factor to: ", scale.item())
+            elif hasattr(obj, 'scale_factor'):
+                scale = obj.scale_factor
+            else:
+                scale = 1.
+            
             logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
                 query=query_x, support=shots_x, 
-                support_labels=shots_y)
-            assert len(set(shots_y)) == len(set(query_y))
-            logits = logits.reshape(-1, logits.size(-1))
+                support_labels=shots_y, scale=scale)
+            assert all(np.unique(shots_y.cpu().numpy()) == np.unique(query_y.cpu().numpy()))
+            logits = scale * logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
             mt_loss = self._loss_func(logits, query_y)
@@ -1377,6 +1228,7 @@ class MetaClassical_algorithm_trainer(object):
             
             # optimizer step
             if is_training:
+                self._optimizer.zero_grad()
                 loss.backward()
                 if self._grad_clip > 0.:
                     clip_grad_norm_(self._model.parameters(), self._grad_clip)

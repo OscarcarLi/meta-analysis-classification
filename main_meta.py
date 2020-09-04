@@ -10,9 +10,9 @@ from tensorboardX import SummaryWriter
 import pprint
 import re
 
-from algorithm_trainer.models import gated_conv_net_original, resnet
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, resnet_12
 from algorithm_trainer.algorithm_trainer import Generic_algorithm_trainer, LR_algorithm_trainer, Classical_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import LR, SVM, ProtoNet
+from algorithm_trainer.algorithms.algorithm import LR, SVM, ProtoNet, ProtoCosineNet
 from algorithm_trainer.utils import optimizer_to_device, add_fc, remove_fc
 from data_layer.dataset_managers import MetaDataManager
 
@@ -64,7 +64,10 @@ def main(args):
     ####################################################
 
     if args.model_type == 'resnet':
-        model = resnet.ResNet18(no_fc_layer=args.no_fc_layer, add_bias=args.add_bias)
+        model = resnet_2.ResNet18(no_fc_layer=args.no_fc_layer, add_bias=args.add_bias)
+    elif args.model_type == 'resnet12':
+        model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
+            no_fc_layer=args.no_fc_layer, add_bias=args.add_bias)
     elif args.model_type == 'conv64':
         model = ImpRegConvModel(
             num_channels=64, verbose=True, retain_activation=True, 
@@ -74,7 +77,7 @@ def main(args):
             'Unrecognized model type {}'.format(args.model_type))
     print("Model\n" + "=="*27)    
     print(model)
-    prefc_feature_sz = model.prefc_feature_sz
+    prefc_feature_sz = model.final_feat_dim
 
 
     # load from checkpoint
@@ -114,11 +117,15 @@ def main(args):
     loss_func = nn.CrossEntropyLoss()
     if args.optimizer == 'adam':
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=args.lr, weight_decay=5e-4)
+            model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
     else:
-        optimizer = torch.optim.SGD(
-            model.parameters(), lr=args.lr, 
-            momentum=0.9, nesterov=True, weight_decay=5e-4)
+        optimizer = torch.optim.SGD([
+            {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
+                'momentum': 0.9, 'nesterov': True},
+        ])
+        # optimizer = torch.optim.SGD(
+        #     model.parameters(), lr=args.lr, 
+        #     momentum=0.9, nesterov=True, weight_decay=args.weight_decay)
     print("Total episodes: ", args.n_iterations_train)
     print("Total tasks: ", args.n_iterations_train * args.batch_size_train)
     
@@ -129,8 +136,17 @@ def main(args):
     #         ALGORITHM & ALGORITHM TRAINER            #
     ####################################################
 
+
+    if args.algorithm == 'ProtonetCosine':
+        algorithm = ProtoCosineNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
   
-    if args.algorithm == 'LR':
+    elif args.algorithm == 'LR':
         algorithm = LR(
             model=model,
             embedding_model=embedding_model,
@@ -170,7 +186,7 @@ def main(args):
             outer_loop_grad_norm=args.grad_clip,
             hessian_inverse=args.hessian_inverse)
         
-    elif args.algorithm in ['SVM', 'Protonet']:
+    elif args.algorithm in ['SVM', 'Protonet', 'ProtonetCosine']:
         trainer = Generic_algorithm_trainer(
             algorithm=algorithm,
             outer_loss_func=loss_func,
@@ -186,11 +202,38 @@ def main(args):
     if is_training:
         # create train iterators
         epoch_sz = args.n_iterations_train // 1000
-        lambda_epoch = lambda e: 1.0 if e < (epoch_sz // 2) * args.optimizer_update_interval else 0.1
-        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+        # lambda_epoch = lambda e: 1.0 if e < (epoch_sz // 2) * args.optimizer_update_interval else 0.1
+        # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+        
+        lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+        lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    
         for iter_start in range(1, args.n_iterations_train, args.val_interval):
+        
+            # validation
+            if hasattr(trainer._algorithm, '_n_way'):
+                trainer._algorithm._n_way = args.n_way_val
+            if hasattr(trainer._algorithm, '_n_shot'):
+                trainer._algorithm._n_shot = args.n_shot_val
+            if hasattr(trainer._algorithm, '_n_query'):
+                trainer._algorithm._n_query = args.n_query_val
+            
+            tqdm.write("=="*27+"\nStarting validation")
+            val_result = trainer.run(val_loader, val_datamgr, is_training=False, 
+            meta_val=True, start=iter_start+args.val_interval-1)
+            tqdm.write(str(val_result))
+            tqdm.write("Finished validation\n" + "=="*27)
+
+        
+            # train
             if hasattr(trainer._algorithm, '_n_way'):
                 trainer._algorithm._n_way = args.n_way_train
+            if hasattr(trainer._algorithm, '_n_shot'):
+                trainer._algorithm._n_shot = args.n_shot_train
+            if hasattr(trainer._algorithm, '_n_query'):
+                trainer._algorithm._n_query = args.n_query_train
+
             for param_group in optimizer.param_groups:
                 print('optimizer:', args.optimizer, 'lr:', param_group['lr'])
             try:
@@ -200,21 +243,20 @@ def main(args):
                 print("Finished training iterations.")
                 print(train_result)
                 print("Starting final validation.")
+            
             lr_scheduler.step()
             
-            # validation
-            if hasattr(trainer._algorithm, '_n_way'):
-                trainer._algorithm._n_way = args.n_way_val
-            tqdm.write("=="*27+"\nStarting validation")
-            val_result = trainer.run(val_loader, val_datamgr, is_training=False, 
-            meta_val=True, start=iter_start+args.val_interval-1)
-            tqdm.write(str(val_result))
-            tqdm.write("Finished validation\n" + "=="*27)
+            
             
     else:
         if hasattr(trainer._algorithm, '_n_way'):
             trainer._algorithm._n_way = args.n_way_val
-
+        if hasattr(trainer._algorithm, '_n_shot'):
+            trainer._algorithm._n_shot = args.n_shot_val
+        if hasattr(trainer._algorithm, '_n_query'):
+            trainer._algorithm._n_query = args.n_query_val
+        
+        
         # fine tune features on support set of tasks
         if args.fine_tune:
             # add fc layer to model backbone based on number of val classes
@@ -289,6 +331,9 @@ if __name__ == '__main__':
             on the hessian inverse')
     parser.add_argument('--n-fine-tune-epochs', type=int, default=60000,
         help='number of model fine tune epochs')
+    parser.add_argument('--weight-decay', type=float, default=0.,
+        help='weight decay')
+    
     
     
     

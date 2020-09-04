@@ -1,0 +1,3 @@
+treematch/tm_mt.lo: treematch/tm_mt.c treematch/tm_mt.h
+
+treematch/tm_mt.h:

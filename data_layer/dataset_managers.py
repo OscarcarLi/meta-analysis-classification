@@ -31,7 +31,7 @@ class TransformLoader:
         elif transform_type=='CenterCrop':
             return method(self.image_size) 
         elif transform_type=='Resize':
-            return method([int(self.image_size*1.15), int(self.image_size*1.15)])
+            return method([int(self.image_size), int(self.image_size)])
         elif transform_type=='Normalize':
             return method(**self.normalize_param )
         else:
@@ -46,6 +46,7 @@ class TransformLoader:
         transform_funcs = [self.parse_transform(x) for x in transform_list]
         transform = transforms.Compose(transform_funcs)
         return transform
+
 
 
 
@@ -132,16 +133,18 @@ class MetaDataManager(DataManager):
         self.trans_loader = TransformLoader(image_size)
         self.fix_support = fix_support
 
-    def get_data_loader(self, data_file, aug): #parameters that would change on train/val set
+    def get_data_loader(self, data_file, support_aug, query_aug): #parameters that would change on train/val set
         """
         data_file: path to dataset
         aug: boolean to set data augmentation
         """
-        transform = self.trans_loader.get_composed_transform(aug)
-        dataset = MetaDataset(data_file, n_shot=self.n_shot, n_query=self.n_query, transform=transform, fix_support=self.fix_support)
+        support_transform = self.trans_loader.get_composed_transform(support_aug)
+        query_transform = self.trans_loader.get_composed_transform(query_aug)
+        dataset = MetaDataset(data_file, n_shot=self.n_shot, n_query=self.n_query, 
+            support_transform=support_transform, query_transform=query_transform, fix_support=self.fix_support)
         sampler = EpisodicBatchSampler(len(dataset), n_way=self.n_way, 
             n_episodes=self.n_episodes, n_tasks=self.batch_size)  
-        data_loader_params = dict(batch_sampler=sampler, num_workers=12, pin_memory=True)       
+        data_loader_params = dict(batch_sampler=sampler, num_workers=20, pin_memory=True)       
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
         return data_loader
 

@@ -15,6 +15,7 @@ from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, 
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet
 from algorithm_trainer.utils import optimizer_to_device
+from algorithm_trainer.algorithms import modified_sgd
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
 from analysis.objectives import var_reduction_disc, var_reduction_ortho, rfc_and_pc
 
@@ -50,13 +51,13 @@ def main(args):
     mt_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_train, n_episodes=1000,
         n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support)
-    mt_loader = mt_datamgr.get_data_loader(train_file, aug=args.train_aug)
+    mt_loader = mt_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
     
     val_file = os.path.join(args.dataset_path, 'val.json')
     mt_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    mt_val_loader = mt_val_datamgr.get_data_loader(val_file, aug=False)
+    mt_val_loader = mt_val_datamgr.get_data_loader(val_file, support_aug=False, query_aug=False)
     
     
 
@@ -73,9 +74,10 @@ def main(args):
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type)
         else:
             model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type)elif args.model_type == 'conv64':
+                num_classes=args.num_classes_train, classifier_type=args.classifier_type)
+    elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
-            classifier_type=None, no_fc_layer=True)
+                classifier_type=None, no_fc_layer=True, projection=False)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -121,6 +123,10 @@ def main(args):
     optimizer = torch.optim.Adam([
         {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
     ])
+    # optimizer = modified_sgd.SGD([
+    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
+    #         'momentum': 0.9, 'nesterov': True},
+    # ])
     print("Total n_epochs: ", args.n_epochs)
 
     ####################################################
@@ -193,15 +199,21 @@ def main(args):
     ####################################################
 
 
-    lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    # lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+    #     optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(
+        optimizer, step_size=2, gamma=0.5, last_epoch=-1)
     
     for iter_start in range(0, args.n_epochs):
 
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
+
+        print("scale factor: ", model.module.scale_factor)
         
         trainer.run(mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1)
 
@@ -287,7 +299,7 @@ if __name__ == '__main__':
         help='path to saved parameters.')
     parser.add_argument('--eval', action='store_true', default=False,
         help='evaluate model')
-    parser.add_argument('--train-aug', action='store_true', default=True,
+    parser.add_argument('--train-aug', action='store_true', default=False,
         help='perform data augmentation during training')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 

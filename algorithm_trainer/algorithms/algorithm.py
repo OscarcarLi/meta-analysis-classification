@@ -324,6 +324,17 @@ class ProtoNet(Algorithm):
         self._n_query = n_query
         self._normalize = normalize
         self.to(self._device)
+
+    def euclidean_metric(self, a, b):
+
+        print(a.shape, b.shape)
+        n = a.shape[0]
+        m = b.shape[0]
+        d = b.shape[1]
+        a = a.unsqueeze(1).expand(n, m, -1)
+        b = b.unsqueeze(0).expand(n, m, -1)
+        logits = -((a - b)**2).sum(dim=2)
+        return logits
    
     def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False, scale=1.):
         """
@@ -352,6 +363,26 @@ class ProtoNet(Algorithm):
         # get features
         orig_query_shape = query.shape
         orig_support_shape = support.shape
+        # support = self._model(
+        #     support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
+        # query = self._model(
+        #     query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
+
+       
+
+        # support = support.reshape(-1, *orig_support_shape[2:])
+        # query = query.reshape(-1, *orig_query_shape[2:])
+        # z = torch.cat([support, query], dim=0)
+        # rand_ind = torch.randperm(z.shape[0])
+        # inv_rand_ind = torch.randperm(z.shape[0])
+        # for k in range(z.shape[0]):
+        #     inv_rand_ind[rand_ind[k]] = k
+        # z = self._model(z[rand_ind], features_only=True)[inv_rand_ind]
+        # support = z[:support.shape[0]]
+        # query = z[support.shape[0]:]
+        # support = support.reshape(*orig_support_shape[:2], -1)
+        # query = query.reshape(*orig_query_shape[:2], -1)
+        
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
@@ -432,6 +463,12 @@ class ProtoNet(Algorithm):
         
         # compute loss and acc on support
         logits_support = logits_support.reshape(-1, logits_support.size(-1)) * scale
+
+
+        # logits_query = self.euclidean_metric(self._model(query), proto) 
+        # logits_support = self.euclidean_metric(sup_op, proto)  * scale
+        
+
         labels_support = support_labels.reshape(-1)
         
 

@@ -9,6 +9,7 @@ import numpy as np
 import pprint
 from tensorboardX import SummaryWriter
 import re
+import shutil
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, wide_resnet, resnet_12, res_mix_up, conv64
@@ -17,24 +18,34 @@ from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, Prot
 from algorithm_trainer.utils import optimizer_to_device
 from algorithm_trainer.algorithms import modified_sgd
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
-from analysis.objectives import var_reduction_disc, var_reduction_ortho, rfc_and_pc, ortho_directions, rfc
 from algorithm_trainer.utils import *
+
+def ensure_path(path):
+    if os.path.exists(path):
+        print("Deleting", path)
+        # if input('{} exists, remove? ([y]/n)'.format(path)) != 'n':
+        shutil.rmtree(path)
+        os.makedirs(path)
+    else:
+        os.makedirs(path)
+
 
 def main(args):
     is_training = not args.eval
     run_name = 'train' if is_training else 'eval'
 
     if is_training:
-        writer = SummaryWriter('./train_dir/{0}/{1}'.format(
+        ensure_path('./train_dir_2/{0}'.format(args.output_folder))
+        writer = SummaryWriter('./train_dir_2/{0}/{1}'.format(
             args.output_folder, run_name))
-        with open('./train_dir/{}/config.txt'.format(
+        with open('./train_dir_2/{}/config.txt'.format(
             args.output_folder), 'w') as config_txt:
             for k, v in sorted(vars(args).items()):
                 config_txt.write('{}: {}\n'.format(k, v))
     else:
         writer = None
 
-    save_folder = './train_dir/{0}'.format(args.output_folder)
+    save_folder = './train_dir_2/{0}'.format(args.output_folder)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
@@ -47,22 +58,21 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    train_datamgrs = [
-        MetaDataManager(image_size, batch_size=1, n_episodes=1000,
-            n_way=args.n_way_train, n_shot=args.n_query_train, n_query=0),
-        # ClassicalDataManager(image_size, batch_size=args.batch_size_train),
-        MetaDataManager(image_size, batch_size=1, n_episodes=100000000,
-            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=0, fix_support=args.fix_support)
-    ]
-    train_loaders = [
-        train_datamgrs[0].get_data_loader(train_file, aug=args.train_aug),
-        train_datamgrs[1].get_data_loader(train_file, aug=False)
-    ]
+    train_datamgr = MetaDataManager(image_size, batch_size=1, n_episodes=1000,
+            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support)
+    
+    #     ClassicalDataManager(image_size, batch_size=args.batch_size_train),
+    # ]
+    
+    train_loader = train_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
+    #     train_datamgrs[1].get_data_loader(train_file, aug=True)
+    # ]
+    
     val_file = os.path.join(args.dataset_path, 'val.json')
     meta_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    meta_val_loader = meta_val_datamgr.get_data_loader(val_file, aug=False)
+    meta_val_loader = meta_val_datamgr.get_data_loader(val_file, support_aug=False, query_aug=False)
     
     
 
@@ -106,32 +116,11 @@ def main(args):
     #                OPTIMIZER CREATION                #
     ####################################################
 
-    # loss_dict = {
-    #     'cross_ent': torch.nn.CrossEntropyLoss(),
-    #     'var_disc': var_reduction_disc
-    # }
-    # loss_funcs = []
-    # for loss_name, lambda_value in zip(args.loss_names, args.lambdas):
-    #     print(f"Adding loss : {loss_name} with lambda value {lambda_value}")
-    #     loss_funcs.append((loss_name, loss_dict[loss_name]))
-    
-    # all_params = []
-    # exc_params = []
-    # for name, param in model.named_parameters():
-    #     if 'fc.Lglinear' not in name:
-    #         all_params.append(param)
-    #     else:
-    #         exc_params.append(param)
-    #         print(f"excluding {name}")
 
     optimizer = modified_sgd.SGD([
         {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
             'momentum': args.momentum, 'nesterov': True},
-        # {'params': exc_params , 'lr': 0.01, 'weight_decay': 0.},
     ])
-    # optimizer = torch.optim.Adam([
-    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay},
-    # ])
     print("Total n_epochs: ", args.n_epochs)
 
 
@@ -188,8 +177,6 @@ def main(args):
         save_folder=save_folder, 
         grad_clip=args.grad_clip,
         loss=('cross_ent', torch.nn.CrossEntropyLoss()),
-        # loss=('margin loss', torch.nn.MultiMarginLoss(p=2, margin=10)),
-        # aux_loss=('rfc', rfc),
         gamma=args.gamma,
         update_gap=1,
         eps=args.eps,
@@ -199,18 +186,6 @@ def main(args):
     ####################################################
     #                  META VALIDATOR                  #
     ####################################################
-
-
-    # swa model
-    # cycle = 5
-    # print(f"Using cycle {cycle} and initializing swa model with model")
-    # swa_model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
-    #         num_classes=args.num_classes_train, classifier_type=args.classifier_type)
-    # # # swa_model.load_state_dict(self._model.state_dict())
-    # swa_model.cuda()
-    # swa_model = torch.nn.DataParallel(swa_model, device_ids=range(torch.cuda.device_count()))
-    
-
 
     # algorithm
     if args.algorithm == 'ProtonetCosine':
@@ -261,7 +236,6 @@ def main(args):
         algorithm=algorithm,
         aux_objective=None,
         outer_loss_func=torch.nn.CrossEntropyLoss(),
-        # outer_loss_func=torch.nn.MultiMarginLoss(p=2, margin=10),
         outer_optimizer=optimizer, 
         writer=writer,
         log_interval=150,
@@ -277,63 +251,25 @@ def main(args):
 
 
 
-    # lambda_epoch = lambda e: 1.0 if e < 120  else (0.2 if e < 360 else (0.04))
-    # lambda_epoch = lambda e: 1.0 if e < 100  else (0.1 if e < 200 else (0.01))
-    # lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 60 else 0.012 if e < 120 else (0.0024))
-    # lambda_epoch = lambda e: 1.0 if e < 10 else (0.1 if e < 40 else (0.01 if e < 60 else (0.002)))
-    lambda_epoch = lambda e: 1.0 if e < 10 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
     # lambda_epoch = lambda e: 1.0 if e < 80 else (0.1 if e < 200 else (0.01 if e < 280 else (0.002)))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+        
     
-
-    
-
-    # opt_lambd = torch.optim.SGD([model.module.fc.Lglinear], lr=5e-3)
-
-    # n_s = 3
-    # count = 0
-
-    # fix support 
-    aux_iter = iter(train_loaders[1])
-    aux_batch_x, aux_batch_y = next(aux_iter)
-    # print("Fixing randomly chosen support set")
+    if args.fix_support:
+        print("Fixing randomly chosen support set")
 
     for iter_start in range(args.restart_iter, args.n_epochs):
 
-        # if iter_start % 50 == 0 and n_s < 3 and model.module.fc.lambd == 0.:
-        #     n_s += 1
-        #     print(f"Increasing size of support set to {n_s}")
-        #     train_datamgrs[1] = MetaDataManager(image_size, batch_size=1, n_episodes=100000000,
-        #         n_way=args.n_way_train, n_shot=n_s, n_query=0)
-        #     train_loaders[1] = train_datamgrs[1].get_data_loader(train_file, aug=False)
-
-        # if iter_start % 10 == 0:
-        #     print("Fixing randomly chosen support set")
-        #     aux_batch_x, aux_batch_y = next(aux_iter)
-
-        if args.classifier_type == 'avg-classifier':
+        if args.classifier_type == 'cvx-classifier':
             model.module.fc.update_lambd()
             print("scale factor: ", model.module.fc.scale_factor)
 
-        # if iter_start % cycle == 0 and iter_start != 0:
-        #     print(f"Computing SWA Model")
-        #     count += 1
-        #     swa_model = get_swa_model(swa_model, model, 1./count) 
-        #     bn_update(train_loaders[0], swa_model)
-        #     print("swa model evaluation")
-        #     results = val_trainer.run(meta_val_loader, meta_val_datamgr)
-        #     pp = pprint.PrettyPrinter(indent=4)
-        #     pp.pprint(results)
-        #     print("Fixing randomly chosen support set")
-        #     aux_batch_x, aux_batch_y = next(aux_iter)
-        
-
         # training
         for param_group in optimizer.param_groups:
-            # param_group['lr'] = set_lr(param_group['lr'], iter_start, cycle, args.lr, 0.001)
             print('\n\nlearning rate:', param_group['lr'])
-        trainer.run(train_loaders, aux_batch_x, aux_batch_y, is_training=True, epoch=iter_start)
+        trainer.run(train_loader, train_datamgr, is_training=True, epoch=iter_start)
         # if iter_start % 10 == 0:
         #     trainer.run(train_loaders, aux_batch_x, aux_batch_y, is_training=True, epoch=iter_start, grad_analysis=True)
 

@@ -1,27 +1,26 @@
 python main_meta_classical.py \
 --algorithm Protonet \
---model-type resnet12 \
+--model-type conv64 \
 --img-side-len 84 \
 --lr 0.001 \
---weight-decay 0.0005 \
+--weight-decay 0.0 \
 --grad-clip 0. \
---dataset-path data/filelists/FC100 \
+--dataset-path data/filelists/miniImagenet \
 --n-epochs 60 \
---n-tf-updates 1 \
---num-classes-train 300 \
+--num-classes-train 64 \
 --batch-size-train 1 \
---n-way-train 5 \
+--n-way-train 20 \
 --n-shot-train 5 \
---n-query-train 5 \
+--n-query-train 15 \
 --batch-size-val 1 \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
 --n-iterations-val 400 \
---output-folder metal_FC100_r12_n60_s5_q5_euc_fixS \
+--output-folder metal_MI_conv64_n20_s5_q15_euc_augSFalse_augQFalse \
 --device cuda \
 --device-number 0,1,2,3 \
---log-interval 100 \
---train-aug
+--log-interval 500 \
+# --train-aug
 # --checkpoint train_dir/classical_miniimagenet_avg_classifier_5/classical_resnet_163.pt
 # --restart-iter 150

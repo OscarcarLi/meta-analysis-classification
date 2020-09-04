@@ -42,60 +42,36 @@ class distLinear(nn.Module):
 
 
 
-class avgLinear(nn.Module):
+class CvxClasifier(nn.Module):
 
-    def __init__(self, indim, outdim, lambd_start=0.8, lambd_end=0.8, gamma=0.99, n_epochs=100, metric='cosine'):
-        super(avgLinear, self).__init__()
-        # self.L = nn.Parameter(torch.randn(outdim, indim), requires_grad=True) 
+    def __init__(self, indim, outdim, lambd_start=0.8, lambd_end=0.8, metric='cosine', projection=True):
+        super(CvxClasifier, self).__init__()
         self.L = None
         self.Lg = nn.Linear(indim, outdim, bias = False)
-        # self.Lglinear = nn.Linear(indim, outdim, bias = False)
-        
-        # self.Lg = nn.Parameter(torch.randn(outdim, indim), requires_grad=False) 
-        # self.gbeta = nn.Parameter(torch.FloatTensor([1.0]))
         self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
-        # self.scale_factor = nn.Parameter(torch.FloatTensor([1.0]), requires_grad=False)
-        # self.scale_factor = 1.0
-
-        # self.scale_factor = 2.0
-        # self.M = torch.nn.Linear(indim, 640, bias=False)
-        # self.M = nn.Parameter(torch.eye(indim), requires_grad=False)
-        
-        self.gamma = gamma
         self.indim = indim
         self.outdim = outdim
         self.class_count = defaultdict(int)
         self.lambd_start = lambd_start
         self.lambd_end = lambd_end
         self.lambd = lambd_start
-        # self.lambd = nn.Parameter(torch.FloatTensor([-4.]))
-        self.n_epochs = n_epochs
         self.metric = metric
+        self.projection = projection
         print("Classifier metric is ", self. metric)
-        
-        # self.sigmoid = nn.Sigmoid()
-        
-        # for param in self.Lg.parameters():
-        #     param.requires_grad = False
-
 
     def update_lambd(self):
         if (self.lambd < self.lambd_end and self.lambd >= self.lambd_start) or (self.lambd > self.lambd_end and self.lambd <= self.lambd_start): 
             self.lambd = self.lambd + (self.lambd_end - self.lambd_start) / self.n_epochs
-        # self.lambd = self.sigmoid(self.lambd)
         print(f"Current avg classifier lambd {self.lambd}")
 
     def K(self, a, b):
         """ linear kernel
         """
-        # m = self.M.weight.div(torch.norm(self.M.weight, dim=1, keepdim=True) +0.00001)
-        # return (a @ m.T) @ ((b @ m.T).T)
         if self.metric == 'cosine':
             return a @ b.T
         elif self.metric == 'euclidean':
             n_way = b.size(0)
             d = b.size(1)
-
             AB = a @ b.T
             # total_n_query x n_way
             AA = (a * a).sum(dim=1, keepdim=True)
@@ -106,128 +82,102 @@ class avgLinear(nn.Module):
             # euclidean distance 
             logits_query = -logits_query
             # batch_size x total_n_query x n_way
-
             logits_query = logits_query / d
             # normalize
             return logits_query
 
     def forward(self, x):
-        # Lg_norm = torch.norm(self.Lg.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.Lg.weight.data)
-        # self.Lg.weight.data = self.Lg.weight.data.div(Lg_norm + 0.00001)
-        # scores = self.scale_factor * (self.gbeta * (self.K(x, self.L)) + self.K(x, self.Lg.weight))
-        # scores = self.scale_factor * ((self.K(x, self.L) - self.K(x, self.L.detach()))  + self.K(x, self.Lg.weight))
-        # if self.L is None:
-        #     self.L = self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
         scores = torch.abs(self.scale_factor) * (self.K(x, self.L))
         return scores
 
-    # def update_L(self, x, y):
+    def update_L(self, x, y):
 
-    #     # print(x.shape)
-    #     # print(y)
-    #     if self.lambd == 1.:
-    #         self.L = self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
-    #         # self.L = self.Lglinear.weight
-
-    #     else:
-    #         c_mat = []
-    #         for c in np.arange(self.outdim):
-    #             # np.unique(y.cpu().numpy()):
-    #             # if len(x[y==c, :]) > 0:
-    #             c_feat = torch.mean(x[y==c, :], dim=0)
-    #             c_mat.append(c_feat)
-    #             # print(f"found {len(x[y==c, :])} features from : ", c)
-    #             # else:
-    #             #     print("no features from : ", c, " falling back to Lg")
-    #             #     c_mat.append(self.Lg.weight[c, :])
-    #             # c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
-    #             # self.L[c, :] = (1 - self.momentum) * c_feat + self.momentum * self.Lg.weight[c, :]
-    #         # print(len(c_mat)) 
-    #         # print(c_mat[0].shape)
-    #         c_mat = torch.stack(c_mat, dim=0)
-    #         # print(c_mat.shape)
-    #         # self.L = self.lambd * self.Lg.weight + c_mat
-    #         # lambd = self.sigmoid(self.lambd)
-    #         if self.lambd == 0.:
-    #             self.L = c_mat
-    #             # for c in np.arange(self.outdim):
-    #             #     self.Lg.weight[c, :] = c_mat[c, :]  
-    #         else:
-    #             self.L = self.lambd * self.Lg.weight + (1. - self.lambd) * c_mat
-    #             # self.L = self.lambd * self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1))) + (1. - self.lambd) * c_mat
-    #         # self.L = self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1))) + self.lambd * c_mat
-
-
-    def update_L(self, x, y, xg, yg):
-
+        if self.projection and self.lambd > 0.:
+            self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
+        if self.lambd == 1.:
+            self.L = self.Lg.weight
+        else:
             c_mat = []
-            c_mat_g = []
             for c in np.arange(self.outdim):
                 c_feat = torch.mean(x[y==c, :], dim=0)
-                c_feat_g = torch.mean(xg[yg==c, :], dim=0) 
-                c_mat.append(c_feat)        
-                c_mat_g.append(c_feat_g)        
+                c_mat.append(c_feat)
             c_mat = torch.stack(c_mat, dim=0)
-            c_mat_g = torch.stack(c_mat_g, dim=0)
-            self.L = self.lambd * c_mat_g + (1. - self.lambd) * c_mat
+            if self.lambd == 0.:
+                self.L = c_mat
+            else:
+                self.L = self.lambd * self.Lg.weight + (1. - self.lambd) * c_mat
+
+
+    # def update_L(self, x, y, xg, yg):
+
+    #         c_mat = []
+    #         c_mat_g = []
+    #         for c in np.arange(self.outdim):
+    #             c_feat = torch.mean(x[y==c, :], dim=0)
+    #             c_feat_g = torch.mean(xg[yg==c, :], dim=0) 
+    #             c_mat.append(c_feat)        
+    #             c_mat_g.append(c_feat_g)        
+    #         c_mat = torch.stack(c_mat, dim=0)
+    #         c_mat_g = torch.stack(c_mat_g, dim=0)
+    #         self.L = self.lambd * c_mat_g + (1. - self.lambd) * c_mat
             
 
-    def update_Lg(self, x, y):
+    # def update_Lg(self, x, y):
 
-        # print("recvd:", "x:", x.shape, "y:", y.shape)
-        with torch.no_grad():
-            # self.Lg.weight = self.L.detach()
+    #     # print("recvd:", "x:", x.shape, "y:", y.shape)
+    #     with torch.no_grad():
+    #         # self.Lg.weight = self.L.detach()
 
-            for c in np.unique(y.cpu().numpy()):
-                c_feat = torch.mean(x[y==c, :], dim=0)
-                # c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
-                self.Lg.weight[c, :] = self.gamma * self.Lg.weight[c, :] + (1. - self.gamma) * c_feat
-
-
-    def update_Lg_full(self, x, y):
-
-        # print("recvd:", "x:", x.shape, "y:", y.shape)
-        with torch.no_grad():
-            for c in np.unique(y.cpu().numpy()):
-                c_feat = torch.sum(x[y==c, :], dim=0)
-                self.Lg.weight[c, :] = self.Lg.weight[c, :] + c_feat
-                self.class_count[c] += x[y==c, :].shape[0]
+    #         for c in np.unique(y.cpu().numpy()):
+    #             c_feat = torch.mean(x[y==c, :], dim=0)
+    #             # c_feat = c_feat.div(torch.norm(c_feat, p=2)+ 0.00001)
+    #             self.Lg.weight[c, :] = self.gamma * self.Lg.weight[c, :] + (1. - self.gamma) * c_feat
 
 
-    def divide_Lg(self):
+    # def update_Lg_full(self, x, y):
 
-        for c in self.class_count:
-            self.Lg.weight[c, :] = self.Lg.weight[c, :].div(self.class_count[c])
-            # print("c:", c, self.class_count[c])
-            self.class_count[c] = 0
-        # self.Lglinear.weight = torch.nn.Parameter(self.Lg.weight)
+    #     # print("recvd:", "x:", x.shape, "y:", y.shape)
+    #     with torch.no_grad():
+    #         for c in np.unique(y.cpu().numpy()):
+    #             c_feat = torch.sum(x[y==c, :], dim=0)
+    #             self.Lg.weight[c, :] = self.Lg.weight[c, :] + c_feat
+    #             self.class_count[c] += x[y==c, :].shape[0]
+
+
+    # def divide_Lg(self):
+
+    #     for c in self.class_count:
+    #         self.Lg.weight[c, :] = self.Lg.weight[c, :].div(self.class_count[c])
+    #         # print("c:", c, self.class_count[c])
+    #         self.class_count[c] = 0
+    #     # self.Lglinear.weight = torch.nn.Parameter(self.Lg.weight)
         
         
 
 
-    def project_Lg(self):
+    # def project_Lg(self):
 
-        Lg_norm = torch.norm(self.Lg.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.Lg.weight.data)
-        self.Lg.weight.data = self.Lg.weight.data.div(Lg_norm + 0.00001)
+    #     Lg_norm = torch.norm(self.Lg.weight.data, p=2, dim =1).unsqueeze(1).expand_as(self.Lg.weight.data)
+    #     self.Lg.weight.data = self.Lg.weight.data.div(Lg_norm + 0.00001)
         
 
-    def compute_loss(self):   
+    # def compute_loss(self):   
 
-        # I = torch.eye(self.outdim, device=self.L.device)
-        # print("L:", self.L)
-        # print("Lg:", self.Lg.weight.t())
+    #     # I = torch.eye(self.outdim, device=self.L.device)
+    #     # print("L:", self.L)
+    #     # print("Lg:", self.Lg.weight.t())
         
-        # print(self.L @ self.Lg.weight.t())
-        # print(torch.sum((self.L @ self.Lg.weight.t())**2))
+    #     # print(self.L @ self.Lg.weight.t())
+    #     # print(torch.sum((self.L @ self.Lg.weight.t())**2))
 
-        # L_n = torch.norm(self.L, dim=1, p=2)
-        # Lg_n = torch.norm(self.Lg.weight, dim=1, p=2)
+    #     # L_n = torch.norm(self.L, dim=1, p=2)
+    #     # Lg_n = torch.norm(self.Lg.weight, dim=1, p=2)
 
-        # loss = torch.sum((L_n * Lg_n - torch.diag(self.L @ self.Lg.weight.t()))**2) 
-        loss = torch.sum(torch.diag(1.0 - self.L @ self.Lg.weight.T))
-        loss /= self.L.shape[0]
-        # loss /= (self.L.shape[0] * np.sqrt(self.L.shape[1])) 
-        return loss
+    #     # loss = torch.sum((L_n * Lg_n - torch.diag(self.L @ self.Lg.weight.t()))**2) 
+    #     loss = torch.sum(torch.diag(1.0 - self.L @ self.Lg.weight.T))
+    #     loss /= self.L.shape[0]
+    #     # loss /= (self.L.shape[0] * np.sqrt(self.L.shape[1])) 
+    #     return loss
 
 
 
@@ -333,13 +283,9 @@ class ResNet(nn.Module):
             self.fc.bias.data.fill_(0)
         elif classifier_type == 'distance-classifier':
             self.fc = distLinear(self.final_feat_dim, num_classes)
-        elif classifier_type == 'avg-classifier':
-            self.fc = avgLinear(self.final_feat_dim, num_classes, 
-            metric=classifier_metric, lambd_start=lambd, lambd_end=lambd)
-        elif classifier_type == 'avg-classifier-svrg':
-            self.fc = avgLinearSVRG(self.final_feat_dim, num_classes)
-        elif classifier_type == 'avg-classifier-2':
-            self.fc = avgLinear2()
+        elif classifier_type == 'cvx-classifier':
+            self.fc = CvxClasifier(self.final_feat_dim, num_classes, 
+            metric=classifier_metric, lambd_start=lambd, lambd_end=lambd, projection=self.projection)
         else:
             raise ValueError("classifier type not found")
 

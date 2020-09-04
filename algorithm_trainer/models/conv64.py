@@ -17,8 +17,8 @@ class avgLinear(nn.Module):
         self.L = None
         self.Lg = nn.Linear(indim, outdim, bias = False)
         # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
-        self.scale_factor = 1.0
-        
+        self.scale_factor = 1.
+
         self.gamma = gamma
         self.indim = indim
         self.outdim = outdim
@@ -106,25 +106,62 @@ class ConvBlock(nn.Module):
 # Embedding network used in Matching Networks (Vinyals et al., NIPS 2016), Meta-LSTM (Ravi & Larochelle, ICLR 2017),
 # MAML (w/ h_dim=z_dim=32) (Finn et al., ICML 2017), Prototypical Networks (Snell et al. NIPS 2017).
 
+
+
+def conv_block(in_channels, out_channels):
+    bn = nn.BatchNorm2d(out_channels)
+    nn.init.uniform_(bn.weight) # for pytorch 1.2 or later
+    return nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, 3, padding=1),
+        bn,
+        nn.ReLU(),
+        nn.MaxPool2d(2)
+    )
+
+
+class Convnet(nn.Module):
+
+    def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
+        super().__init__()
+        self.encoder = nn.Sequential(
+            conv_block(x_dim, hid_dim),
+            conv_block(hid_dim, hid_dim),
+            conv_block(hid_dim, hid_dim),
+            conv_block(hid_dim, z_dim),
+        )
+        self.out_channels = 1600
+
+
+
 class Conv64(nn.Module):
     def __init__(self, num_classes, classifier_type='avg-linear', no_fc_layer=False, x_dim=3, h_dim=64, z_dim=64, 
-        retain_last_activation=True, activation='ReLU', add_bias=False):
+        retain_last_activation=True, activation='ReLU', add_bias=False, projection=False):
         super(Conv64, self).__init__()
+        
         self.encoder = nn.Sequential(
-          ConvBlock(x_dim, h_dim, activation=activation),
-          ConvBlock(h_dim, h_dim, activation=activation),
-          ConvBlock(h_dim, h_dim, activation=activation),
-          ConvBlock(h_dim, z_dim, retain_activation=retain_last_activation, activation=activation),
+            conv_block(x_dim, h_dim),
+            conv_block(h_dim, h_dim),
+            conv_block(h_dim, h_dim),
+            conv_block(h_dim, z_dim),
         )
-        for m in self.modules():
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
+        
+        # self.encoder = nn.Sequential(
+        #   ConvBlock(x_dim, h_dim, activation=activation),
+        #   ConvBlock(h_dim, h_dim, activation=activation),
+        #   ConvBlock(h_dim, h_dim, activation=activation),
+        #   ConvBlock(h_dim, z_dim, retain_activation=retain_last_activation, activation=activation),
+        # )
+        # for m in self.modules():
+        #     if isinstance(m, nn.Conv2d):
+        #         n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+        #         m.weight.data.normal_(0, math.sqrt(2. / n))
+        #     elif isinstance(m, nn.BatchNorm2d):
+        #         m.weight.data.fill_(1)
+        #         m.bias.data.zero_()
 
         # classifier creation
+        self.projection = projection
+        print("Unit norm projection is ", self.projection)
         self.final_feat_dim = 1600
         self.num_classes = num_classes
         self.no_fc_layer = no_fc_layer
@@ -138,6 +175,9 @@ class Conv64(nn.Module):
             raise ValueError("classifier type not found")
 
         self.add_bias = add_bias
+        # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
+        # self.scale_factor = 1.
+        self.scale_factor = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
         
 
     def forward(self, x, features_only=True):
@@ -145,8 +185,9 @@ class Conv64(nn.Module):
         x = x.view(x.size(0), -1)
         
         # hypersphere projection
-        # x_norm = torch.norm(x, dim=1, keepdim=True)+0.00001
-        # x = x.div(x_norm)
+        if self.projection:
+            x_norm = torch.norm(x, dim=1, keepdim=True)+0.00001
+            x = x.div(x_norm)
 
         if features_only:
             return x
