@@ -474,8 +474,8 @@ class ProtoNet(Algorithm):
 
         loss = self._inner_loss_func(logits_support, labels_support)
         accu = accuracy(logits_support, labels_support) * 100.
-        measurements_trajectory['mt_inner_loss'].append(loss.item())
-        measurements_trajectory['mt_inner_accu'].append(accu)
+        measurements_trajectory['loss'].append(loss.item())
+        measurements_trajectory['accu'].append(accu)
 
         return logits_query, measurements_trajectory
 

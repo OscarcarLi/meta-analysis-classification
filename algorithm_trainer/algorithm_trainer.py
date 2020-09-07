@@ -652,7 +652,7 @@ class Classical_algorithm_trainer(object):
         self._num_classes = num_classes
 
 
-    def run(self, dataset_loader, dataset_mgr, epoch=None, is_training=True, grad_analysis=False):
+    def run(self, dataset_loaders, dataset_mgrs, epoch=None, is_training=True, grad_analysis=False):
 
         if is_training:
             self._model.train()
@@ -676,8 +676,11 @@ class Classical_algorithm_trainer(object):
             print("gamma: {:.4f}".format(self._gamma))
 
         # loaders and iterators
-        iterator = tqdm(enumerate(dataset_loader, start=1),
+        iterator = tqdm(enumerate(dataset_loaders[0], start=1),
                         leave=False, file=sys.stdout, position=0)
+        tf_iterator = iter(dataset_loaders[1])
+        aux_iterator = iter(dataset_loaders[2])
+
 
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -685,10 +688,10 @@ class Classical_algorithm_trainer(object):
         # torch.autograd.set_detect_anomaly(True)
 
         # constants
-        n_way = dataset_mgr.n_way
-        n_shot = dataset_mgr.n_shot
-        n_query = dataset_mgr.n_query
-        mt_batch_sz = dataset_mgr.batch_size        
+        n_way = dataset_mgrs[0].n_way
+        n_shot = dataset_mgrs[0].n_shot
+        n_query = dataset_mgrs[0].n_query
+        mt_batch_sz = dataset_mgrs[0].batch_size        
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, mt_batch_sz: {mt_batch_sz}")
 
         for i, batch in iterator:
@@ -720,21 +723,38 @@ class Classical_algorithm_trainer(object):
             # loss computation + metrics
             if self._model.module.classifier_type == 'cvx-classifier': 
                 if self._model.module.fc.lambd < 1.:
-                    support_features_x = self._model(batch_x[:n_shot*n_way], features_only=True)                
-                    self._model.module.fc.update_L(support_features_x, batch_y[:n_shot*n_way])
+                    aux_batch_x, aux_batch_y = next(aux_iterator)
+                    aux_batch_y = aux_batch_y - self._label_offset
+                    aux_batch_x = aux_batch_x.cuda()
+                    aux_batch_y = aux_batch_y.cuda()
+                    aux_batch_x = aux_batch_x.reshape(mt_batch_sz, n_way, n_shot, *(aux_batch_x.shape[-3:]))
+                    aux_batch_y = aux_batch_y.reshape(mt_batch_sz, n_way, n_shot)
+                    aux_batch_x = aux_batch_x.transpose(1, 2)
+                    aux_batch_y = aux_batch_y.transpose(1, 2)
+                    aux_batch_x = aux_batch_x.reshape(-1, *(aux_batch_x.shape[-3:]))
+                    aux_batch_y = aux_batch_y.reshape(-1)
+                    support_features_x = self._model(torch.cat([batch_x[:n_shot*n_way], aux_batch_x]), features_only=True)
+                    self._model.module.fc.update_L(support_features_x[:n_shot*n_way], batch_y[:n_shot*n_way], 
+                        support_features_x[n_shot*n_way:], aux_batch_y)
+                    # support_features_x = self._model(batch_x[:n_shot*n_way], features_only=True)
+                    # self._model.module.fc.update_L(support_features_x[:n_shot*n_way], batch_y[:n_shot*n_way])
                 else:
                     self._model.module.fc.update_L(None, None)
 
-
-            query_features_x = self._model(batch_x[n_shot*n_way:], features_only=True)
+            
+            query_x, query_y = next(tf_iterator)
+            query_y = query_y - self._label_offset
+            query_x = query_x.cuda()
+            query_y = query_y.cuda()
+            query_features_x = self._model(query_x, features_only=True)
             output_x = self._model.module.fc(query_features_x)
             erm_loss_value = smooth_loss(
-                output_x, batch_y[n_shot*n_way:], self._num_classes, self._eps)
+                output_x, query_y, self._num_classes, self._eps)
             loss = erm_loss_value
             aggregate[erm_loss_name].append(erm_loss_value.item())
             accu = None
             if 'cross_ent' == erm_loss_name:
-                accu = accuracy(output_x, batch_y[n_shot*n_way:]) * 100.
+                accu = accuracy(output_x, query_y) * 100.
                 aggregate['accu'].append(accu)
                 
             if is_training:
@@ -810,6 +830,169 @@ class Classical_algorithm_trainer(object):
             
 
         # save model and log tboard for eval
+        if is_training and self._save_folder is not None and not grad_analysis:
+            save_name = "classical_{0}_{1:03d}.pt".format('resnet', epoch)
+            save_path = os.path.join(self._save_folder, save_name)
+            with open(save_path, 'wb') as f:
+                torch.save({
+                    'model': self._model.state_dict(),
+                    'optimizer': self._optimizer}, f)
+
+        if not grad_analysis:
+            metrics = {}
+            for name, values in val_aggregate.items():
+                metrics[name] = np.mean(values)
+            self.log_output(epoch, None, metrics)    
+
+        else:
+            second_raw_moment /= len(erm_loader)
+            first_moment /= len(erm_loader)
+            self.log_output(epoch, i, {
+                "srm_g": np.sum(second_raw_moment),
+                "mean_g_norm": np.linalg.norm(first_moment),
+                "var_g": np.sum(second_raw_moment - (first_moment ** 2)),
+                "uncertainity": np.mean(np.abs(first_moment) / (np.sqrt(second_raw_moment) + 1e-6))
+            })
+
+
+
+    def log_output(self, epoch, iteration,
+                metrics_dict):
+        if iteration is not None:
+            log_array = ['Epoch {} Iteration {}'.format(epoch, iteration)]
+        else:
+            log_array = ['Epoch {} '.format(epoch)]
+        for key in metrics_dict:
+            log_array.append(
+                '{}: \t{:.3f}'.format(key, metrics_dict[key]))
+            if self._writer is not None:
+                self._writer.add_scalar(
+                    key, metrics_dict[key], self._global_iteration)
+        log_array.append(' ') 
+        tqdm.write('\n'.join(log_array))
+
+
+
+
+
+"""
+To train model on all classes together
+"""
+
+class TF_algorithm_trainer(object):
+
+    def __init__(self, model, optimizer, writer, log_interval, save_folder, grad_clip, num_classes,
+        loss, aux_loss=None, gamma=0., update_gap=1, label_offset=0, eps=0.):
+
+        self._model = model
+        self._loss = loss
+        self._aux_loss = aux_loss
+        self._gamma = gamma
+        self._optimizer = optimizer
+        self._writer = writer
+        self._log_interval = log_interval 
+        self._save_folder = save_folder
+        self._grad_clip = grad_clip
+        self._label_offset = label_offset
+        self._global_iteration = 0
+        self._update_gap = update_gap
+        self._eps = eps
+        self._num_classes = num_classes
+
+
+    def run(self, dataset_loader, epoch=None, is_training=True, grad_analysis=False):
+
+        if is_training:
+            self._model.train()
+        else:
+            self._model.eval()
+
+        # statistics init.
+        n_param = 0
+        for name, param in self._model.named_parameters():
+            if param.requires_grad:
+                n_param += len(param.flatten()) 
+        if grad_analysis:
+            first_moment = np.zeros(n_param)
+            second_raw_moment = np.zeros(n_param)
+
+        # losses
+        erm_loss_name, erm_loss_func = self._loss
+        if self._aux_loss is not None:
+            aux_loss_name, aux_loss_func = self._aux_loss
+            self._gamma = min(0.5, (1.01 * self._gamma))
+            print("gamma: {:.4f}".format(self._gamma))
+
+        # loaders and iterators
+        iterator = tqdm(enumerate(dataset_loader, start=1),
+                        leave=False, file=sys.stdout, position=0)
+
+        # metrics aggregation
+        aggregate = defaultdict(list)
+        val_aggregate = defaultdict(list)
+        # torch.autograd.set_detect_anomaly(True)
+
+        
+        for i, batch in iterator:
+            
+            # global iterator count
+            self._global_iteration += 1
+            
+            analysis = (i % self._log_interval == 0)
+            batch_size = len(batch)
+            
+            # fetch samples
+            batch_x, batch_y = batch
+            batch_y = batch_y - self._label_offset
+            batch_x = batch_x.cuda()
+            batch_y = batch_y.cuda()
+                                
+            # loss computation + metrics
+            if self._model.module.classifier_type == 'cvx-classifier': 
+                self._model.module.fc.update_L(None, None)
+
+
+            query_features_x = self._model(batch_x, features_only=True)
+            output_x = self._model.module.fc(query_features_x)
+            erm_loss_value = smooth_loss(
+                output_x, batch_y, self._num_classes, self._eps)
+            loss = erm_loss_value
+            aggregate[erm_loss_name].append(erm_loss_value.item())
+            accu = None
+            if 'cross_ent' == erm_loss_name:
+                accu = accuracy(output_x, batch_y) * 100.
+                aggregate['accu'].append(accu)
+                
+            if is_training:
+                self._optimizer.zero_grad()
+                loss.backward()
+                if self._grad_clip > 0.:
+                    clip_grad_norm_(self._model.parameters(), self._grad_clip)
+                if not grad_analysis:
+                    self._optimizer.step()
+                else:
+                    curr = 0
+                    for name, param in self._model.named_parameters():
+                        if param.requires_grad and 'fc.' not in name:
+                            param_len = len(param.flatten())
+                            grad = param.grad.flatten().cpu().numpy()
+                            assert grad.shape == param.flatten().shape
+                            first_moment[curr:curr+param_len] += grad
+                            second_raw_moment[curr:curr+param_len] += grad**2
+                            curr += param_len
+
+
+            # logging
+            if analysis and is_training and not grad_analysis:
+                metrics = {}
+                for name, values in aggregate.items():
+                    metrics[name] = np.mean(values)
+                    val_aggregate["val_" + name].append(np.mean(values))
+                self.log_output(epoch, i, metrics)
+                aggregate = defaultdict(list)   
+            
+
+        # save model and log tboard for eval
         if is_training and self._save_folder is not None and epoch%5==0 and not grad_analysis:
             save_name = "classical_{0}_{1:03d}.pt".format('resnet', epoch)
             save_path = os.path.join(self._save_folder, save_name)
@@ -850,6 +1033,8 @@ class Classical_algorithm_trainer(object):
                     key, metrics_dict[key], self._global_iteration)
         log_array.append(' ') 
         tqdm.write('\n'.join(log_array))
+
+
 
 
 
@@ -974,7 +1159,6 @@ class Generic_adaptation_trainer(object):
                 obj = self._algorithm._model
             if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
                 scale = obj.fc.scale_factor
-                # print("setting scale factor to: ", scale.item())
             else:
                 scale = 1.
         

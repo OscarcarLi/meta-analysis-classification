@@ -64,7 +64,8 @@ class MetaDataset:
                                     num_workers = 0, #use main thread only or may receive multiple batches
                                     pin_memory = False)        
             for cl in self.cl_list:
-                sub_dataset = SubMetaDataset(self.sub_meta[cl][:n_shot] if fix_support else self.sub_meta[cl], 
+                sub_dataset = SubMetaDataset(
+                    (np.array(self.sub_meta[cl])[np.random.choice(len(self.sub_meta[cl]), n_shot, replace=False)]).tolist() if fix_support else self.sub_meta[cl], 
                     cl, transform = support_transform)
                 self.support_sub_dataloader.append(
                     torch.utils.data.DataLoader(sub_dataset, **support_sub_data_loader_params))

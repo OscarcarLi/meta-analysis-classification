@@ -13,7 +13,7 @@ import shutil
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, wide_resnet, resnet_12, res_mix_up, conv64
-from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer
+from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, TF_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet
 from algorithm_trainer.utils import optimizer_to_device
 from algorithm_trainer.algorithms import modified_sgd
@@ -58,13 +58,23 @@ def main(args):
     # Here we train on base and validate on val
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
-    train_datamgr = MetaDataManager(image_size, batch_size=1, n_episodes=1000,
-            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support)
+    train_datamgrs = [
+        MetaDataManager(image_size, batch_size=1, n_episodes=250,
+            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support),
+        ClassicalDataManager(image_size, batch_size=args.batch_size_train),
+        MetaDataManager(image_size, batch_size=1, n_episodes=250,
+            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=0)
+    ]
+    train_loaders = [
+        train_datamgrs[0].get_data_loader(train_file, support_aug=False, query_aug=True),
+        train_datamgrs[1].get_data_loader(train_file, aug=True),
+        train_datamgrs[2].get_data_loader(train_file, support_aug=False, query_aug=True)
+    ] 
     
     #     ClassicalDataManager(image_size, batch_size=args.batch_size_train),
     # ]
     
-    train_loader = train_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
+    # train_loader = train_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
     #     train_datamgrs[1].get_data_loader(train_file, aug=True)
     # ]
     
@@ -90,14 +100,14 @@ def main(args):
         model = resnet_2.ResNet18(num_classes=args.num_classes_train,
             classifier_type=args.classifier_type)
     elif args.model_type == 'resnet12':
-        if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
+        if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB', 'cifar']:
             model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=False, classifier_metric='euclidean', lambd=args.lambd)
+                projection=(args.projection=="True"), classifier_metric=args.classifier_metric, lambd=args.lambd)
         else:
             model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type, 
-                projection=False, classifier_metric='euclidean', lambd=args.lambd)
+                projection=(args.projection=="True"), classifier_metric=args.classifier_metric, lambd=args.lambd)
     elif args.model_type == 'res_mix_up':
         model = res_mix_up.resnet18(num_classes=args.num_classes_train,
             classifier_type=args.classifier_type)
@@ -121,6 +131,9 @@ def main(args):
         {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
             'momentum': args.momentum, 'nesterov': True},
     ])
+    # optimizer = torch.optim.Adam([
+    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
+    # ])
     print("Total n_epochs: ", args.n_epochs)
 
 
@@ -250,17 +263,44 @@ def main(args):
 
 
 
-
-    lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    # lambda_epoch = lambda e: 1.0 if e < 80 else (0.1 if e < 200 else (0.01 if e < 280 else (0.002)))
+    # lambda_epoch = lambda e: 1.0 if e < 10 else (0.06 if e < 20 else 0.012 if e < 25 else (0.0024))
+    # lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    lambda_epoch = lambda e: 1.0 if e < 80 else (0.1 if e < 200 else (0.012 if e < 280 else (0.0024)))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(
+    #     optimizer, step_size=2, gamma=0.5, last_epoch=-1)
         
+    for _ in range(args.restart_iter):
+        lr_scheduler.step()
     
-    if args.fix_support:
-        print("Fixing randomly chosen support set")
-
     for iter_start in range(args.restart_iter, args.n_epochs):
+
+        # validation
+        if iter_start % 5 == 0:
+            model.module.scale = torch.nn.Parameter(torch.tensor([1.0], device='cuda'))
+            results = val_trainer.run(meta_val_loader, meta_val_datamgr)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+    
+
+        if iter_start % args.support_toggle ==0 and args.fix_support:
+            print("Fixing support")    
+            del train_datamgrs
+            del train_loaders
+            train_datamgrs = [
+            MetaDataManager(image_size, batch_size=1, n_episodes=250,
+                n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support),
+            ClassicalDataManager(image_size, batch_size=args.batch_size_train),
+            MetaDataManager(image_size, batch_size=1, n_episodes=250,
+                n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=0)
+            ]
+            train_loaders = [
+                train_datamgrs[0].get_data_loader(train_file, support_aug=False, query_aug=True),
+                train_datamgrs[1].get_data_loader(train_file, aug=True),
+                train_datamgrs[2].get_data_loader(train_file, support_aug=False, query_aug=True)
+            ] 
+        
 
         if args.classifier_type == 'cvx-classifier':
             model.module.fc.update_lambd()
@@ -269,17 +309,11 @@ def main(args):
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
-        trainer.run(train_loader, train_datamgr, is_training=True, epoch=iter_start)
+        trainer.run(train_loaders, train_datamgrs, is_training=True, epoch=iter_start)
         # if iter_start % 10 == 0:
         #     trainer.run(train_loaders, aux_batch_x, aux_batch_y, is_training=True, epoch=iter_start, grad_analysis=True)
 
-        # validation
-        if iter_start % 1 == 0:
-            model.module.scale = torch.nn.Parameter(torch.tensor([1.0], device='cuda'))
-            results = val_trainer.run(meta_val_loader, meta_val_datamgr)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-    
+        
         # scheduler step
         lr_scheduler.step()
 
@@ -347,6 +381,9 @@ if __name__ == '__main__':
         help='how classes per task for train (meta val)')
     parser.add_argument('--label-offset', type=int, default=0,
         help='offset for label values during fine tuning stage')
+    parser.add_argument('--support-toggle', type=int, default=0,
+        help='')
+        
 
     
 
@@ -375,6 +412,10 @@ if __name__ == '__main__':
         help='fix support set')
     parser.add_argument('--lambd', type=float, default=0.0,
         help='lambda of cvx combination')
+    parser.add_argument('--classifier-metric', type=str, default='',
+        help='')
+    parser.add_argument('--projection', type=str, default='',
+        help='')
     
     args = parser.parse_args()
 

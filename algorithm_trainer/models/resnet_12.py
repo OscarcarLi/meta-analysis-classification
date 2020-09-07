@@ -90,36 +90,36 @@ class CvxClasifier(nn.Module):
         scores = torch.abs(self.scale_factor) * (self.K(x, self.L))
         return scores
 
-    def update_L(self, x, y):
+    # def update_L(self, x, y):
 
-        if self.projection and self.lambd > 0.:
-            self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
-        if self.lambd == 1.:
-            self.L = self.Lg.weight
-        else:
-            c_mat = []
-            for c in np.arange(self.outdim):
-                c_feat = torch.mean(x[y==c, :], dim=0)
-                c_mat.append(c_feat)
-            c_mat = torch.stack(c_mat, dim=0)
-            if self.lambd == 0.:
-                self.L = c_mat
-            else:
-                self.L = self.lambd * self.Lg.weight + (1. - self.lambd) * c_mat
-
-
-    # def update_L(self, x, y, xg, yg):
-
+    #     if self.projection and self.lambd > 0.:
+    #         self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
+    #     if self.lambd == 1.:
+    #         self.L = self.Lg.weight
+    #     else:
     #         c_mat = []
-    #         c_mat_g = []
     #         for c in np.arange(self.outdim):
     #             c_feat = torch.mean(x[y==c, :], dim=0)
-    #             c_feat_g = torch.mean(xg[yg==c, :], dim=0) 
-    #             c_mat.append(c_feat)        
-    #             c_mat_g.append(c_feat_g)        
+    #             c_mat.append(c_feat)
     #         c_mat = torch.stack(c_mat, dim=0)
-    #         c_mat_g = torch.stack(c_mat_g, dim=0)
-    #         self.L = self.lambd * c_mat_g + (1. - self.lambd) * c_mat
+    #         if self.lambd == 0.:
+    #             self.L = c_mat
+    #         else:
+    #             self.L = self.lambd * self.Lg.weight + (1. - self.lambd) * c_mat
+
+
+    def update_L(self, xg, yg, x, y):
+
+            c_mat = []
+            c_mat_g = []
+            for c in np.arange(self.outdim):
+                c_feat = torch.mean(x[y==c, :], dim=0)
+                c_feat_g = torch.mean(xg[yg==c, :], dim=0) 
+                c_mat.append(c_feat)        
+                c_mat_g.append(c_feat_g)        
+            c_mat = torch.stack(c_mat, dim=0)
+            c_mat_g = torch.stack(c_mat_g, dim=0)
+            self.L = self.lambd * c_mat_g + (1. - self.lambd) * c_mat
             
 
     # def update_Lg(self, x, y):

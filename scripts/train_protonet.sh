@@ -1,15 +1,10 @@
 python main_meta.py \
---algorithm Protonet \
---model-type resnet \
---add-bias True \
+--algorithm ProtonetCosine \
+--model-type resnet_12 \
 --no-fc-layer True \
---checkpoint train_dir/classical_miniimagenet/classical_resnet_400.pt \
---fine-tune \
---n-fine-tune-epochs 2 \
---num-classes 16 \
---label-offset 64 \
---optimizer adam \
---lr 0.001 \
+--optimizer SGD \
+--weight-decay 0.0005 \
+--lr 0.1 \
 --optimizer-update-interval 1 \
 --grad-clip 0. \
 --dataset-path data/filelists/miniImagenet \
@@ -23,14 +18,12 @@ python main_meta.py \
 --n-shot-val 5 \
 --n-query-train 15 \
 --n-query-val 15 \
---n-iterations-train 10000 \
---n-iterations-val 100 \
---output-folder eval_Protonet_with_classical_backbone \
+--n-iterations-train 20000 \
+--n-iterations-val 50 \
+--output-folder protonet_miniimagenet_bn \
 --device-number 0,1,2,3 \
 --log-interval 50 \
 --save-interval 500 \
 --val-interval 500 \
 --verbose True \
---eval
-
-# --checkpoint train_dir/classical_miniimagenet_dc/classical_resnet_340.pt \
+# --checkpoint train_dir/protonet_16classminiimagenet_bn/resnet_3500.pt \

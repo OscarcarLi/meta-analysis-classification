@@ -1,37 +1,40 @@
 #! /bin/bash 
 
-output='metal_FC100_r12_n60_s5_q10_euc_fixS'
+output='metalcvxFix0.8Var0.2_euc_MI_r12_n64_s1_q128'
 
 nohup python main_classical.py \
 --algorithm Protonet \
 --model-type resnet12 \
+--classifier-metric euclidean \
+--projection False \
 --classifier-type cvx-classifier \
---lambd 0. \
---img-side-len 32 \
+--lambd 0.8 \
+--img-side-len 84 \
 --gamma 0. \
 --lr 0.1 \
 --momentum 0.9 \
 --eps 0. \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---dataset-path data/filelists/FC100 \
---n-epochs 60 \
---num-classes-train 60 \
---n-way-train 60 \
+--dataset-path data/filelists/miniImagenet \
+--n-epochs 200 \
+--num-classes-train 64 \
+--n-way-train 64 \
 --fix-support \
---n-shot-train 5 \
---n-query-train 10 \
+--support-toggle 10 \
+--n-shot-train 1 \
+--n-query-train 0 \
 --batch-size-train 128 \
---n-iterations-val 400 \
+--n-iterations-val 500 \
 --batch-size-val 2 \
 --n-way-val 5 \
---n-shot-val 5 \
+--n-shot-val 1 \
 --n-query-val 15 \
 --output-folder ${output} \
 --device cuda \
 --device-number 0,1,2,3 \
 --log-interval 200 \
---train-aug  >  ${output}.out &
+--train-aug  > ${output}.out &
 tail -f ${output}.out 
 
 # --checkpoint train_dir/metal_FC100_r12_n60_s5_q128_cvx0.8/classical_resnet_055.pt \
