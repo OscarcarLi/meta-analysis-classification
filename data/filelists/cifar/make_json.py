@@ -5,17 +5,16 @@ import os
 
 test = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
 pathname = os.getcwd()
-pathname = pathname.split('filelists')[0]
 print(pathname)
 
-f = open(pathname + 'Datasets/cifar-FS/splits/bertinetto/test.txt')
+f = open(pathname + '/cifar100/splits/bertinetto/test.txt')
 classes = f.readlines()
 
 count = 80
 for each in classes: 
 	each = each.strip()
 	test['label_names'].append(each)
-	files = glob.glob( pathname + 'Datasets/cifar-FS/data/' + each + '/*')
+	files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
 	for image_name in files:
 		test['image_names'].append( image_name)
 		test['image_labels'].append(count)
@@ -25,16 +24,15 @@ for each in classes:
 json.dump(test , open('novel.json','w')) 
 
 
-
 base = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
-f = open(pathname + 'Datasets/cifar-FS/splits/bertinetto/train.txt')
+f = open(pathname + '/cifar100/splits/bertinetto/train.txt')
 classes = f.readlines()
 
 count = 0
 for each in classes: 
 	each = each.strip()
 	base['label_names'].append(each)
-	files = glob.glob( pathname + 'Datasets/cifar-FS/data/' + each + '/*')
+	files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
 	for image_name in files:
 		base['image_names'].append( image_name)
 		base['image_labels'].append(count)
@@ -46,14 +44,14 @@ json.dump(base , open('base.json','w'))
 
 
 val = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
-f = open(pathname + 'Datasets/cifar-FS/splits/bertinetto/val.txt')
+f = open(pathname + '/cifar100/splits/bertinetto/val.txt')
 classes = f.readlines()
 
 count = 0
 for each in classes: 
 	each = each.strip()
 	val['label_names'].append(each)
-	files = glob.glob( pathname + 'Datasets/cifar-FS/data/' + each + '/*')
+	files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
 	for image_name in files:
 		val['image_names'].append( image_name)
 		val['image_labels'].append(count)
