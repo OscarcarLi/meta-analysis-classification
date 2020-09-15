@@ -81,7 +81,7 @@ class MetaDataset:
                 sub_dataset = SubMetaDataset(self.sub_meta[cl], cl, transform = query_transform)
                 self.query_sub_dataloader.append(
                     torch.utils.data.DataLoader(sub_dataset, **query_sub_data_loader_params))
-    
+                
 
     def __getitem__(self,i):
         if self.n_shot > 0 and self.n_query == 0:
@@ -104,15 +104,17 @@ class MetaDataset:
 class SubMetaDataset:
 
     def __init__(self, sub_meta, cl, 
-        transform=transforms.ToTensor(), target_transform=identity):
+        transform=transforms.ToTensor(), target_transform=identity, printt=False):
 
         self.sub_meta = sub_meta
         self.cl = cl 
         self.transform = transform
         self.target_transform = target_transform
+        self.print=printt
         
     def __getitem__(self,i):
-        #print( '%d -%d' %(self.cl,i))
+        if self.print:
+            print( '%d -%d' %(self.cl,i), os.path.join(self.sub_meta[i]))
         image_path = os.path.join(self.sub_meta[i])
         img = Image.open(image_path).convert('RGB')
         img = self.transform(img)

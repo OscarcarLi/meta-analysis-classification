@@ -280,6 +280,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
         description='Training the feature backbone on all classes from all tasks.')
+    
+    parser.add_argument('--random-seed', type=int, default=42,
+        help='')
 
     # Algorithm
     parser.add_argument('--algorithm', type=str, help='type of algorithm')
@@ -369,9 +372,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    # set random seed. only set for numpy, uncomment the below lines for torch and CuDNN.
+    np.random.seed(args.random_seed)
+    # torch.manual_seed(args.random_seed)
+    # torch.backends.cudnn.deterministic = True
+    # torch.backends.cudnn.benchmark = False
+    
     # Create logs and saves folder if they don't exist
-    if not os.path.exists('./train_dir'):
-        os.makedirs('./train_dir')
+    if not os.path.exists('./train_dir_2'):
+        os.makedirs('./train_dir_2')
 
     # main function call
     main(args)

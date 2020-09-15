@@ -1,7 +1,10 @@
 #! /bin/bash 
-output='metal_cifar_r12_n20_s5_q15_qp15_euc_drop12'
+output='fixS5_cifar_r12_n20_s5_q15_qp15_euc_drop8'
+device='2'
+randomseed=42 
 
-CUDA_VISIBLE_DEVICES=2,3 nohup python main_meta_classical.py \
+CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
+--random-seed $randomseed \
 --algorithm Protonet \
 --model-type resnet12 \
 --classifier-metric euclidean \
@@ -12,12 +15,12 @@ CUDA_VISIBLE_DEVICES=2,3 nohup python main_meta_classical.py \
 --grad-clip 0. \
 --dataset-path data/filelists/cifar \
 --n-epochs 60 \
---drop-lr-epoch 12 \
+--drop-lr-epoch 8 \
 --num-classes-train 64 \
 --batch-size-train 1 \
 --n-way-train 20 \
 --n-shot-train 5 \
---fix-support 0 \
+--fix-support 5 \
 --n-query-train 15 \
 --n-query-pool 15 \
 --batch-size-val 1 \
@@ -27,7 +30,7 @@ CUDA_VISIBLE_DEVICES=2,3 nohup python main_meta_classical.py \
 --n-iterations-val 2000 \
 --output-folder ${output} \
 --device cuda \
---device-number 2,3 \
+--device-number "$device" \
 --log-interval 500 \
 --train-aug > ${output}.out &
 tail -f ${output}.out 
