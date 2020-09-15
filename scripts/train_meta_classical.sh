@@ -1,7 +1,7 @@
 #! /bin/bash 
-output='metal_cifar_r12_n20_s5_q15_qp15_euc_drop8'
+output='metal_cifar_r12_n20_s5_q15_qp15_euc_drop12'
 
-CUDA_VISIBLE_DEVICES=0,1 nohup python main_meta_classical.py \
+CUDA_VISIBLE_DEVICES=2,3 nohup python main_meta_classical.py \
 --algorithm Protonet \
 --model-type resnet12 \
 --classifier-metric euclidean \
@@ -12,7 +12,7 @@ CUDA_VISIBLE_DEVICES=0,1 nohup python main_meta_classical.py \
 --grad-clip 0. \
 --dataset-path data/filelists/cifar \
 --n-epochs 60 \
---drop-lr-epoch 8 \
+--drop-lr-epoch 12 \
 --num-classes-train 64 \
 --batch-size-train 1 \
 --n-way-train 20 \
@@ -27,7 +27,7 @@ CUDA_VISIBLE_DEVICES=0,1 nohup python main_meta_classical.py \
 --n-iterations-val 2000 \
 --output-folder ${output} \
 --device cuda \
---device-number 0,1 \
+--device-number 2,3 \
 --log-interval 500 \
 --train-aug > ${output}.out &
 tail -f ${output}.out 

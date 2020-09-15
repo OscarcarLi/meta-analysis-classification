@@ -319,7 +319,7 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, features_only=True, transform=False):
+    def forward(self, x, features_only=True):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -332,7 +332,6 @@ class ResNet(nn.Module):
         if self.projection:
             x_norm = torch.norm(x, dim=1, keepdim=True)+0.00001
             x = x.div(x_norm)
-
 
         if features_only:
             return x
