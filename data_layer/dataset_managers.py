@@ -122,7 +122,7 @@ This would beed additional params: [n_way, n_shot, n_query, n_eposide]
 """
 
 class MetaDataManager(DataManager):
-    def __init__(self, image_size, n_way, n_shot, n_query, batch_size, fix_support=False, n_episodes=100):        
+    def __init__(self, image_size, n_way, n_shot, n_query, batch_size, fix_support=0, n_episodes=100):        
         super(MetaDataManager, self).__init__()
         self.image_size = image_size
         self.n_way = n_way
@@ -138,6 +138,7 @@ class MetaDataManager(DataManager):
         data_file: path to dataset
         aug: boolean to set data augmentation
         """
+        print("support aug:", support_aug, "query aug:", query_aug)
         support_transform = self.trans_loader.get_composed_transform(support_aug)
         query_transform = self.trans_loader.get_composed_transform(query_aug)
         dataset = MetaDataset(data_file, n_shot=self.n_shot, n_query=self.n_query, 

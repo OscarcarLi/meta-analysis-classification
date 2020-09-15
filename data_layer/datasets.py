@@ -35,9 +35,10 @@ class ClassicalDataset:
 
 class MetaDataset:
 
-    def __init__(self, data_file, n_shot, n_query, support_transform, query_transform, fix_support=False):
+    def __init__(self, data_file, n_shot, n_query, support_transform, query_transform, fix_support=0):
         
         self.fix_support = fix_support
+        print("Support set is fixed:", self.fix_support!=0)
         self.n_shot = n_shot
         self.n_query = n_query
 
@@ -65,7 +66,7 @@ class MetaDataset:
                                     pin_memory = False)        
             for cl in self.cl_list:
                 sub_dataset = SubMetaDataset(
-                    (np.array(self.sub_meta[cl])[np.random.choice(len(self.sub_meta[cl]), n_shot, replace=False)]).tolist() if fix_support else self.sub_meta[cl], 
+                    (np.array(self.sub_meta[cl])[np.random.choice(len(self.sub_meta[cl]), self.fix_support, replace=False)]).tolist() if self.fix_support else self.sub_meta[cl], 
                     cl, transform = support_transform)
                 self.support_sub_dataloader.append(
                     torch.utils.data.DataLoader(sub_dataset, **support_sub_data_loader_params))
@@ -109,7 +110,7 @@ class SubMetaDataset:
         self.cl = cl 
         self.transform = transform
         self.target_transform = target_transform
-
+        
     def __getitem__(self,i):
         #print( '%d -%d' %(self.cl,i))
         image_path = os.path.join(self.sub_meta[i])

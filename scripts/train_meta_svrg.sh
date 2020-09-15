@@ -1,0 +1,29 @@
+python main_meta_svrg.py \
+--algorithm ProtonetCosine \
+--model-type resnet12 \
+--classifier-type avg-classifier-svrg \
+--img-side-len 84 \
+--gamma 0.5 \
+--lr 0.01 \
+--momentum 0.9 \
+--weight-decay 0.0005 \
+--eps 0. \
+--grad-clip 0. \
+--dataset-path data/filelists/CUB \
+--n-epochs 420 \
+--num-classes-train 100 \
+--n-way-train 100 \
+--n-shot-train 3 \
+--batch-size-train 64 \
+--n-iterations-val 400 \
+--batch-size-val 1 \
+--n-way-val 5 \
+--n-shot-val 5 \
+--n-query-val 15 \
+--output-folder metal_miniImagenet_alternate_grad \
+--device cuda \
+--device-number 0,1,2,3 \
+--log-interval 45 \
+--train-aug \
+--checkpoint train_dir/classical_CUB_r12_classifier_bs128_parametric_metal_newgradanalysis_optsaved_saugfalse/classical_resnet_100.pt
+# --lowdim 512 \

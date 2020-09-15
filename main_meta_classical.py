@@ -9,16 +9,26 @@ import numpy as np
 import pprint
 from tensorboardX import SummaryWriter
 import re
+import shutil
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax
 from algorithm_trainer.utils import optimizer_to_device
 from algorithm_trainer.algorithms import modified_sgd
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
 from analysis.objectives import var_reduction_disc, var_reduction_ortho, rfc_and_pc
 
+
+def ensure_path(path):
+    if os.path.exists(path):
+        print("Deleting", path)
+        # if input('{} exists, remove? ([y]/n)'.format(path)) != 'n':
+        shutil.rmtree(path)
+        os.makedirs(path)
+    else:
+        os.makedirs(path)
 
 
 def main(args):
@@ -26,16 +36,17 @@ def main(args):
     run_name = 'train' if is_training else 'eval'
 
     if is_training:
-        writer = SummaryWriter('./train_dir/{0}/{1}'.format(
+        ensure_path('./train_dir_2/{0}'.format(args.output_folder))
+        writer = SummaryWriter('./train_dir_2/{0}/{1}'.format(
             args.output_folder, run_name))
-        with open('./train_dir/{}/config.txt'.format(
+        with open('./train_dir_2/{}/config.txt'.format(
             args.output_folder), 'w') as config_txt:
             for k, v in sorted(vars(args).items()):
                 config_txt.write('{}: {}\n'.format(k, v))
     else:
         writer = None
 
-    save_folder = './train_dir/{0}'.format(args.output_folder)
+    save_folder = './train_dir_2/{0}'.format(args.output_folder)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
 
@@ -50,15 +61,20 @@ def main(args):
     train_file = os.path.join(args.dataset_path, 'base.json')
     mt_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_train, n_episodes=1000,
-        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support)
+        n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=max(args.n_query_train, args.n_query_pool), fix_support=args.fix_support)
     mt_loader = mt_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
-    
+
     val_file = os.path.join(args.dataset_path, 'val.json')
     mt_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
     mt_val_loader = mt_val_datamgr.get_data_loader(val_file, support_aug=False, query_aug=False)
     
+    test_file = os.path.join(args.dataset_path, 'novel.json')
+    mt_test_datamgr = MetaDataManager(
+        image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
+        n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
+    mt_test_loader = mt_test_datamgr.get_data_loader(test_file, support_aug=False, query_aug=False)
     
 
     ####################################################
@@ -71,10 +87,12 @@ def main(args):
     elif args.model_type == 'resnet12':
         if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
             model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type)
+                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
+                projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
         else:
             model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type)
+                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
+                projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
                 classifier_type=None, no_fc_layer=True, projection=False)
@@ -82,7 +100,21 @@ def main(args):
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
     print("Model\n" + "=="*27)    
-    print(model)        
+    print(model)   
+
+
+    ####################################################
+    #                OPTIMIZER CREATION                #
+    ####################################################
+
+    # optimizer = torch.optim.Adam([
+    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
+    # ])
+    optimizer = modified_sgd.SGD([
+        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
+            'momentum': 0.9, 'nesterov': True},
+    ])
+    print("Total n_epochs: ", args.n_epochs)     
 
 
     # load from checkpoint
@@ -91,6 +123,9 @@ def main(args):
         model_dict = model.state_dict()
         chkpt_state_dict = torch.load(args.checkpoint)
         if 'model' in chkpt_state_dict:
+            if 'optimizer' in chkpt_state_dict and args.load_optimizer:
+                print(f"loading optimizer from {args.checkpoint}")
+                optimizer.state = chkpt_state_dict['optimizer'].state
             chkpt_state_dict = chkpt_state_dict['model']
         chkpt_state_dict_cpy = chkpt_state_dict.copy()
         # remove "module." from key, possibly present as it was dumped by data-parallel
@@ -117,19 +152,6 @@ def main(args):
         
 
     ####################################################
-    #                OPTIMIZER CREATION                #
-    ####################################################
-
-    optimizer = torch.optim.Adam([
-        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
-    ])
-    # optimizer = modified_sgd.SGD([
-    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
-    #         'momentum': 0.9, 'nesterov': True},
-    # ])
-    print("Total n_epochs: ", args.n_epochs)
-
-    ####################################################
     #                     TRAINER                      #
     ####################################################
 
@@ -151,6 +173,21 @@ def main(args):
             device='cuda')
     elif args.algorithm == 'Protonet':
         algorithm_train = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
+        algorithm_val = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
+            device='cuda')
+    elif args.algorithm == 'Protomax':
+        algorithm_train = Protomax(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_train,
@@ -199,29 +236,31 @@ def main(args):
     ####################################################
 
 
-    # lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-    #     optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
-    # optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=2, gamma=0.5)
-    lr_scheduler = torch.optim.lr_scheduler.StepLR(
-        optimizer, step_size=2, gamma=0.5, last_epoch=-1)
+    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+        optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+
+    for _ in range(args.restart_iter):
+        lr_scheduler.step()
     
-    for iter_start in range(0, args.n_epochs):
+    for iter_start in range(args.restart_iter, args.n_epochs):
 
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
 
-        print("scale factor: ", model.module.scale_factor)
-        
-        trainer.run(mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1)
+        trainer.run(mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1, n_query=args.n_query_train)
 
         # validation
+        print("Validation")
         results = val_trainer.run(mt_val_loader, mt_val_datamgr)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
-    
+        print("Test")
+        results = val_trainer.run(mt_test_loader, mt_test_datamgr)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
+        
         # scheduler step
         lr_scheduler.step()
         
@@ -258,6 +297,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight-decay', type=float, default=0.,
         help='weight decay')
     
+    
     # Dataset
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
@@ -285,6 +325,8 @@ if __name__ == '__main__':
         help='how classes per task for train (meta val)')
     parser.add_argument('--label-offset', type=int, default=0,
         help='offset for label values during fine tuning stage')
+    parser.add_argument('--n-query-pool', type=int, default=0,
+        help='pool for query samples')
 
     
 
@@ -307,8 +349,16 @@ if __name__ == '__main__':
         help='iteration at restart') 
     parser.add_argument('--n-tf-updates', type=int, default=1,
         help='no of tf updates before meta update') 
-    parser.add_argument('--fix-support', action='store_true', default=False,
+    parser.add_argument('--fix-support', type=int, default=0,
         help='fix support set')
+    parser.add_argument('--classifier-metric', type=str, default='',
+        help='')
+    parser.add_argument('--projection', type=str, default='',
+        help='')
+    parser.add_argument('--load-optimizer', action='store_true', default=False,
+        help='load opt from chkpt')
+    parser.add_argument('--drop-lr-epoch', type=int, default=20,
+        help='')
 
     args = parser.parse_args()
 
