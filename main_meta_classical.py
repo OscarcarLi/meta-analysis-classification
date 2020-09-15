@@ -256,11 +256,18 @@ def main(args):
         results = val_trainer.run(mt_val_loader, mt_val_datamgr)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
+        writer.add_scalar(
+            "validation_acc", results['test_loss_after']['accu'], iter_start + 1)
+        writer.add_scalar(
+            "validation_loss", results['test_loss_after']['loss'], iter_start + 1)
         print("Test")
         results = val_trainer.run(mt_test_loader, mt_test_datamgr)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
-        
+        writer.add_scalar(
+            "test_acc", results['test_loss_after']['accu'], iter_start + 1)
+        writer.add_scalar(
+            "test_loss", results['test_loss_after']['loss'], iter_start + 1)
         # scheduler step
         lr_scheduler.step()
         
