@@ -114,8 +114,8 @@ def main(args):
     #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
     # ])
     optimizer = modified_sgd.SGD([
-        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
-            'momentum': 0.9, 'nesterov': True},
+        {'params': model.parameters(), 'lr': args.lr,
+         'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
     ])
     print("Total n_epochs: ", args.n_epochs)     
 
