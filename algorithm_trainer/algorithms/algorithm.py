@@ -162,7 +162,7 @@ class SVM(Algorithm):
         self.to(self._device)
    
 
-    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False):
+    def inner_loop_adapt(self, support, support_labels, query=None, return_estimator=False, scale=None):
         """
         Fits the support set with multi-class SVM and 
         returns the classification score on the query set.

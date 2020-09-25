@@ -31,20 +31,44 @@ class TransformLoader:
         elif transform_type=='CenterCrop':
             return method(self.image_size) 
         elif transform_type=='Resize':
-            return method([int(self.image_size), int(self.image_size)])
+            return method([int(self.image_size*1.15), int(self.image_size*1.15)])
         elif transform_type=='Normalize':
             return method(**self.normalize_param )
         else:
             return method()
 
-    def get_composed_transform(self, aug = False):
-        if aug:
-            transform_list = ['RandomResizedCrop', 'ImageJitter', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
+    def get_composed_transform(self, dataset, aug = False):
+        
+        if dataset in ['cifar', 'fc100']:
+            mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
+            std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
+            normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
+            if aug:
+                print("Using meta-optnet version of augmentation")
+                transform = transforms.Compose([
+                    transforms.RandomCrop(32, padding=4),
+                    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+                    transforms.RandomHorizontalFlip(),
+                    lambda x: np.array(x),
+                    transforms.ToTensor(),
+                    normalize
+                ])
+            else:
+                transform = transforms.Compose([
+                    lambda x: np.array(x),
+                    transforms.ToTensor(),
+                    normalize
+                ])
         else:
-            transform_list = ['Resize','CenterCrop', 'ToTensor', 'Normalize']
+            if aug:
+                print("Using our version of augmentation")
+                transform_list = ['RandomResizedCrop', 'ImageJitter', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
+            else:
+                transform_list = ['Resize','CenterCrop', 'ToTensor', 'Normalize']
+            transform_funcs = [self.parse_transform(x) for x in transform_list]
+            transform = transforms.Compose(transform_funcs)
 
-        transform_funcs = [self.parse_transform(x) for x in transform_list]
-        transform = transforms.Compose(transform_funcs)
+
         return transform
 
 
@@ -102,12 +126,12 @@ class ClassicalDataManager(DataManager):
         self.batch_size = batch_size
         self.trans_loader = TransformLoader(image_size)
 
-    def get_data_loader(self, data_file, aug): #parameters that would change on train/val set
+    def get_data_loader(self, dataset, data_file, aug): #parameters that would change on train/val set
         """
         data_file: path to dataset
         aug: boolean to set data augmentation
         """
-        transform = self.trans_loader.get_composed_transform(aug)
+        transform = self.trans_loader.get_composed_transform(dataset, aug)
         dataset = ClassicalDataset(data_file, transform)
         data_loader_params = dict(batch_size=self.batch_size, shuffle = True, num_workers = 12, pin_memory = True)       
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
@@ -133,14 +157,14 @@ class MetaDataManager(DataManager):
         self.trans_loader = TransformLoader(image_size)
         self.fix_support = fix_support
 
-    def get_data_loader(self, data_file, support_aug, query_aug): #parameters that would change on train/val set
+    def get_data_loader(self, dataset, data_file, support_aug, query_aug): #parameters that would change on train/val set
         """
         data_file: path to dataset
         aug: boolean to set data augmentation
         """
         print("support aug:", support_aug, "query aug:", query_aug)
-        support_transform = self.trans_loader.get_composed_transform(support_aug)
-        query_transform = self.trans_loader.get_composed_transform(query_aug)
+        support_transform = self.trans_loader.get_composed_transform(dataset, support_aug)
+        query_transform = self.trans_loader.get_composed_transform(dataset, query_aug)
         dataset = MetaDataset(data_file, n_shot=self.n_shot, n_query=self.n_query, 
             support_transform=support_transform, query_transform=query_transform, fix_support=self.fix_support)
         sampler = EpisodicBatchSampler(len(dataset), n_way=self.n_way, 

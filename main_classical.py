@@ -62,13 +62,12 @@ def main(args):
         MetaDataManager(image_size, batch_size=1, n_episodes=args.n_iterations_train,
             n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=args.n_query_train, fix_support=args.fix_support),
         ClassicalDataManager(image_size, batch_size=args.batch_size_train),
-        MetaDataManager(image_size, batch_size=1, n_episodes=args.n_iterations_train,
-            n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=0)
     ]
     train_loaders = [
-        train_datamgrs[0].get_data_loader(train_file, support_aug=False, query_aug=args.train_aug),
-        train_datamgrs[1].get_data_loader(train_file, aug=args.train_aug),
-        train_datamgrs[2].get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
+        train_datamgrs[0].get_data_loader(
+            args.dataset_path.split('/')[-1], train_file, support_aug=args.support_aug, query_aug=args.train_aug),
+        train_datamgrs[1].get_data_loader(
+            args.dataset_path.split('/')[-1], train_file, aug=args.train_aug),
     ] 
     
     #     ClassicalDataManager(image_size, batch_size=args.batch_size_train),
@@ -82,13 +81,15 @@ def main(args):
     meta_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    meta_val_loader = meta_val_datamgr.get_data_loader(val_file, support_aug=False, query_aug=False)
+    meta_val_loader = meta_val_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], val_file, support_aug=False, query_aug=False)
 
     test_file = os.path.join(args.dataset_path, 'novel.json')
     meta_test_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    meta_test_loader = meta_test_datamgr.get_data_loader(test_file, support_aug=False, query_aug=False)
+    meta_test_loader = meta_test_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], test_file, support_aug=False, query_aug=False)
     
     
 
@@ -107,11 +108,11 @@ def main(args):
             classifier_type=args.classifier_type)
     elif args.model_type == 'resnet12':
         if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
-            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
+            model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric, lambd=args.lambd)
         else:
-            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
+            model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=2,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type, 
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric, lambd=args.lambd)
     elif args.model_type == 'res_mix_up':
@@ -271,7 +272,7 @@ def main(args):
 
     # lambda_epoch = lambda e: 1.0 if e < 10 else (0.06 if e < 20 else 0.012 if e < 25 else (0.0024))
     # lambda_epoch = lambda e: 1.0 if e < 20 else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 200 else (0.012 if e < 280 else (0.0024)))
+    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else (0.012 if e < 50 else (0.0024)))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(
@@ -282,17 +283,6 @@ def main(args):
     
     for iter_start in range(args.restart_iter, args.n_epochs):
 
-        # validation
-        if iter_start % 5 == 0:
-            print("Validation")
-            results = val_trainer.run(meta_val_loader, meta_val_datamgr)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            print("Test")
-            results = val_trainer.run(meta_test_loader, meta_test_datamgr)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-    
 
         # if iter_start % args.support_toggle ==0 and args.fix_support:
         #     print("Fixing support")    
@@ -315,15 +305,35 @@ def main(args):
         if args.classifier_type == 'cvx-classifier':
             model.module.fc.update_lambd()
             print("scale factor: ", model.module.fc.scale_factor)
+        
 
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
         # trainer.run(train_loaders[1], is_training=True, epoch=iter_start)
-        trainer.run(train_loaders, train_datamgrs, is_training=True, epoch=iter_start)
+        trainer.run(train_loaders, train_datamgrs, is_training=True, epoch=iter_start + 1)
         # if iter_start % 10 == 0:
         #     trainer.run(train_loaders, aux_batch_x, aux_batch_y, is_training=True, epoch=iter_start, grad_analysis=True)
 
+        # validation
+        if iter_start % 1 == 0:
+            print("Validation")
+            results = val_trainer.run(meta_val_loader, meta_val_datamgr)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+            writer.add_scalar(
+                "validation_acc", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                "validation_loss", results['test_loss_after']['loss'], iter_start + 1)
+        
+            print("Test")
+            results = val_trainer.run(meta_test_loader, meta_test_datamgr)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+            writer.add_scalar(
+                "test_acc", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                "test_loss", results['test_loss_after']['loss'], iter_start + 1)
         
         # scheduler step
         lr_scheduler.step()
@@ -415,6 +425,8 @@ if __name__ == '__main__':
         help='evaluate model')
     parser.add_argument('--train-aug', action='store_true', default=True,
         help='perform data augmentation during training')
+    parser.add_argument('--support-aug', action='store_true', default=False,
+        help='perform data augmentation on support set')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
     parser.add_argument('--n-iterations-train', type=int, default=100,
@@ -433,6 +445,9 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--projection', type=str, default='',
         help='')
+    parser.add_argument('--avg-pool', type=str, default='True',
+        help='')
+
     
     args = parser.parse_args()
 
