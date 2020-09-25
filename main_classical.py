@@ -348,7 +348,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         description='Training the feature backbone on all classes from all tasks.')
 
-    parser.add_argument('--random-seed', type=int, default=42,
+    parser.add_argument('--random-seed', type=int, default=0,
         help='')
     # Algorithm
     parser.add_argument('--algorithm', type=str, help='type of algorithm')
@@ -456,7 +456,8 @@ if __name__ == '__main__':
         os.makedirs('./train_dir_2')
 
     # set random seed. only set for numpy, uncomment the below lines for torch and CuDNN.
-    np.random.seed(args.random_seed)
+    if args.random_seed != 0:
+        np.random.seed(args.random_seed)
     # torch.manual_seed(args.random_seed)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False

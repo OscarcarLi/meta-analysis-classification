@@ -269,6 +269,7 @@ class ResNet(nn.Module):
         self.keep_avg_pool = avg_pool
         self.dropout = nn.Dropout(p=1 - self.keep_prob, inplace=False)
         self.drop_rate = drop_rate
+        print("Average pooling: ", self.keep_avg_pool)
 
 
         # classifier creation
