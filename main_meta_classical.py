@@ -98,7 +98,7 @@ def main(args):
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
-                classifier_type=None, no_fc_layer=True, projection=False)
+                classifier_type=None, no_fc_layer=True, projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))

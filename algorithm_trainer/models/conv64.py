@@ -10,24 +10,23 @@ from torch.nn.utils.weight_norm import WeightNorm
 from collections import defaultdict
 
 
-class avgLinear(nn.Module):
 
-    def __init__(self, indim, outdim, lambd_start=0., lambd_end=0., gamma=0.99, n_epochs=100):
-        super(avgLinear, self).__init__()
+class CvxClasifier(nn.Module):
+
+    def __init__(self, indim, outdim, lambd_start=0.8, lambd_end=0.8, metric='cosine', projection=True):
+        super(CvxClasifier, self).__init__()
         self.L = None
         self.Lg = nn.Linear(indim, outdim, bias = False)
-        # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
-        self.scale_factor = 1.
-
-        self.gamma = gamma
+        self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         self.indim = indim
         self.outdim = outdim
         self.class_count = defaultdict(int)
         self.lambd_start = lambd_start
         self.lambd_end = lambd_end
         self.lambd = lambd_start
-        self.n_epochs = n_epochs
-        
+        self.metric = metric
+        self.projection = projection
+        print("Classifier metric is ", self. metric)
 
     def update_lambd(self):
         if (self.lambd < self.lambd_end and self.lambd >= self.lambd_start) or (self.lambd > self.lambd_end and self.lambd <= self.lambd_start): 
@@ -37,36 +36,35 @@ class avgLinear(nn.Module):
     def K(self, a, b):
         """ linear kernel
         """
-
-        n_way = b.size(0)
-        d = b.size(1)
-
-        AB = a @ b.T
-        # total_n_query x n_way
-        AA = (a * a).sum(dim=1, keepdim=True)
-        # total_n_query x 1
-        BB = (b * b).sum(dim=1, keepdim=True).reshape(1, n_way)
-        # 1 x n_way
-        logits_query = AA.expand_as(AB) - 2 * AB + BB.expand_as(AB)
-        # euclidean distance 
-        logits_query = -logits_query
-        # batch_size x total_n_query x n_way
-
-        logits_query = logits_query / d
-        # normalize
-        return logits_query
-        # return a @ b.T
+        if self.metric == 'cosine':
+            return a @ b.T
+        elif self.metric == 'euclidean':
+            n_way = b.size(0)
+            d = b.size(1)
+            AB = a @ b.T
+            # total_n_query x n_way
+            AA = (a * a).sum(dim=1, keepdim=True)
+            # total_n_query x 1
+            BB = (b * b).sum(dim=1, keepdim=True).reshape(1, n_way)
+            # 1 x n_way
+            logits_query = AA.expand_as(AB) - 2 * AB + BB.expand_as(AB)
+            # euclidean distance 
+            logits_query = -logits_query
+            # batch_size x total_n_query x n_way
+            logits_query = logits_query / d
+            # normalize
+            return logits_query
 
     def forward(self, x):
-        # scores = torch.abs(self.scale_factor) * (self.K(x, self.L))
-        scores = self.scale_factor * (self.K(x, self.L))
+        scores = torch.abs(self.scale_factor) * (self.K(x, self.L))
         return scores
 
     def update_L(self, x, y):
 
+        if self.projection and self.lambd > 0.:
+            self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
         if self.lambd == 1.:
-            self.L = self.Lg.weight.div(torch.max(torch.norm(self.Lg.weight, dim=1)))
-
+            self.L = self.Lg.weight
         else:
             c_mat = []
             for c in np.arange(self.outdim):
@@ -75,7 +73,6 @@ class avgLinear(nn.Module):
             c_mat = torch.stack(c_mat, dim=0)
             if self.lambd == 0.:
                 self.L = c_mat
-
             else:
                 self.L = self.lambd * self.Lg.weight + (1. - self.lambd) * c_mat
 
@@ -135,7 +132,7 @@ class Convnet(nn.Module):
 
 class Conv64(nn.Module):
     def __init__(self, num_classes, classifier_type='avg-linear', no_fc_layer=False, x_dim=3, h_dim=64, z_dim=64, 
-        retain_last_activation=True, activation='ReLU', add_bias=False, projection=False):
+        retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.):
         super(Conv64, self).__init__()
         
         self.encoder = nn.Sequential(
@@ -169,8 +166,9 @@ class Conv64(nn.Module):
 
         if self.no_fc_layer is True:
             self.fc = None
-        elif self.classifier_type == 'avg-classifier':
-            self.fc = avgLinear(self.final_feat_dim, num_classes)
+        elif self.classifier_type == 'cvx-classifier':
+            self.fc = CvxClasifier(self.final_feat_dim, num_classes, 
+            metric=classifier_metric, lambd_start=lambd, lambd_end=lambd, projection=self.projection)
         else:
             raise ValueError("classifier type not found")
 
