@@ -111,8 +111,8 @@ def main(args):
     #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
     # ])
     optimizer = modified_sgd.SGD([
-        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay, 
-            'momentum': 0.9, 'nesterov': True},
+        {'params': model.parameters(), 'lr': args.lr,
+         'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
     ])
     print("Total n_epochs: ", args.n_epochs)     
 
@@ -373,7 +373,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # set random seed. only set for numpy, uncomment the below lines for torch and CuDNN.
-    np.random.seed(args.random_seed)
+    # np.random.seed(args.random_seed)
     # torch.manual_seed(args.random_seed)
     # torch.backends.cudnn.deterministic = True
     # torch.backends.cudnn.benchmark = False
