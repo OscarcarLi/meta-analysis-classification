@@ -402,7 +402,7 @@ class Classical_algorithm_trainer(object):
         iterator = tqdm(enumerate(dataset_loaders[0], start=1),
                         leave=False, file=sys.stdout, position=0)
         tf_iterator = iter(dataset_loaders[1])
-        aux_iterator = iter(dataset_loaders[2])
+        # aux_iterator = iter(dataset_loaders[2])
 
 
         # metrics aggregation
@@ -439,7 +439,7 @@ class Classical_algorithm_trainer(object):
             batch_x = batch_x.transpose(1, 2)
             # bsz x nshot+n_query x nway x 3 x 84 x 84
             batch_y = batch_y.transpose(1, 2)
-            # bsz x nshot+n_query x nway x 3 x 84 x 84                             
+            # bsz x nshot+n_query x nway                      
             batch_x = batch_x.reshape(-1, *(batch_x.shape[-3:]))
             batch_y = batch_y.reshape(-1)
                                     
@@ -1011,7 +1011,7 @@ To meta-learn and transfer-learn the feat. extractor
 class MetaClassical_algorithm_trainer(object):
 
     def __init__(self, model, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, loss_func, label_offset=0):
+        save_folder, grad_clip, loss_func, label_offset=0, eps=0.):
 
         self._model = model
         self._algorithm = algorithm
@@ -1023,9 +1023,10 @@ class MetaClassical_algorithm_trainer(object):
         self._grad_clip = grad_clip
         self._label_offset = label_offset
         self._global_iteration = 0
+        self._eps = eps
         
 
-    def run(self, mt_loader, mt_manager, n_query, epoch=None, is_training=True):
+    def run(self, mt_loader, mt_manager, n_query, epoch=None, is_training=True, classical_loader=None):
 
         if is_training:
             self._model.train()
@@ -1054,16 +1055,31 @@ class MetaClassical_algorithm_trainer(object):
         else:
             obj = self._algorithm._model
         if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
-            scale = obj.fc.scale_factor
+            scale = torch.abs(obj.fc.scale_factor)
             # print("setting scale factor to: ", scale.item())
         elif hasattr(obj, 'scale_factor'):
-            scale = obj.scale_factor
+            scale = torch.abs(obj.scale_factor)
         else:
             scale = 1.
         
         print("scale", scale)
 
         for i, mt_batch in mt_iterator:
+
+
+            # this needs to be done again otherwise backward will throw error
+            if isinstance(self._algorithm._model, torch.nn.DataParallel):
+                obj = self._algorithm._model.module
+            else:
+                obj = self._algorithm._model
+            if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
+                scale = torch.abs(obj.fc.scale_factor)
+                # print("setting scale factor to: ", scale.item())
+            elif hasattr(obj, 'scale_factor'):
+                scale = torch.abs(obj.scale_factor)
+            else:
+                scale = 1.
+        
             
             # global iterator count
             self._global_iteration += 1
@@ -1117,10 +1133,14 @@ class MetaClassical_algorithm_trainer(object):
             logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
                 query=query_x, support=shots_x, 
                 support_labels=shots_y, scale=scale)
-            assert all(np.unique(shots_y.cpu().numpy()) == np.unique(query_y.cpu().numpy()))
+            # assert all(np.unique(shots_y.cpu().numpy()) == np.unique(query_y.cpu().numpy()))
             logits = scale * logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
+            
+            erm_loss_value = smooth_loss(
+                logits, query_y, logits.shape[1], self._eps)
+            
             mt_loss = self._loss_func(logits, query_y)
             mt_accu = accuracy(logits, query_y) * 100.
             aggregate['mt_outer_loss'].append(mt_loss.item())

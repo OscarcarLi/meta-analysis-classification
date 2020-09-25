@@ -62,19 +62,22 @@ def main(args):
     mt_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_train, n_episodes=1000,
         n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=max(args.n_query_train, args.n_query_pool), fix_support=args.fix_support)
-    mt_loader = mt_datamgr.get_data_loader(train_file, support_aug=False, query_aug=args.train_aug)
+    mt_loader = mt_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], train_file, support_aug=args.support_aug, query_aug=args.train_aug)
 
     val_file = os.path.join(args.dataset_path, 'val.json')
     mt_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    mt_val_loader = mt_val_datamgr.get_data_loader(val_file, support_aug=False, query_aug=False)
+    mt_val_loader = mt_val_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], val_file, support_aug=False, query_aug=False)
     
     test_file = os.path.join(args.dataset_path, 'novel.json')
     mt_test_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
         n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
-    mt_test_loader = mt_test_datamgr.get_data_loader(test_file, support_aug=False, query_aug=False)
+    mt_test_loader = mt_test_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], test_file, support_aug=False, query_aug=False)
     
 
     ####################################################
@@ -86,11 +89,11 @@ def main(args):
             classifier_type=None, no_fc_layer=True)
     elif args.model_type == 'resnet12':
         if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
-            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
+            model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
         else:
-            model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=2,
+            model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=2,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
     elif args.model_type == 'conv64':
@@ -201,6 +204,21 @@ def main(args):
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
             device='cuda')
+    elif args.algorithm == 'SVM':
+        algorithm_train = SVM(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
+        algorithm_val = SVM(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
+            device='cuda')
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
@@ -213,7 +231,8 @@ def main(args):
         log_interval=args.log_interval, 
         save_folder=save_folder, 
         grad_clip=args.grad_clip,
-        loss_func=torch.nn.CrossEntropyLoss()
+        loss_func=torch.nn.CrossEntropyLoss(),
+        eps=args.eps
     )
 
 
@@ -239,6 +258,8 @@ def main(args):
     lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    # lr_scheduler = torch.optim.lr_scheduler.StepLR(
+    #     optimizer, step_size=2, gamma=0.5, last_epoch=-1)
 
     for _ in range(args.restart_iter):
         lr_scheduler.step()
@@ -337,6 +358,8 @@ if __name__ == '__main__':
         help='offset for label values during fine tuning stage')
     parser.add_argument('--n-query-pool', type=int, default=0,
         help='pool for query samples')
+    parser.add_argument('--eps', type=float, default=0.0,
+        help='epsilon of label smoothing')
 
     
 
@@ -353,6 +376,8 @@ if __name__ == '__main__':
         help='evaluate model')
     parser.add_argument('--train-aug', action='store_true', default=False,
         help='perform data augmentation during training')
+    parser.add_argument('--support-aug', action='store_true', default=False,
+        help='perform data augmentation on support set')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
     parser.add_argument('--restart-iter', type=int, default=0,
@@ -368,6 +393,8 @@ if __name__ == '__main__':
     parser.add_argument('--load-optimizer', action='store_true', default=False,
         help='load opt from chkpt')
     parser.add_argument('--drop-lr-epoch', type=int, default=20,
+        help='')
+    parser.add_argument('--avg-pool', type=str, default='True',
         help='')
 
     args = parser.parse_args()

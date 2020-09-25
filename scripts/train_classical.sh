@@ -1,37 +1,44 @@
 #! /bin/bash 
-output='metal_r12_n64_s5_q320_euc'
-CUDA_VISIBLE_DEVICES=2,3 nohup python main_classical.py \
+output='filename'
+device='2,3'
+randomseed=521
+
+CUDA_VISIBLE_DEVICES="$device" nohup python main_classical.py \
+--random-seed $randomseed \
 --algorithm Protonet \
---model-type resnet12 \
+--model-type conv64 \
+--avg-pool True \
 --classifier-metric euclidean \
 --projection False \
 --classifier-type cvx-classifier \
 --lambd 0. \
---img-side-len 32 \
+--img-side-len 84 \
 --gamma 0. \
 --lr 0.1 \
 --momentum 0.9 \
 --eps 0. \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---dataset-path data/filelists/cifar \
---n-epochs 200 \
---drop-lr-epoch 80 \
+--dataset-path data/filelists/miniImagenet \
+--n-epochs 60 \
+--drop-lr-epoch 20 \
 --num-classes-train 64 \
 --n-way-train 64 \
 --n-shot-train 5 \
---fix-support 0 \
+--fix-support 5 \
 --n-query-train 0 \
 --batch-size-train 320 \
---n-iterations-val 2000 \
---n-iterations-train 250 \
---batch-size-val 1 \
+--n-iterations-val 1000 \
+--n-iterations-train 1000 \
+--batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
 --output-folder ${output} \
 --device cuda \
---device-number 2,3 \
+--device-number "$device" \
+--log-interval 500 \
+--support-aug \
 --train-aug > ${output}.out &
 tail -f ${output}.out
 
