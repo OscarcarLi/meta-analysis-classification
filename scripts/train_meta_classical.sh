@@ -1,30 +1,30 @@
 #! /bin/bash 
-output='fixS5_MI_r12_n64_s5_q5_qp16_bs1_euc_metaoptdataaug_drop20'
-device='2,3'
+output='metal_cifar_r12_n5_s5_q6_qp6_bs8_Ridge_drop20'
+device='0'
 randomseed=797
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --random-seed $randomseed \
---algorithm Protonet \
+--algorithm Ridge \
 --model-type resnet12 \
---avg-pool True \
+--avg-pool False \
 --classifier-metric euclidean \
 --projection False \
---img-side-len 84 \
+--img-side-len 32 \
 --lr 0.1 \
 --eps 0. \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---dataset-path data/filelists/miniImagenet \
+--dataset-path data/filelists/cifar \
 --n-epochs 60 \
 --drop-lr-epoch 20 \
 --num-classes-train 64 \
---batch-size-train 320 \
---n-way-train 64 \
+--batch-size-train 8 \
+--n-way-train 5 \
 --n-shot-train 5 \
---fix-support 5 \
---n-query-train 0 \
---n-query-pool 0 \
+--fix-support 0 \
+--n-query-train 6 \
+--n-query-pool 6 \
 --batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
@@ -34,6 +34,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --device cuda \
 --device-number "$device" \
 --log-interval 500 \
+--support-aug \
 --train-aug > ${output}.out &
 tail -f ${output}.out
 

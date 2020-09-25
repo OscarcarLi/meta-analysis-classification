@@ -14,7 +14,7 @@ import shutil
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge
 from algorithm_trainer.utils import optimizer_to_device
 from algorithm_trainer.algorithms import modified_sgd
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
@@ -213,6 +213,21 @@ def main(args):
             n_query=args.n_query_train,
             device='cuda')
         algorithm_val = SVM(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val,
+            device='cuda')
+    elif args.algorithm == 'Ridge':
+        algorithm_train = Ridge(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            n_way=args.n_way_train,
+            n_shot=args.n_shot_train,
+            n_query=args.n_query_train,
+            device='cuda')
+        algorithm_val = Ridge(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_val,
