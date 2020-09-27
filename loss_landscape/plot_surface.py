@@ -29,6 +29,8 @@ import mpi4pytorch as mpi
 import sys
 sys.path.append('..')
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
+from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer
+from algorithm_trainer.algorithms.algorithm import ProtoNet
 
 
 def name_surface_file(args, dir_file):
@@ -66,18 +68,18 @@ def setup_surface_file(args, surf_file, dir_file):
     f['dir_file'] = dir_file
 
     # Create the coordinates(resolutions) at which the function is evaluated
-    xcoordinates = np.linspace(args.xmin, args.xmax, num=args.xnum)
+    xcoordinates = np.linspace(args.xmin, args.xmax, num=int(args.xnum))
     f['xcoordinates'] = xcoordinates
 
     if args.y:
-        ycoordinates = np.linspace(args.ymin, args.ymax, num=args.ynum)
+        ycoordinates = np.linspace(args.ymin, args.ymax, num=int(args.ynum))
         f['ycoordinates'] = ycoordinates
     f.close()
 
     return surf_file
 
 
-def crunch(surf_file, net, w, s, d, dataloader, aux_loader, loss_key, acc_key, comm, rank, args):
+def crunch(surf_file, net, w, s, d, algorithm, adapter, dataloader, datamgr, loss_key, acc_key, comm, rank, args):
     """
         Calculate the loss values and accuracies of modified models in parallel
         using MPI reduce.
@@ -125,7 +127,7 @@ def crunch(surf_file, net, w, s, d, dataloader, aux_loader, loss_key, acc_key, c
 
         # Record the time to compute the loss value
         loss_start = time.time()
-        loss, acc = evaluation.eval_loss(net, criterion, dataloader, args.cuda, aux_loader)
+        loss, acc = evaluation.eval_loss(net, algorithm, adapter, dataloader, datamgr)
         loss_compute_time = time.time() - loss_start
 
         # Record the result in the local array
@@ -251,7 +253,7 @@ if __name__ == '__main__':
     # Load models and extract parameters
     #--------------------------------------------------------------------------
     # net = model_loader.load(args.dataset, args.model, args.model_file)
-    net = model_loader.load(args.model_file, lambd=0.)
+    net = model_loader.load(args.model_file)
     w = net_plotter.get_weights(net) # initial parameters
     s = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
     if args.ngpu > 1:
@@ -288,20 +290,42 @@ if __name__ == '__main__':
     # if rank == 0 and args.dataset == 'cifar10':
     #     torchvision.datasets.CIFAR10(root=args.dataset + '/data', train=True, download=True)
 
-        ####################################################
+    ####################################################
     #         DATASET AND DATALOADER CREATION          #
     ####################################################
 
     # There are 3 types of files: base, val, novel
     # Here we train on base and validate on val
-    image_size = 84
-    train_file = os.path.join('../data/filelists/miniImagenet', 'base.json')
-    train_datamgr = ClassicalDataManager(image_size, batch_size=128)
-    train_loader = train_datamgr.get_data_loader(train_file, aug=False)
-    aux_datamgr = ClassicalDataManager(image_size, batch_size=128)
-    aux_loader = aux_datamgr.get_data_loader(train_file, aug=False)
-    aux_loader = None
+    # image_size = 84
+    # train_file = os.path.join('../data/filelists/miniImagenet', 'base.json')
+    # train_datamgr = ClassicalDataManager(image_size, batch_size=128)
+    # train_loader = train_datamgr.get_data_loader(train_file, aug=False)
+    # aux_datamgr = ClassicalDataManager(image_size, batch_size=128)
+    # aux_loader = aux_datamgr.get_data_loader(train_file, aug=False)
+    # aux_loader = None
 
+
+    dataset = 'cifar'
+    image_size = 32
+    batch_size = 4
+    n_episodes = 500
+    n_way = 5
+    n_shot = 1
+    n_query = 15
+    train_file = os.path.join(f'../data/filelists/{dataset}', 'base.json')
+    test_file = os.path.join(f'../data/filelists/{dataset}', 'novel.json')
+    
+    train_datamgr = MetaDataManager(
+        image_size, batch_size=batch_size, n_episodes=n_episodes,
+        n_way=n_way, n_shot=n_shot, n_query=n_query)
+    train_loader = train_datamgr.get_data_loader(
+        dataset, train_file, support_aug=False, query_aug=False)
+    test_datamgr = MetaDataManager(
+        image_size, batch_size=batch_size, n_episodes=n_episodes,
+        n_way=n_way, n_shot=n_shot, n_query=n_query)
+    test_loader = test_datamgr.get_data_loader(
+        dataset, test_file, support_aug=False, query_aug=False)
+    
     mpi.barrier(comm)
 
     # trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
@@ -313,9 +337,31 @@ if __name__ == '__main__':
     # Start the computation
     #--------------------------------------------------------------------------
     criterion = nn.CrossEntropyLoss()
-    loss, acc = evaluation.eval_loss(net, criterion, train_loader, args.cuda, aux_loader)
-    print("original_loss", loss, "original_accu", acc)
-    crunch(surf_file, net, w, s, d, train_loader, aux_loader, 'train_loss', 'train_acc', comm, rank, args)
+    
+    
+    algorithm = ProtoNet(
+        model=net,
+        inner_loss_func=torch.nn.CrossEntropyLoss(),
+        n_way=n_way,
+        n_shot=n_shot,
+        n_query=n_query,
+        device='cuda')
+
+    adapter = Generic_adaptation_trainer(
+        algorithm=algorithm,
+        aux_objective=None,
+        outer_loss_func=torch.nn.CrossEntropyLoss(),
+        outer_optimizer=None, 
+        writer=None,
+        log_interval=1500000,
+        model_type='resnet12'
+    )
+    
+    loss, acc = evaluation.eval_loss(net, algorithm, adapter, train_loader, train_datamgr)
+    print("original_train_loss", loss, "original_train_accu", acc)
+    crunch(surf_file, net, w, s, d, algorithm, adapter, train_loader, train_datamgr, 'train_loss', 'train_acc', comm, rank, args)
+    crunch(surf_file, net, w, s, d, algorithm, adapter, test_loader, test_datamgr, 'test_loss', 'test_acc', comm, rank, args)
+
     #--------------------------------------------------------------------------
     # Plot figures
     #--------------------------------------------------------------------------

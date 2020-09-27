@@ -59,31 +59,31 @@ def hyperplane_variance(features):
     return np.mean(r_hv) 
 
 
-def eval_loss(net, criterion, loader, use_cuda=True, aux_loader=None):
-    """
-    Evaluate the loss value for a given 'net' on the dataset provided by the loader.
+# def eval_loss(net, criterion, loader, use_cuda=True, aux_loader=None):
+#     """
+#     Evaluate the loss value for a given 'net' on the dataset provided by the loader.
 
-    Args:
-        net: the neural net model
-        criterion: loss function
-        loader: dataloader
-        use_cuda: use cuda or not
-    Returns:
-        loss value and accuracy
-    """
-    correct = 0
-    total_loss = 0
-    total = 0 # number of samples
-    num_batch = len(loader)
+#     Args:
+#         net: the neural net model
+#         criterion: loss function
+#         loader: dataloader
+#         use_cuda: use cuda or not
+#     Returns:
+#         loss value and accuracy
+#     """
+#     correct = 0
+#     total_loss = 0
+#     total = 0 # number of samples
+#     num_batch = len(loader)
 
-    if use_cuda:
-        net.cuda()
-    net.eval()
+#     if use_cuda:
+#         net.cuda()
+#     net.eval()
 
-    with torch.no_grad():
-        features = get_features(net, loader)
-        rhv = hyperplane_variance(features)
-    return rhv, 100.
+#     with torch.no_grad():
+#         features = get_features(net, loader)
+#         rhv = hyperplane_variance(features)
+#     return rhv, 100.
 
     # loader = iter(loader)
     # aux_iterator = None
@@ -132,3 +132,22 @@ def eval_loss(net, criterion, loader, use_cuda=True, aux_loader=None):
     #             correct += predicted.cpu().eq(targets).sum().item()
 
     # return total_loss/total, 100.*correct/total
+
+
+def eval_loss(net, algorithm, adapter, loader, mgr):
+    """
+    Evaluate the loss value for a given 'net' on the dataset provided by the loader.
+
+    Args:
+        net: the neural net model
+        criterion: loss function
+        loader: dataloader
+        use_cuda: use cuda or not
+    Returns:
+        loss value and accuracy
+    """
+
+    net.cuda()
+    algorithm._model = net
+    results = adapter.run(loader, mgr)
+    return results['test_loss_after']['loss'], results['test_loss_after']['accu']

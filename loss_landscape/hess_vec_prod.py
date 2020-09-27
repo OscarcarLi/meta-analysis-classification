@@ -4,6 +4,11 @@ import numpy as np
 from torch import nn
 from torch.autograd import Variable
 from scipy.sparse.linalg import LinearOperator, eigsh
+from tqdm import tqdm
+import sys
+
+sys.path.append('..')
+from algorithm_trainer.algorithm_trainer import get_labels
 
 ################################################################################
 #                              Supporting Functions
@@ -46,7 +51,7 @@ def gradtensor_to_npvec(net, include_bn=False):
 ################################################################################
 #                  For computing Hessian-vector products
 ################################################################################
-def eval_hess_vec_prod(vec, params, net, criterion, dataloader, use_cuda=False):
+def eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, use_cuda=False):
     """
     Evaluate product of the Hessian of the loss function with a direction vector "vec".
     The product result is saved in the grad of net.
@@ -60,37 +65,83 @@ def eval_hess_vec_prod(vec, params, net, criterion, dataloader, use_cuda=False):
         use_cuda: use GPU.
     """
 
-    if use_cuda:
-        net.cuda()
-        vec = [v.cuda() for v in vec]
 
+    net.cuda()
+    vec = [v.cuda() for v in vec]
     net.eval()
     net.zero_grad() # clears grad for every parameter in the net
-
-    for batch_idx, (inputs, targets) in enumerate(dataloader):
-        inputs, targets = Variable(inputs), Variable(targets)
-        if use_cuda:
-            inputs, targets = inputs.cuda(), targets.cuda()
-
-        outputs = net(inputs)
-        loss = criterion(outputs, targets)
-        grad_f = torch.autograd.grad(loss, inputs=params, create_graph=True)
-
+    # meta-learning task configurations
+    n_way = datamgr.n_way
+    n_shot = datamgr.n_shot
+    n_query = datamgr.n_query
+    batch_sz = datamgr.batch_size
+    print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
+    if isinstance(algorithm._model, torch.nn.DataParallel):
+        obj = algorithm._model.module
+    else:
+        obj = algorithm._model
+    if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
+        scale = obj.fc.scale_factor
+    elif hasattr(obj, 'scale_factor'):
+        scale = obj.scale_factor
+    else:
+        scale = 10.    
+    print("Setting scale to ", scale)
+    # iterator
+    iterator = tqdm(enumerate(dataloader, start=1),
+            leave=False, file=sys.stdout, initial=1, position=0)
+        
+    for i, batch in iterator:
+        ############## covariates #############
+        x_batch, y_batch = batch
+        y_batch = y_batch
+        original_shape = x_batch.shape
+        assert len(original_shape) == 5
+        # (batch_sz*n_way, n_shot+n_query, channels , height , width)
+        x_batch = x_batch.reshape(batch_sz, n_way, *original_shape[-4:])
+        # (batch_sz, n_way, n_shot+n_query, channels , height , width)
+        shots_x = x_batch[:, :, :n_shot, :, :, :]
+        # (batch_sz, n_way, n_shot, channels , height , width)
+        query_x = x_batch[:, :, n_shot:, :, :, :]
+        # (batch_sz, n_way, n_query, channels , height , width)
+        shots_x = shots_x.reshape(batch_sz, -1, *original_shape[-3:])
+        # (batch_sz, n_way*n_shot, channels , height , width)
+        query_x = query_x.reshape(batch_sz, -1, *original_shape[-3:])
+        # (batch_sz, n_way*n_query, channels , height , width)
+        ############## labels #############
+        shots_y, query_y = get_labels(y_batch, n_way=n_way, 
+            n_shot=n_shot, n_query=n_query, batch_sz=batch_sz)
+        # sanity checks
+        assert shots_x.shape == (batch_sz, n_way*n_shot, *original_shape[-3:])
+        assert query_x.shape == (batch_sz, n_way*n_query, *original_shape[-3:])
+        assert shots_y.shape == (batch_sz, n_way*n_shot)
+        assert query_y.shape == (batch_sz, n_way*n_query)
+        # move labels and covariates to cuda
+        shots_x = shots_x.cuda()
+        query_x = query_x.cuda()
+        shots_y = shots_y.cuda()
+        query_y = query_y.cuda()
+        # forward pass on updated model
+        logits, measurements_trajectory = algorithm.inner_loop_adapt(
+            query=query_x, support=shots_x, 
+            support_labels=shots_y, scale=scale)
+        assert len(set(shots_y)) == len(set(query_y))
+        logits = scale * logits.reshape(-1, logits.size(-1))
+        query_y = query_y.reshape(-1)
+        assert logits.size(0) == query_y.size(0)
+        test_loss_after_adapt = criterion(logits, query_y)
+        grad_f = torch.autograd.grad(test_loss_after_adapt, inputs=params, create_graph=True, retain_graph=True)
         # Compute inner product of gradient with the direction vector
         prod = Variable(torch.zeros(1)).type(type(grad_f[0].data))
         for (g, v) in zip(grad_f, vec):
             prod = prod + (g * v).cpu().sum()
-
-        # Compute the Hessian-vector product, H*v
-        # prod.backward() computes dprod/dparams for every parameter in params and
-        # accumulate the gradients into the params.grad attributes
         prod.backward()
-
+        
 
 ################################################################################
 #                  For computing Eigenvalues of Hessian
 ################################################################################
-def min_max_hessian_eigs(net, dataloader, criterion, rank=0, use_cuda=False, verbose=False):
+def min_max_hessian_eigs(net, algorithm, dataloader, datamgr, criterion, rank=0, use_cuda=False, verbose=True):
     """
         Compute the largest and the smallest eigenvalues of the Hessian marix.
 
@@ -113,12 +164,13 @@ def min_max_hessian_eigs(net, dataloader, criterion, rank=0, use_cuda=False, ver
 
     def hess_vec_prod(vec):
         hess_vec_prod.count += 1  # simulates a static variable
-        vec = npvec_to_tensorlist(vec, params)
+        # vec = npvec_to_tensorlist(vec, params)
         start_time = time.time()
-        eval_hess_vec_prod(vec, params, net, criterion, dataloader, use_cuda)
+        # eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, use_cuda)
         prod_time = time.time() - start_time
         if verbose and rank == 0: print("   Iter: %d  time: %f" % (hess_vec_prod.count, prod_time))
-        return gradtensor_to_npvec(net)
+        # return gradtensor_to_npvec(net)
+        return vec
 
     hess_vec_prod.count = 0
     if verbose and rank == 0: print("Rank %d: computing max eigenvalue" % rank)
