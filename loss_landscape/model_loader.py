@@ -24,11 +24,13 @@ from algorithm_trainer.models import resnet_12
 #         net = cifar10.model_loader.load(model_name, model_file, data_parallel)
 #     return net
 
-def load(checkpoint, lambd=1.0):
 
-    model = resnet_12.resnet12(avg_pool=True, drop_rate=0.1, dropblock_size=5,
-            num_classes=64, classifier_type='avg-classifier')
 
+
+def load(checkpoint):
+    
+    model = resnet_12.resnet12(
+        avg_pool=False, drop_rate=0.1, dropblock_size=2, no_fc_layer=True, projection=False)
     print(f"loading from {checkpoint}")
     model_dict = model.state_dict()
     chkpt_state_dict = torch.load(checkpoint)
@@ -43,14 +45,8 @@ def load(checkpoint, lambd=1.0):
     chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
     model_dict.update(chkpt_state_dict)
     updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
-    print(f"Updated {len(updated_keys)} keys using chkpt")
-    print("Following keys updated :", "\n".join(sorted(updated_keys)))
     missed_keys = set(model_dict).difference(set(chkpt_state_dict))
     print(f"Missed {len(missed_keys)} keys")
-    print("Following keys missed :", "\n".join(sorted(missed_keys)))
     model.load_state_dict(model_dict)
-    model.fc.lambd = lambd
-    print(f"Setting lambda of classifier to {lambd}")
-    
+    model.eval()
     return model
-    

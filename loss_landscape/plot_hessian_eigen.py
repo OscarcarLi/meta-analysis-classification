@@ -23,9 +23,20 @@ import scheduler
 import projection as proj
 import hess_vec_prod
 from plot_surface import name_surface_file, setup_surface_file
+import evaluation
+import mpi4pytorch as mpi
+
+import sys
+sys.path.append('..')
+from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
+from algorithm_trainer.algorithm_trainer import Generic_adaptation_trainer
+from algorithm_trainer.algorithms.algorithm import ProtoNet
 
 
-def crunch_hessian_eigs(surf_file, net, w, s, d, dataloader, aux_loader, comm, rank, args):
+
+
+
+def crunch_hessian_eigs(surf_file, net, w, s, d, algorithm, dataloader, datamgr, comm, rank, args):
     """
         Calculate eigen values of the hessian matrix of a given model in parallel
         using mpi reduce. This is the synchronized version.
@@ -69,7 +80,7 @@ def crunch_hessian_eigs(surf_file, net, w, s, d, dataloader, aux_loader, comm, r
 
         # Compute the eign values of the hessian matrix
         compute_start = time.time()
-        maxeig, mineig, iter_count = hess_vec_prod.min_max_hessian_eigs(net, dataloader, \
+        maxeig, mineig, iter_count = hess_vec_prod.min_max_hessian_eigs(net, algorithm, dataloader, datamgr, \
                                         criterion, rank=rank, use_cuda=args.cuda, verbose=True)
         compute_time = time.time() - compute_start
 
@@ -187,7 +198,8 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     # Load models and extract parameters
     #--------------------------------------------------------------------------
-    net = model_loader.load(args.dataset, args.model, args.model_file)
+    # net = model_loader.load(args.dataset, args.model, args.model_file)
+    net = model_loader.load(args.model_file)
     w = net_plotter.get_weights(net) # initial parameters
     s = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
     if args.ngpu > 1:
@@ -224,15 +236,70 @@ if __name__ == '__main__':
 
     mpi4pytorch.barrier(comm)
 
-    trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
-                                args.batch_size, args.threads, args.raw_data,
-                                args.data_split, args.split_idx,
-                                args.trainloader, args.testloader)
+    # trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
+    #                             args.batch_size, args.threads, args.raw_data,
+    #                             args.data_split, args.split_idx,
+    #                             args.trainloader, args.testloader)
 
     #--------------------------------------------------------------------------
     # Start the computation
     #--------------------------------------------------------------------------
-    crunch_hessian_eigs(surf_file, net, w, s, d, trainloader, comm, rank, args)
+    dataset = 'cifar'
+    image_size = 32
+    batch_size = 4
+    n_episodes = 10
+    n_way = 5
+    n_shot = 1
+    n_query = 15
+    train_file = os.path.join(f'../data/filelists/{dataset}', 'base.json')
+    test_file = os.path.join(f'../data/filelists/{dataset}', 'novel.json')
+    
+    train_datamgr = MetaDataManager(
+        image_size, batch_size=batch_size, n_episodes=n_episodes,
+        n_way=n_way, n_shot=n_shot, n_query=n_query)
+    train_loader = train_datamgr.get_data_loader(
+        dataset, train_file, support_aug=False, query_aug=False)
+    test_datamgr = MetaDataManager(
+        image_size, batch_size=batch_size, n_episodes=n_episodes,
+        n_way=n_way, n_shot=n_shot, n_query=n_query)
+    test_loader = test_datamgr.get_data_loader(
+        dataset, test_file, support_aug=False, query_aug=False)
+    
+    mpi.barrier(comm)
+
+    # trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
+    #                             args.batch_size, args.threads, args.raw_data,
+    #                             args.data_split, args.split_idx,
+    #                             args.trainloader, args.testloader)
+
+    #--------------------------------------------------------------------------
+    # Start the computation
+    #--------------------------------------------------------------------------
+    criterion = nn.CrossEntropyLoss()
+    
+    algorithm = ProtoNet(
+        model=net,
+        inner_loss_func=torch.nn.CrossEntropyLoss(),
+        n_way=n_way,
+        n_shot=n_shot,
+        n_query=n_query,
+        device='cuda')
+
+    adapter = Generic_adaptation_trainer(
+        algorithm=algorithm,
+        aux_objective=None,
+        outer_loss_func=torch.nn.CrossEntropyLoss(),
+        outer_optimizer=None, 
+        writer=None,
+        log_interval=1500000,
+        model_type='resnet12'
+    )
+    
+    # loss, acc = evaluation.eval_loss(net, algorithm, adapter, train_loader, train_datamgr)
+    # print("original_train_loss", loss, "original_train_accu", acc)
+    
+    crunch_hessian_eigs(surf_file, net, w, s, d, algorithm, train_loader, train_datamgr, comm, rank, args)
+    # crunch_hessian_eigs(surf_file, net, w, s, d, trainloader, comm, rank, args)
     print ("Rank " + str(rank) + ' is done!')
 
     #--------------------------------------------------------------------------
