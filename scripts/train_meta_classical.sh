@@ -1,11 +1,9 @@
 #! /bin/bash 
-output='metal_cifar_r12_n5_s5_q6_qp6_bs8_Ridge_drop20'
+output='metal_cifar_r12_n5_s15_q6_qp6_bs8_SVM_drop20'
 device='0'
-randomseed=797
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
---random-seed $randomseed \
---algorithm Ridge \
+--algorithm SVM \
 --model-type resnet12 \
 --avg-pool False \
 --classifier-metric euclidean \
@@ -15,13 +13,13 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --eps 0. \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---dataset-path data/filelists/cifar \
+--dataset-path data/filelists/FC100 \
 --n-epochs 60 \
 --drop-lr-epoch 20 \
---num-classes-train 64 \
+--num-classes-train 60 \
 --batch-size-train 8 \
 --n-way-train 5 \
---n-shot-train 5 \
+--n-shot-train 15 \
 --fix-support 0 \
 --n-query-train 6 \
 --n-query-pool 6 \

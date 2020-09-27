@@ -218,6 +218,7 @@ def main(args):
             n_way=args.n_way_val,
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
+            max_iter=3,
             device='cuda')
     elif args.algorithm == 'Ridge':
         algorithm_train = Ridge(
