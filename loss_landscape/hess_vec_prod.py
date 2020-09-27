@@ -164,14 +164,13 @@ def min_max_hessian_eigs(net, algorithm, dataloader, datamgr, criterion, rank=0,
 
     def hess_vec_prod(vec):
         hess_vec_prod.count += 1  # simulates a static variable
-        # vec = npvec_to_tensorlist(vec, params)
+        vec = npvec_to_tensorlist(vec, params)
         start_time = time.time()
-        # eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, use_cuda)
+        eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, use_cuda)
         prod_time = time.time() - start_time
         if verbose and rank == 0: print("   Iter: %d  time: %f" % (hess_vec_prod.count, prod_time))
-        # return gradtensor_to_npvec(net)
-        return vec
-
+        return gradtensor_to_npvec(net)
+        
     hess_vec_prod.count = 0
     if verbose and rank == 0: print("Rank %d: computing max eigenvalue" % rank)
 
