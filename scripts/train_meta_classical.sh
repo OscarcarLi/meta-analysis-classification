@@ -1,43 +1,42 @@
 #! /bin/bash 
-output='metal_cifar_r12_n5_s5_q6_qp6_bs8_Ridge_drop20'
-device='0'
-randomseed=797
+output='fixS5_MI_wrn_n5_s5_q12_qp40_bs1_euc_drop20'
+device='2,3'
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
---random-seed $randomseed \
---algorithm Ridge \
---model-type resnet12 \
---avg-pool False \
+--algorithm Protonet \
+--model-type wide_resnet \
+--avg-pool "False" \
 --classifier-metric euclidean \
---projection False \
---img-side-len 32 \
+--projection "False" \
+--img-side-len 84 \
 --lr 0.1 \
 --eps 0. \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---dataset-path data/filelists/cifar \
+--dataset-path data/filelists/miniImagenet \
 --n-epochs 60 \
 --drop-lr-epoch 20 \
 --num-classes-train 64 \
---batch-size-train 8 \
+--batch-size-train 1 \
 --n-way-train 5 \
 --n-shot-train 5 \
---fix-support 0 \
---n-query-train 6 \
---n-query-pool 6 \
---batch-size-val 2 \
+--fix-support 5 \
+--n-query-train 12 \
+--n-query-pool 40 \
+--batch-size-val 1 \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
---n-iterations-val 1000 \
+--n-iterations-val 2000 \
 --output-folder ${output} \
 --device cuda \
 --device-number "$device" \
 --log-interval 500 \
---support-aug \
 --train-aug > ${output}.out &
 tail -f ${output}.out
 
+
+# --checkpoint train_dir_2/metal_MI_r12_n64_s5_q5_qp5_bs1_euc_metaoptdataaug_drop20/classical_resnet_024.pt \
 
 # --checkpoint train_dir_2/fixS1_cifar_r12_n5_s1_q15_qp50_bs8_euc_metaoptdataaug_sansgap_supportaug_drop20_run1/classical_resnet_020.pt \
 # --restart-iter 0 \

@@ -12,7 +12,7 @@ import re
 import shutil
 
 
-from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge
 from algorithm_trainer.utils import optimizer_to_device
@@ -99,6 +99,8 @@ def main(args):
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
                 classifier_type=None, no_fc_layer=True, projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
+    elif args.model_type == 'wide_resnet':
+        model = wide_resnet.wrn28_10(projection=(args.projection=="True"), no_fc_layer=True)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))

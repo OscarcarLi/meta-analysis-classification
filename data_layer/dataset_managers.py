@@ -39,7 +39,7 @@ class TransformLoader:
 
     def get_composed_transform(self, dataset, aug = False):
         
-        if dataset in ['cifar', 'fc100']:
+        if dataset in ['cifar', 'FC100']:
             mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
             std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
@@ -169,7 +169,7 @@ class MetaDataManager(DataManager):
             support_transform=support_transform, query_transform=query_transform, fix_support=self.fix_support)
         sampler = EpisodicBatchSampler(len(dataset), n_way=self.n_way, 
             n_episodes=self.n_episodes, n_tasks=self.batch_size)  
-        data_loader_params = dict(batch_sampler=sampler, num_workers=20, pin_memory=True)       
+        data_loader_params = dict(batch_sampler=sampler, num_workers=12, pin_memory=True)       
         data_loader = torch.utils.data.DataLoader(dataset, **data_loader_params)
         return data_loader
 
