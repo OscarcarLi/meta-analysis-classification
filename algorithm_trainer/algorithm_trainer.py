@@ -828,12 +828,15 @@ class Generic_adaptation_trainer(object):
         batch_sz = dataset_manager.batch_size
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query}, batch_sz: {batch_sz}")
 
+
         if isinstance(self._algorithm._model, torch.nn.DataParallel):
             obj = self._algorithm._model.module
         else:
             obj = self._algorithm._model
         if hasattr(obj, 'fc') and hasattr(obj.fc, 'scale_factor'):
-            scale = obj.fc.scale_factor
+            scale = torch.abs(obj.fc.scale_factor)
+        elif hasattr(obj, 'scale_factor'):
+            scale = torch.abs(obj.scale_factor)
         else:
             scale = 10.
     
@@ -892,18 +895,17 @@ class Generic_adaptation_trainer(object):
 
             
             # forward pass on updated model
-            logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                query=query_x, support=shots_x, 
-                support_labels=shots_y, scale=scale)
-            assert len(set(shots_y)) == len(set(query_y))
-            
+            with torch.no_grad():
+                logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                    query=query_x, support=shots_x, 
+                    support_labels=shots_y, scale=scale)
+                assert len(set(shots_y)) == len(set(query_y))
 
-            # scale = self._algorithm._model.module.fc.scale_factor
-            # reshape logits
-            logits = scale * logits.reshape(-1, logits.size(-1))
-            query_y = query_y.reshape(-1)
-            assert logits.size(0) == query_y.size(0)
-            analysis = (i % self._log_interval == 0)
+                # reshape logits
+                logits = scale * logits.reshape(-1, logits.size(-1))
+                query_y = query_y.reshape(-1)
+                assert logits.size(0) == query_y.size(0)
+                analysis = (i % self._log_interval == 0)
 
             # reinstate original model for the next task
             if self._aux_objective is not None:
