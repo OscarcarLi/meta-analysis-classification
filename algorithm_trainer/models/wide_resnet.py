@@ -142,3 +142,7 @@ class WideResNet(nn.Module):
 def wrn28_10(**kwargs):
     model = WideResNet(depth=28, widen_factor=10, stride=1, **kwargs)
     return model
+
+def wrn16_10(**kwargs):
+    model = WideResNet(depth=16, widen_factor=10, stride=1, **kwargs)
+    return model

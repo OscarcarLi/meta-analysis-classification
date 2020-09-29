@@ -99,8 +99,10 @@ def main(args):
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
                 classifier_type=None, no_fc_layer=True, projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
-    elif args.model_type == 'wide_resnet':
+    elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(projection=(args.projection=="True"), no_fc_layer=True)
+    elif args.model_type == 'wide_resnet16_10':
+        model = wide_resnet.wrn16_10(projection=(args.projection=="True"), no_fc_layer=True)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -272,7 +274,10 @@ def main(args):
     ####################################################
 
 
-    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
+    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.2 if e < 40 else 0.04 )
+    # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else 0.1
+
     lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(
