@@ -51,7 +51,7 @@ def gradtensor_to_npvec(net, include_bn=False):
 ################################################################################
 #                  For computing Hessian-vector products
 ################################################################################
-def eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, use_cuda=False):
+def eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criterion, include_bn=False, use_cuda=False):
     """
     Evaluate product of the Hessian of the loss function with a direction vector "vec".
     The product result is saved in the grad of net.
@@ -86,15 +86,20 @@ def eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criteri
         scale = obj.scale_factor
     else:
         scale = 10.    
+    
     print("Setting scale to ", scale)
     # iterator
     iterator = tqdm(enumerate(dataloader, start=1),
             leave=False, file=sys.stdout, initial=1, position=0)
-        
+    avg_loss = 0. 
+    n_batches = 0
+    print("iterator", len(dataloader))
     for i, batch in iterator:
         ############## covariates #############
         x_batch, y_batch = batch
-        y_batch = y_batch
+        # work around for the reduced dataset in plot_eigen
+        x_batch = x_batch[0]
+        y_batch = y_batch[0]
         original_shape = x_batch.shape
         assert len(original_shape) == 5
         # (batch_sz*n_way, n_shot+n_query, channels , height , width)
@@ -136,7 +141,18 @@ def eval_hess_vec_prod(vec, params, net, algorithm, dataloader, datamgr, criteri
         for (g, v) in zip(grad_f, vec):
             prod = prod + (g * v).cpu().sum()
         prod.backward()
-        
+        n_batches += 1
+        avg_loss += test_loss_after_adapt.item()
+
+    filter = lambda p: include_bn or len(p.data.size()) > 1
+    norm_Hv = 0.
+    for p in net.parameters():
+        if filter(p):
+            p.grad = p.grad/n_batches
+            norm_Hv += (p.grad * p.grad).sum().item()
+
+    print(f"avg_loss : {avg_loss / len(dataloader)}")
+    print(f"||Hv||_2 : {np.sqrt(norm_Hv)}")
 
 ################################################################################
 #                  For computing Eigenvalues of Hessian
