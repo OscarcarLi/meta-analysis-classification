@@ -102,8 +102,7 @@ def main(args):
             classifier_type=args.classifier_type, lambd=args.lambd, projection=(args.projection=="True"), 
             classifier_metric=args.classifier_metric)
     elif args.model_type == 'wide_resnet':
-        model = wide_resnet.wrn28_10(num_classes=args.num_classes_train, 
-            classifier_type=args.classifier_type)
+        model = wide_resnet.wrn28_10(projection=(args.projection=="True"), no_fc_layer=True)
     elif args.model_type == 'resnet':
         model = resnet_2.ResNet18(num_classes=args.num_classes_train,
             classifier_type=args.classifier_type)
@@ -444,7 +443,7 @@ if __name__ == '__main__':
         help='lambda of cvx combination')
     parser.add_argument('--classifier-metric', type=str, default='',
         help='')
-    parser.add_argument('--projection', type=str, default='',
+    parser.add_argument('--projection', type=str, default='False',
         help='')
     parser.add_argument('--avg-pool', type=str, default='True',
         help='')
