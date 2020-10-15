@@ -30,7 +30,7 @@ from algorithm_trainer.models import resnet_12
 def load(checkpoint):
     
     model = resnet_12.resnet12(
-        avg_pool=False, drop_rate=0.1, dropblock_size=2, no_fc_layer=True, projection=False)
+        avg_pool=True, drop_rate=0.1, dropblock_size=2, no_fc_layer=True, projection=False)
     print(f"loading from {checkpoint}")
     model_dict = model.state_dict()
     chkpt_state_dict = torch.load(checkpoint)

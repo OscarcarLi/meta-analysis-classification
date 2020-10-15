@@ -35,7 +35,6 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --train-aug > ${output}.out &
 tail -f ${output}.out
 
-
 # --checkpoint train_dir_2/metal_MI_r12_n64_s5_q5_qp5_bs1_euc_metaoptdataaug_drop20/classical_resnet_024.pt \
 
 # --checkpoint train_dir_2/fixS1_cifar_r12_n5_s1_q15_qp50_bs8_euc_metaoptdataaug_sansgap_supportaug_drop20_run1/classical_resnet_020.pt \

@@ -187,6 +187,7 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     try:
         args.xmin, args.xmax, args.xnum = [float(a) for a in args.x.split(':')]
+        args.xnum = int(args.xnum)
         args.ymin, args.ymax, args.ynum = (None, None, None)
         if args.y:
             args.ymin, args.ymax, args.ynum = [float(a) for a in args.y.split(':')]
@@ -246,10 +247,10 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     dataset = 'cifar'
     image_size = 32
-    batch_size = 4
-    n_episodes = 10
+    batch_size = 32
+    n_episodes = 15
     n_way = 5
-    n_shot = 1
+    n_shot = 5
     n_query = 15
     train_file = os.path.join(f'../data/filelists/{dataset}', 'base.json')
     test_file = os.path.join(f'../data/filelists/{dataset}', 'novel.json')
@@ -266,6 +267,40 @@ if __name__ == '__main__':
         dataset, test_file, support_aug=False, query_aug=False)
     
     mpi.barrier(comm)
+
+    # fix the episodes here
+
+    reduced_batch_x = []
+    reduced_batch_y = []
+    # print(len(train_loader))
+    for batch in iter(train_loader):
+        # print(batch[0].shape, batch[1].shape)
+        reduced_batch_x.append(batch[0])
+        reduced_batch_y.append(batch[1])
+
+    reduced_batch_x = torch.stack(reduced_batch_x, dim=0)
+    reduced_batch_y = torch.stack(reduced_batch_y, dim=0)
+
+    class MyDataset(): 
+        def __init__(self, x, y):
+            self.x = x
+            self.y = y
+            assert(len(self.x) == len(self.y))
+
+        def __getitem__(self, i):   
+            return self.x[i], self.y[i]
+
+        def __len__(self):
+            return len(self.x)
+
+    dataset = MyDataset(reduced_batch_x, reduced_batch_y)
+    train_loader=torch.utils.data.DataLoader(
+                 dataset, shuffle=False, batch_size=1) 
+
+    print(len(dataset), len(train_loader))
+    #for batch in iter(train_loader):
+    #    print(batch[0].shape, batch[1].shape)
+
 
     # trainloader, testloader = dataloader.load_dataset(args.dataset, args.datapath,
     #                             args.batch_size, args.threads, args.raw_data,
@@ -295,8 +330,8 @@ if __name__ == '__main__':
         model_type='resnet12'
     )
     
-    # loss, acc = evaluation.eval_loss(net, algorithm, adapter, train_loader, train_datamgr)
-    # print("original_train_loss", loss, "original_train_accu", acc)
+    #loss, acc = evaluation.eval_loss(net, algorithm, adapter, train_loader, train_datamgr)
+    #print("original_train_loss", loss, "original_train_accu", acc)
     
     crunch_hessian_eigs(surf_file, net, w, s, d, algorithm, train_loader, train_datamgr, comm, rank, args)
     # crunch_hessian_eigs(surf_file, net, w, s, d, trainloader, comm, rank, args)
