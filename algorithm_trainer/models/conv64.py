@@ -175,7 +175,7 @@ class Conv64(nn.Module):
         self.add_bias = add_bias
         # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         # self.scale_factor = 1.
-        self.scale_factor = nn.Parameter(torch.FloatTensor(1).fill_(1.0), requires_grad=True)
+        self.scale_factor = nn.Parameter(torch.FloatTensor(1).fill_(10.0), requires_grad=True)
         
 
     def forward(self, x, features_only=True):
