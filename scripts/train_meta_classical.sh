@@ -1,11 +1,11 @@
 #! /bin/bash
-output='metal_conv64_n15_s5_q15_qp15_bs10_FOMAML_drop20_rs10725_nosupportaug_noqueryaug'
-device='0'
+output='metal_conv64_n15_s5_q15_qp15_bs2_Reptile_drop20_rs10725_nosupportaug_noqueryaug'
+device='3'
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --random-seed 10725 \
 --algorithm InitBasedAlgorithm \
---init-meta-algorithm FOMAML \
+--init-meta-algorithm Reptile \
 --num-updates-inner-train 8 \
 --num-updates-inner-val 50 \
 --alpha 0.003 \
@@ -23,7 +23,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main_meta_classical.py \
 --n-epochs 100 \
 --drop-lr-epoch 20 \
 --num-classes-train 5 \
---batch-size-train 10 \
+--batch-size-train 2 \
 --n-way-train 5 \
 --n-shot-train 15 \
 --fix-support 0 \

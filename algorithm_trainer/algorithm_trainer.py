@@ -812,7 +812,7 @@ class Generic_adaptation_trainer(object):
         return aux_loss_before_adaptation, aux_loss.item()
         
 
-    def run(self, dataset_iterator, dataset_manager, meta_val=False):
+    def run(self, dataset_iterator, dataset_manager, n_query=None, meta_val=False):
 
         val_task_acc = []
         self._algorithm._model.eval()
@@ -1245,15 +1245,14 @@ class MetaInit_algorithm_trainer(object):
         for i, mt_batch in mt_iterator:
 
             # set zero grad
-            if is_training:
-                self._optimizer.zero_grad()
+            self._optimizer.zero_grad()
             
             # global iterator count
             self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
 
             # randperm
-            if mgr_n_query > n_query:
+            if mgr_n_query > n_query and is_training:
                 rp = np.random.permutation(mgr_n_query * n_way)[:n_query * n_way]
             else:
                 rp = None 
@@ -1330,6 +1329,23 @@ class MetaInit_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._algorithm._model.state_dict(),
                            'optimizer': self._optimizer}, f)
+
+
+        results = {
+            'train_loss_trajectory': {
+                'loss': np.mean(aggregate['loss']), 
+                'accu': np.mean(aggregate['accu']),
+            },
+            'test_loss_after': {
+                'loss': np.mean(aggregate['mt_outer_loss']),
+                'accu': np.mean(aggregate['mt_outer_accu']),
+            }
+        }
+        mean, i95 = (np.mean(aggregate['mt_outer_accu']), 
+            1.96 * np.std(aggregate['mt_outer_accu']) / np.sqrt(len(aggregate['mt_outer_accu'])))
+        results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
+    
+        return results
 
 
 

@@ -325,7 +325,7 @@ def main(args):
 
         # validation
         print("Validation")
-        results = val_trainer.run(mt_val_loader, mt_val_datamgr)
+        results = val_trainer.run(mt_val_loader, mt_val_datamgr, n_query=args.n_query_train, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
@@ -333,7 +333,7 @@ def main(args):
         writer.add_scalar(
             "validation_loss", results['test_loss_after']['loss'], iter_start + 1)
         print("Test")
-        results = val_trainer.run(mt_test_loader, mt_test_datamgr)
+        results = val_trainer.run(mt_test_loader, mt_test_datamgr, n_query=args.n_query_train, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
