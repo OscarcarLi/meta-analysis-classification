@@ -3,6 +3,8 @@ import warnings
 import time
 import numpy as np
 import itertools
+from copy import deepcopy
+from itertools import chain
 
 # torch
 import torch
@@ -36,6 +38,230 @@ class Algorithm(object):
 
     def predict_without_adapt(self, train_task, batch, param_dict=None):
         raise NotImplementedError()
+
+
+
+DEFAULT_MEMO = dict()
+
+
+def copy_and_replace(original, replace=None, do_not_copy=None):
+    """
+    A convenience function for creating modified copies out-of-place with deepcopy
+    :param original: object to be copied
+    :param replace: a dictionary {old object -> new object}, replace all occurences of old object with new object
+    :param do_not_copy: a sequence of objects that will not be copied (but may be replaced)
+    :return: a copy of obj with replacements
+    """
+    replace, do_not_copy = replace or {}, do_not_copy or {}
+    memo = dict(DEFAULT_MEMO)
+    for item in do_not_copy:
+        memo[id(item)] = item
+    for item, replacement in replace.items():
+        memo[id(item)] = replacement
+    return deepcopy(original, memo)
+
+
+
+
+class InitBasedAlgorithm(Algorithm):
+
+    def __init__(self, model, loss_func, device, 
+            n_way, n_shot, n_query, alpha, num_updates, method, inner_loop_grad_clip):
+        
+        self._model = model
+        self._device = device
+        self._loss_func = loss_func
+        self._n_way = n_way
+        self._n_shot = n_shot
+        self._n_query = n_query
+        self._alpha = alpha # inner loop lr
+        self._num_updates = num_updates
+        self._inner_loop_grad_clip = inner_loop_grad_clip
+        self._method = method
+        self._first_order = (self._method == 'FOMAML')
+        print("Init based Algorithm: ", self._method)
+        self.to(self._device)
+
+        
+
+    def get_logits(self, model, X):
+        # compute loss on support set
+        orig_X_shape = X.shape
+        logits = model(
+            X.reshape(-1, *orig_X_shape[2:]), features_only=False).reshape(*orig_X_shape[:2], -1)        
+        return logits
+
+
+    def compute_gradient_wrt_model(self, X, y, model, create_graph):
+        """Compute gradient of self._loss_func(X, y; model),
+        based on support, support_labels set but with respect to parameters in model
+        """
+        
+        # compute logits wrt param_dict if param_dict is not None
+        logits = self.get_logits(model=model, X=X)
+        logits = logits.reshape(-1, logits.size(-1))
+        y = y.reshape(-1)
+        loss = self._loss_func(logits, y)
+        # print("loss", loss)
+        # for n, p in self._model.named_parameters():
+        #     print(n, torch.norm(p))
+        accu = accuracy(logits, y)
+        grad_list = torch.autograd.grad(loss, model.parameters(),
+                                    create_graph=create_graph, allow_unused=False, only_inputs=True)
+        # allow_unused If False, specifying inputs that were not used when computing outputs
+        # (and therefore their grad is always zero) is an error. Defaults to False.
+        return loss, accu, grad_list
+
+
+    def get_updated_model(self, model, grad_list):
+        """ model_param = model_param - alpha * grad_list
+        """
+        updates = []
+        for (name, param), grad in zip(model.named_parameters(), grad_list):
+            # grad will be torch.Tensor
+            assert grad is not None, f"Grad is None for {name}"
+            if self._inner_loop_grad_clip > 0:
+                grad = grad.clamp(min=-self._inner_loop_grad_clip,
+                    max=self._inner_loop_grad_clip)
+            update = param - self._alpha * grad
+            updates.append(update)
+        updates = dict(zip(model.parameters(), updates))
+        do_not_copy = [tensor for tensor in chain(model.parameters(), model.buffers())
+                if tensor not in updates]
+        # print("do_not_copy", do_not_copy)
+        return copy_and_replace(model, updates, do_not_copy=do_not_copy)
+                
+
+    # def get_cloned_params(self):
+    #     """ get a dictionary of cloned model params
+    #     """
+    #     original_params = []
+    #     for param in self._model.parameters():
+    #         if param.grad is None:
+    #             param.grad = torch.zeros_like(param)
+    #         original_params.append(param.clone().detach())
+    #         original_params[-1].requires_grad_(True)
+    #         original_params[-1].grad = param.grad
+    #     return original_params
+
+
+    def get_param_diff(self, params_1, params_2):
+        """ returns params_1 - params_2
+        """
+        diff = []
+        for param_1, param_2 in zip(params_1, params_2):
+            diff.append(param_1 - param_2)
+        return diff
+
+
+    def populate_grad(self, grad_list):
+        """Take values in grad list and populate param.grad with it
+        for param in model parameters.
+        """
+        for param, calculated_grad in zip(self._model.parameters(), grad_list):
+            if param.grad is None:
+                param.grad = torch.zeros_like(param)  
+            param.grad += calculated_grad.detach()
+        
+
+
+    def inner_loop_adapt(self, support, support_labels, query, query_labels):
+
+        
+        # adapt means doing the complete inner loop update
+        measurements_trajectory = defaultdict(list)
+        # copy every tenso's data in the original dictionary
+        updated_model = self._model
+        # self._model = self.get_cloned_params()
+        # maintain model parameters as a dictionary. we will receive gradients wrt to these parameters only
+        # adapted_param_dict = OrderedDict(self._model.named_parameters())
+         
+        
+        assert self._num_updates > 0
+        for i in range(self._num_updates):
+            support_loss, support_accu, grad_list = self.compute_gradient_wrt_model(
+                X=support, y=support_labels, model=updated_model,
+                create_graph=not self._first_order)
+            updated_model = self.get_updated_model(model=updated_model, grad_list=grad_list)
+            
+
+        # with torch.no_grad(): # compute the support loss after the last adaptation 
+        #     support_logits = self.set_params_and_get_logits(param_dict=adapted_param_dict, X=support) 
+        #     support_loss = self._loss_func(support_logits, support_labels)
+        #     measurements_trajectory['loss'].append(loss.item())
+        #     measurements_trajectory['accu'].append(accuracy(support_logits, support_labels))
+
+
+        # Now compute loss on query set and from that the outer gradient
+        if self._method == 'MAML':
+            query_loss, query_accu, outer_grad_list = self.compute_gradient_wrt_model(
+                X=query, y=query_labels, model=self._model,
+                create_graph=False)
+        elif self._method == 'FOMAML':
+            query_loss, query_accu, outer_grad_list = self.compute_gradient_wrt_model(
+                X=query, y=query_labels, model=updated_model,
+                create_graph=False)
+        elif self._method == 'Reptile': 
+            query_loss, query_accu, grad_list = self.compute_gradient_wrt_model(
+                X=query, y=query_labels, model=updated_model,
+                create_graph=False)
+            updated_model = self.get_updated_model(model=updated_model, grad_list=grad_list)
+            outer_grad_list = self.get_param_diff(self._model.parameters(), updated_model.parameters())
+        else:
+            raise ValueError("Meta-alg not implemented.")
+            
+        # load back the original parameters
+        # original = dict(zip(self._model.parameters(), original_params))
+        # do_not_copy = [tensor for tensor in chain(self._model.parameters(), self._model.buffers())
+        #         if tensor not in original]
+        # self._model = copy_and_replace(self._model, original, do_not_copy=do_not_copy)
+        # populate model.grad with outer_grad_list
+        self.populate_grad(outer_grad_list)
+        
+        # metrics
+        measurements_trajectory['loss'].append(support_loss.item())
+        measurements_trajectory['accu'].append(support_accu * 100.)
+        measurements_trajectory['mt_outer_loss'].append(query_loss.item())
+        measurements_trajectory['mt_outer_accu'].append(query_accu * 100.)
+        # print(measurements_trajectory)
+        return measurements_trajectory
+
+
+    # def get_cloned_param_dict(model):
+    #     """ get a dictionary of cloned model params
+    #     """
+    #     param_dict = OrderedDict(model.named_parameters())
+    #     for name, param in param_dict.items():
+    #         param_dict[name] = param.clone() 
+    #     return param_dict  
+
+
+    # def update_grad_avg(grad_list_avg, grad_list):
+    #     with torch.no_grad():
+    #         if grad_list_avg is None:
+    #             grad_list_avg = []
+    #             for i, grad in enumerate(grad_list):
+    #                 grad_list_avg.append(grad / self._num_updates)
+    #         else:
+    #             for i, grad in enumerate(grad_list):
+    #                 assert grad.shape == grad_list_avg[i].shape
+    #                 grad_list_avg[i] = grad_list_avg[i] + (grad / self._num_updates)
+    #     return grad_list_avg
+
+
+    def to(self, device, **kwargs):
+        self._device = device
+        self._model.to(device, **kwargs)
+
+
+    def state_dict(self):
+        # for model saving and reloading
+        return {'model': self._model.state_dict()}
+
+
+
+
+
 
 
 class LR(Algorithm):

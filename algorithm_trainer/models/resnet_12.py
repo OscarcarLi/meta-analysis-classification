@@ -252,7 +252,7 @@ class BasicBlock(nn.Module):
 class ResNet(nn.Module):
 
     def __init__(self, block, keep_prob=1.0, avg_pool=False, drop_rate=0.0, dropblock_size=5,
-            num_classes=200, classifier_type='distance-classifier', no_fc_layer=False, add_bias=False,
+            num_classes=200, classifier_type='distance-classifier', add_bias=False,
             projection=True, classifier_metric='cosine', lambd=0.):
 
         self.inplanes = 3
@@ -276,8 +276,9 @@ class ResNet(nn.Module):
         self.final_feat_dim = 640
         self.classifier_type  = classifier_type
         self.num_classes = num_classes
-       
-        if no_fc_layer is True:
+        self.no_fc_layer = (classifier_type == "no-classifier")
+        
+        if self.no_fc_layer is True:
             self.fc = None
         elif classifier_type == 'linear':
             self.fc = nn.Linear(self.final_feat_dim, num_classes)
@@ -290,7 +291,6 @@ class ResNet(nn.Module):
         else:
             raise ValueError("classifier type not found")
 
-        self.no_fc_layer = no_fc_layer
         self.add_bias = add_bias
         self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         

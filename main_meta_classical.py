@@ -13,8 +13,8 @@ import shutil
 
 
 from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet
-from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer
-from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge
+from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer, MetaInit_algorithm_trainer
+from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge, InitBasedAlgorithm
 from algorithm_trainer.utils import optimizer_to_device
 from algorithm_trainer.algorithms import modified_sgd
 from data_layer.dataset_managers import ClassicalDataManager, MetaDataManager
@@ -84,10 +84,7 @@ def main(args):
     #             MODEL/BACKBONE CREATION              #
     ####################################################
 
-    if args.model_type == 'resnet':
-        model = resnet_2.ResNet18(num_classes=args.num_classes_train, 
-            classifier_type=None, no_fc_layer=True)
-    elif args.model_type == 'resnet12':
+    if args.model_type == 'resnet12':
         if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
             model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
@@ -98,11 +95,13 @@ def main(args):
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
-                classifier_type=None, no_fc_layer=True, projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
+            classifier_type=args.classifier_type, projection=(args.projection=="True"))
     elif args.model_type == 'wide_resnet28_10':
-        model = wide_resnet.wrn28_10(projection=(args.projection=="True"), no_fc_layer=True)
+        model = wide_resnet.wrn28_10(
+            projection=(args.projection=="True"), classifier_type=args.classifier_type)
     elif args.model_type == 'wide_resnet16_10':
-        model = wide_resnet.wrn16_10(projection=(args.projection=="True"), no_fc_layer=True)
+        model = wide_resnet.wrn16_10(
+            projection=(args.projection=="True"), classifier_type=args.classifier_type)
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -121,8 +120,7 @@ def main(args):
         {'params': model.parameters(), 'lr': args.lr,
          'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
     ])
-    print("Total n_epochs: ", args.n_epochs)     
-
+    print("Total n_epochs: ", args.n_epochs)   
 
     # load from checkpoint
     if args.checkpoint != '':
@@ -178,23 +176,33 @@ def main(args):
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
             device='cuda')
-    elif args.algorithm == 'Protonet':
-        algorithm_train = ProtoNet(
+    elif args.algorithm == 'InitBasedAlgorithm':
+        print("Train Algorithm")
+        algorithm_train = InitBasedAlgorithm(
             model=model,
-            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_train,
             n_shot=args.n_shot_train,
             n_query=args.n_query_train,
+            method=args.init_meta_algorithm,
+            alpha=args.alpha,
+            inner_loop_grad_clip=args.grad_clip_inner,
+            num_updates=args.num_updates_inner_train,
             device='cuda')
-        algorithm_val = ProtoNet(
+        print("Val/Test Algorithm")
+        algorithm_val = InitBasedAlgorithm(
             model=model,
-            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_val,
             n_shot=args.n_shot_val,
             n_query=args.n_query_val,
+            method=args.init_meta_algorithm,
+            alpha=args.alpha,
+            inner_loop_grad_clip=args.grad_clip_inner,
+            num_updates=args.num_updates_inner_val,
             device='cuda')
-    elif args.algorithm == 'Protomax':
-        algorithm_train = Protomax(
+    elif args.algorithm == 'Protonet':
+        algorithm_train = ProtoNet(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             n_way=args.n_way_train,
@@ -243,32 +251,52 @@ def main(args):
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
 
-    trainer = MetaClassical_algorithm_trainer(
-        model=model,
-        algorithm=algorithm_train,
-        optimizer=optimizer,
-        writer=writer,
-        log_interval=args.log_interval, 
-        save_folder=save_folder, 
-        grad_clip=args.grad_clip,
-        loss_func=torch.nn.CrossEntropyLoss(),
-        eps=args.eps
-    )
+
+    if args.algorithm != 'InitBasedAlgorithm':
+        trainer = MetaClassical_algorithm_trainer(
+            model=model,
+            algorithm=algorithm_train,
+            optimizer=optimizer,
+            writer=writer,
+            log_interval=args.log_interval, 
+            save_folder=save_folder, 
+            grad_clip=args.grad_clip,
+            loss_func=torch.nn.CrossEntropyLoss(),
+            eps=args.eps)
+    else:
+        print("Alg Trainer is MetaInit_algorithm_trainer")
+        trainer = MetaInit_algorithm_trainer(
+            algorithm=algorithm_train,
+            optimizer=optimizer,
+            writer=writer,
+            log_interval=args.log_interval, 
+            save_folder=save_folder, 
+            grad_clip=args.grad_clip)
 
 
     ####################################################
     #                  META VALIDATOR                  #
     ####################################################
 
-    val_trainer = Generic_adaptation_trainer(
-        algorithm=algorithm_val,
-        aux_objective=None,
-        outer_loss_func=torch.nn.CrossEntropyLoss(),
-        outer_optimizer=None, 
-        writer=writer,
-        log_interval=args.log_interval,
-        model_type=args.model_type
-    )
+    if args.algorithm != 'InitBasedAlgorithm':
+        val_trainer = Generic_adaptation_trainer(
+            algorithm=algorithm_val,
+            aux_objective=None,
+            outer_loss_func=torch.nn.CrossEntropyLoss(),
+            outer_optimizer=None, 
+            writer=writer,
+            log_interval=args.log_interval,
+            model_type=args.model_type
+        )
+    else:
+        val_trainer = MetaInit_algorithm_trainer(
+            algorithm=algorithm_train,
+            optimizer=optimizer,
+            writer=writer,
+            log_interval=args.log_interval, 
+            save_folder=save_folder, 
+            grad_clip=args.grad_clip)
+
 
     ####################################################
     #                  TRAINER LOOP                    #
@@ -334,7 +362,7 @@ if __name__ == '__main__':
     # Model
     parser.add_argument('--model-type', type=str, default='gatedconv',
         help='type of the model')
-    parser.add_argument('--classifier-type', type=str, default='linear',
+    parser.add_argument('--classifier-type', type=str, default='no-classifier',
         help='classifier type [distance based, linear, GDA]')
     parser.add_argument('--loss-names', type=str, nargs='+', default='cross_ent',
         help='names of various loss functions that are part fo overall objective')
@@ -383,7 +411,16 @@ if __name__ == '__main__':
         help='pool for query samples')
     parser.add_argument('--eps', type=float, default=0.0,
         help='epsilon of label smoothing')
-
+    parser.add_argument('--alpha', type=float, default=0.0,
+        help='inner learning rate for init based methods')
+    parser.add_argument('--init-meta-algorithm', type=str, default='MAML',
+        help='MAML/Reptile/FOMAML')
+    parser.add_argument('--grad-clip-inner', type=float, default=0.0,
+        help='gradient clip value in inner loop')
+    parser.add_argument('--num-updates-inner-train', type=int, default=1,
+        help='number of updates in inner loop')
+    parser.add_argument('--num-updates-inner-val', type=int, default=1,
+        help='number of updates in inner loop val')
     
 
     # Miscellaneous
@@ -419,6 +456,7 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--avg-pool', type=str, default='True',
         help='')
+    parser.add_argument('--first-order', action='store_true', default=False)
 
     args = parser.parse_args()
 

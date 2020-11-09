@@ -131,7 +131,7 @@ class Convnet(nn.Module):
 
 
 class Conv64(nn.Module):
-    def __init__(self, num_classes, classifier_type='avg-linear', no_fc_layer=False, x_dim=3, h_dim=64, z_dim=64, 
+    def __init__(self, num_classes, classifier_type='avg-linear', x_dim=3, h_dim=64, z_dim=64, 
         retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.):
         super(Conv64, self).__init__()
         
@@ -159,13 +159,18 @@ class Conv64(nn.Module):
         # classifier creation
         self.projection = projection
         print("Unit norm projection is ", self.projection)
+        print("Avg pool is always False for Conv64")
         self.final_feat_dim = 1600
         self.num_classes = num_classes
-        self.no_fc_layer = no_fc_layer
+        self.no_fc_layer = (classifier_type == "no-classifier")
         self.classifier_type = classifier_type
 
         if self.no_fc_layer is True:
             self.fc = None
+            self.scale_factor = nn.Parameter(torch.FloatTensor(1).fill_(10.0), requires_grad=True)
+        elif self.classifier_type == 'linear':
+            self.fc = nn.Linear(self.final_feat_dim, num_classes)
+            self.fc.bias.data.fill_(0)
         elif self.classifier_type == 'cvx-classifier':
             self.fc = CvxClasifier(self.final_feat_dim, num_classes, 
             metric=classifier_metric, lambd_start=lambd, lambd_end=lambd, projection=self.projection)
@@ -175,7 +180,6 @@ class Conv64(nn.Module):
         self.add_bias = add_bias
         # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         # self.scale_factor = 1.
-        self.scale_factor = nn.Parameter(torch.FloatTensor(1).fill_(10.0), requires_grad=True)
         
 
     def forward(self, x, features_only=True):
