@@ -1222,10 +1222,12 @@ class MetaInit_algorithm_trainer(object):
 
     def run(self, mt_loader, mt_manager, n_query, epoch=None, is_training=True, classical_loader=None):
 
-        if is_training:
-            self._algorithm._model.train()
-        else:
-            self._algorithm._model.eval()
+
+        # Always using transductive setting
+        # if is_training:
+        #     self._algorithm._model.train()
+        # else:
+        #     self._algorithm._model.eval()
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
@@ -1245,7 +1247,8 @@ class MetaInit_algorithm_trainer(object):
         for i, mt_batch in mt_iterator:
 
             # set zero grad
-            self._optimizer.zero_grad()
+            if is_training:
+                self._optimizer.zero_grad()
             
             # global iterator count
             self._global_iteration += 1
@@ -1300,7 +1303,8 @@ class MetaInit_algorithm_trainer(object):
                     query=query_x[task_id:task_id+1], 
                     query_labels=query_y[task_id:task_id+1], 
                     support=shots_x[task_id:task_id+1],  
-                    support_labels=shots_y[task_id:task_id+1])
+                    support_labels=shots_y[task_id:task_id+1],
+                    reset_stats=not is_training)
 
                 # metrics accumulation
                 for k in measurements_trajectory:
@@ -1311,7 +1315,8 @@ class MetaInit_algorithm_trainer(object):
                 for param in self._algorithm._model.parameters():
                     param.grad /= mt_batch_sz
                 if self._grad_clip > 0.:
-                    clip_grad_norm_(self._model.parameters(), self._grad_clip)
+                    clip_grad_norm_(self._algorithm._model.parameters(), 
+                        max_norm=self._grad_clip, norm_type='inf')
                 self._optimizer.step()
 
             # logging

@@ -12,7 +12,7 @@ import re
 import shutil
 
 
-from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet, conv48
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer, MetaInit_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge, InitBasedAlgorithm
 from algorithm_trainer.utils import optimizer_to_device
@@ -57,14 +57,16 @@ def main(args):
 
     # There are 3 tyoes of files: base, val, novel
     # Here we train on base and validate on val
+    print("--"*15, "TRAIN", "--"*15)
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base.json')
     mt_datamgr = MetaDataManager(
-        image_size, batch_size=args.batch_size_train, n_episodes=1000,
+        image_size, batch_size=args.batch_size_train, n_episodes=args.n_iters_per_epoch,
         n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=max(args.n_query_train, args.n_query_pool), fix_support=args.fix_support)
     mt_loader = mt_datamgr.get_data_loader(
         args.dataset_path.split('/')[-1], train_file, support_aug=args.support_aug, query_aug=args.train_aug)
 
+    print("--"*15, "VAL", "--"*15)
     val_file = os.path.join(args.dataset_path, 'val.json')
     mt_val_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
@@ -72,6 +74,7 @@ def main(args):
     mt_val_loader = mt_val_datamgr.get_data_loader(
         args.dataset_path.split('/')[-1], val_file, support_aug=False, query_aug=False)
     
+    print("--"*15, "TEST", "--"*15)
     test_file = os.path.join(args.dataset_path, 'novel.json')
     mt_test_datamgr = MetaDataManager(
         image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
@@ -96,6 +99,9 @@ def main(args):
     elif args.model_type == 'conv64':
         model = conv64.Conv64(num_classes=args.num_classes_train, 
             classifier_type=args.classifier_type, projection=(args.projection=="True"))
+    elif args.model_type == 'conv48':
+        model = conv48.Conv48(num_classes=args.num_classes_train, 
+            classifier_type=args.classifier_type, projection=(args.projection=="True"))
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
             projection=(args.projection=="True"), classifier_type=args.classifier_type)
@@ -113,13 +119,13 @@ def main(args):
     #                OPTIMIZER CREATION                #
     ####################################################
 
-    # optimizer = torch.optim.Adam([
-    #     {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
-    # ])
-    optimizer = modified_sgd.SGD([
-        {'params': model.parameters(), 'lr': args.lr,
-         'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
+    optimizer = torch.optim.Adam([
+        {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
     ])
+    # optimizer = modified_sgd.SGD([
+    #     {'params': model.parameters(), 'lr': args.lr,
+    #      'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
+    # ])
     print("Total n_epochs: ", args.n_epochs)   
 
     # load from checkpoint
@@ -188,6 +194,7 @@ def main(args):
             alpha=args.alpha,
             inner_loop_grad_clip=args.grad_clip_inner,
             num_updates=args.num_updates_inner_train,
+            inner_update_method=args.inner_update_method,
             device='cuda')
         print("Val/Test Algorithm")
         algorithm_val = InitBasedAlgorithm(
@@ -200,6 +207,7 @@ def main(args):
             alpha=args.alpha,
             inner_loop_grad_clip=args.grad_clip_inner,
             num_updates=args.num_updates_inner_val,
+            inner_update_method=args.inner_update_method,
             device='cuda')
     elif args.algorithm == 'Protonet':
         algorithm_train = ProtoNet(
@@ -290,12 +298,12 @@ def main(args):
         )
     else:
         val_trainer = MetaInit_algorithm_trainer(
-            algorithm=algorithm_train,
-            optimizer=optimizer,
+            algorithm=algorithm_val,
+            optimizer=None,
             writer=writer,
             log_interval=args.log_interval, 
             save_folder=save_folder, 
-            grad_clip=args.grad_clip)
+            grad_clip=0.)
 
 
     ####################################################
@@ -304,11 +312,14 @@ def main(args):
 
 
     # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.2 if e < 40 else 0.04 )
+    # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.2 if e < 40 else 0.04 )
     # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else 0.1
 
-    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-        optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+    # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+    #     optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.n_epochs,
+                                                        eta_min=args.lr)
     # lr_scheduler = torch.optim.lr_scheduler.StepLR(
     #     optimizer, step_size=2, gamma=0.5, last_epoch=-1)
 
@@ -421,6 +432,10 @@ if __name__ == '__main__':
         help='number of updates in inner loop')
     parser.add_argument('--num-updates-inner-val', type=int, default=1,
         help='number of updates in inner loop val')
+    parser.add_argument('--n-iters-per-epoch', type=int, default=1000,
+        help='number of iters in epoch')
+    parser.add_argument('--inner-update-method', type=str, default='sgd',
+        help='inner update method can be sgd or adam')
     
 
     # Miscellaneous

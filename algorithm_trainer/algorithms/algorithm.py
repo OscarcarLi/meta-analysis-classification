@@ -66,7 +66,8 @@ def copy_and_replace(original, replace=None, do_not_copy=None):
 class InitBasedAlgorithm(Algorithm):
 
     def __init__(self, model, loss_func, device, 
-            n_way, n_shot, n_query, alpha, num_updates, method, inner_loop_grad_clip):
+            n_way, n_shot, n_query, alpha, num_updates, method, 
+            inner_loop_grad_clip, inner_update_method):
         
         self._model = model
         self._device = device
@@ -78,9 +79,20 @@ class InitBasedAlgorithm(Algorithm):
         self._num_updates = num_updates
         self._inner_loop_grad_clip = inner_loop_grad_clip
         self._method = method
-        self._first_order = (self._method == 'FOMAML')
+        self._second_order = (self._method == 'MAML')
+        self._inner_update_method = inner_update_method
+        self._opt_state = []
+        self._time_step = 1
+        self._backed_opt_state = []
+        self._backed_time_step = 1
+        self._beta2 = 0.999
         print("Init based Algorithm: ", self._method)
+        print("Init based Algorithm update step type: ", self._inner_update_method)
         self.to(self._device)
+        # set opt state
+        for param in self._model.parameters():
+            self._backed_opt_state.append(torch.zeros_like(param)) 
+        
 
         
 
@@ -113,11 +125,54 @@ class InitBasedAlgorithm(Algorithm):
         return loss, accu, grad_list
 
 
+    def restore_opt_state(self):
+        print("Restoring inner loop opt stats")
+        self._opt_state = []
+        for grad_state in self._backed_opt_state:
+            self._opt_state.append(grad_state) 
+        self._time_step = self._backed_time_step
+
+
+    def backup_opt_state(self):
+        print("Backing up inner loop opt stats")
+        self._backed_opt_state = []
+        for grad_state in self._opt_state:
+            self._backed_opt_state.append(grad_state) 
+        self._backed_time_step = self._time_step
+
+
+    def reset_opt_state(self):
+        self._opt_state = []
+        for param in self._model.parameters():
+            self._opt_state.append(torch.zeros_like(param)) 
+        self._time_step = 1
+        
+
+
+    def perform_update(self, grad_list):
+
+        if self._inner_update_method == 'sgd':
+            return grad_list
+
+        elif self._inner_update_method == 'adam':
+            final_update = []
+            for i, (grad_state, curr_grad) in enumerate(zip(self._opt_state, grad_list)):
+                self._opt_state[i] = self._beta2 * grad_state +\
+                     (1-self._beta2) * (curr_grad**2)
+                final_update.append(curr_grad / (torch.sqrt(self._opt_state[i] / np.pow((1-self._beta2), self._time_step)) + 1e-9))
+            self._time_step += 1
+            return final_update
+        else:
+            raise ValueError("inner-method not implemented.")
+
+
+
     def get_updated_model(self, model, grad_list):
         """ model_param = model_param - alpha * grad_list
         """
         updates = []
-        for (name, param), grad in zip(model.named_parameters(), grad_list):
+        updated_grad_list = self.perform_update(grad_list=grad_list)
+        for (name, param), grad in zip(model.named_parameters(), updated_grad_list):
             # grad will be torch.Tensor
             assert grad is not None, f"Grad is None for {name}"
             if self._inner_loop_grad_clip > 0:
@@ -159,14 +214,19 @@ class InitBasedAlgorithm(Algorithm):
         for param in model parameters.
         """
         for param, calculated_grad in zip(self._model.parameters(), grad_list):
-            if param.grad is None:
-                param.grad = torch.zeros_like(param)  
-            param.grad += calculated_grad.detach()
-        
+            # if param.grad is None:
+            #     param.grad = torch.zeros_like(param)  
+            if param.grad is not None: 
+                param.grad += calculated_grad.detach()
+            else:
+                param.grad = calculated_grad.detach()
 
 
-    def inner_loop_adapt(self, support, support_labels, query, query_labels):
+    def inner_loop_adapt(self, support, support_labels, query, query_labels, reset_stats):
 
+        # reset opt state
+        if reset_stats:
+            self.reset_opt_state()
         
         # adapt means doing the complete inner loop update
         measurements_trajectory = defaultdict(list)
@@ -181,8 +241,9 @@ class InitBasedAlgorithm(Algorithm):
         for i in range(self._num_updates):
             support_loss, support_accu, grad_list = self.compute_gradient_wrt_model(
                 X=support, y=support_labels, model=updated_model,
-                create_graph=not self._first_order)
-            updated_model = self.get_updated_model(model=updated_model, grad_list=grad_list)
+                create_graph=self._second_order)
+            updated_model = self.get_updated_model(model=updated_model, 
+                grad_list=grad_list)
             
 
         # with torch.no_grad(): # compute the support loss after the last adaptation 
@@ -205,7 +266,8 @@ class InitBasedAlgorithm(Algorithm):
             query_loss, query_accu, grad_list = self.compute_gradient_wrt_model(
                 X=query, y=query_labels, model=updated_model,
                 create_graph=False)
-            updated_model = self.get_updated_model(model=updated_model, grad_list=grad_list)
+            updated_model = self.get_updated_model(model=updated_model, 
+                grad_list=grad_list)
             outer_grad_list = self.get_param_diff(self._model.parameters(), updated_model.parameters())
         else:
             raise ValueError("Meta-alg not implemented.")
@@ -223,6 +285,8 @@ class InitBasedAlgorithm(Algorithm):
         measurements_trajectory['accu'].append(support_accu * 100.)
         measurements_trajectory['mt_outer_loss'].append(query_loss.item())
         measurements_trajectory['mt_outer_accu'].append(query_accu * 100.)
+        if reset_stats:
+            print(measurements_trajectory)
         # print(measurements_trajectory)
         return measurements_trajectory
 
