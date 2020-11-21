@@ -93,6 +93,12 @@ class InitBasedAlgorithm(Algorithm):
         for param in self._model.parameters():
             self._backed_opt_state.append(torch.zeros_like(param)) 
         
+        print("--"*20+"learnable params"+"--"*20)
+        for name, param in self._model.named_parameters():
+            if param.requires_grad:
+                print(name)
+        
+        
 
         
 
@@ -104,7 +110,7 @@ class InitBasedAlgorithm(Algorithm):
         return logits
 
 
-    def compute_gradient_wrt_model(self, X, y, model, create_graph):
+    def compute_gradient_wrt_model(self, X, y, model, params_wrt_grad_is_computed, create_graph):
         """Compute gradient of self._loss_func(X, y; model),
         based on support, support_labels set but with respect to parameters in model
         """
@@ -118,7 +124,7 @@ class InitBasedAlgorithm(Algorithm):
         # for n, p in self._model.named_parameters():
         #     print(n, torch.norm(p))
         accu = accuracy(logits, y)
-        grad_list = torch.autograd.grad(loss, model.parameters(),
+        grad_list = torch.autograd.grad(loss, params_wrt_grad_is_computed,
                                     create_graph=create_graph, allow_unused=False, only_inputs=True)
         # allow_unused If False, specifying inputs that were not used when computing outputs
         # (and therefore their grad is always zero) is an error. Defaults to False.
@@ -152,6 +158,7 @@ class InitBasedAlgorithm(Algorithm):
     def perform_update(self, grad_list):
 
         if self._inner_update_method == 'sgd':
+            self._time_step += 1
             return grad_list
 
         elif self._inner_update_method == 'adam':
@@ -184,6 +191,8 @@ class InitBasedAlgorithm(Algorithm):
         do_not_copy = [tensor for tensor in chain(model.parameters(), model.buffers())
                 if tensor not in updates]
         # print("do_not_copy", do_not_copy)
+        # for name, _ in model.named_buffers():
+        #     print(name)
         return copy_and_replace(model, updates, do_not_copy=do_not_copy)
                 
 
@@ -217,8 +226,11 @@ class InitBasedAlgorithm(Algorithm):
             # if param.grad is None:
             #     param.grad = torch.zeros_like(param)  
             if param.grad is not None: 
+                # print(f"Time step {self._time_step} {param.name} prev {torch.norm(param.grad)}")
                 param.grad += calculated_grad.detach()
+                # print(f"Time step {self._time_step} {param.name} curr {torch.norm(param.grad)}")
             else:
+                # print(f"Time step {self._time_step} No grad present for name")
                 param.grad = calculated_grad.detach()
 
 
@@ -240,7 +252,7 @@ class InitBasedAlgorithm(Algorithm):
         assert self._num_updates > 0
         for i in range(self._num_updates):
             support_loss, support_accu, grad_list = self.compute_gradient_wrt_model(
-                X=support, y=support_labels, model=updated_model,
+                X=support, y=support_labels, model=updated_model, params_wrt_grad_is_computed=updated_model.parameters(),
                 create_graph=self._second_order)
             updated_model = self.get_updated_model(model=updated_model, 
                 grad_list=grad_list)
@@ -256,15 +268,15 @@ class InitBasedAlgorithm(Algorithm):
         # Now compute loss on query set and from that the outer gradient
         if self._method == 'MAML':
             query_loss, query_accu, outer_grad_list = self.compute_gradient_wrt_model(
-                X=query, y=query_labels, model=self._model,
+                X=query, y=query_labels, model=updated_model, params_wrt_grad_is_computed=self._model.parameters(),
                 create_graph=False)
         elif self._method == 'FOMAML':
             query_loss, query_accu, outer_grad_list = self.compute_gradient_wrt_model(
-                X=query, y=query_labels, model=updated_model,
+                X=query, y=query_labels, model=updated_model, params_wrt_grad_is_computed=updated_model.parameters(),
                 create_graph=False)
         elif self._method == 'Reptile': 
             query_loss, query_accu, grad_list = self.compute_gradient_wrt_model(
-                X=query, y=query_labels, model=updated_model,
+                X=query, y=query_labels, model=updated_model, params_wrt_grad_is_computed=updated_model.parameters(),
                 create_graph=False)
             updated_model = self.get_updated_model(model=updated_model, 
                 grad_list=grad_list)

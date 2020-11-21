@@ -12,7 +12,7 @@ import re
 import shutil
 
 
-from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet, conv48
+from algorithm_trainer.models import gated_conv_net_original, resnet, resnet_2, conv64, resnet_12, wide_resnet, conv48, conv32 
 from algorithm_trainer.algorithm_trainer import Classical_algorithm_trainer, Generic_adaptation_trainer, MetaClassical_algorithm_trainer, MetaInit_algorithm_trainer
 from algorithm_trainer.algorithms.algorithm import SVM, ProtoNet, Finetune, ProtoCosineNet, Protomax, Ridge, InitBasedAlgorithm
 from algorithm_trainer.utils import optimizer_to_device
@@ -101,6 +101,9 @@ def main(args):
             classifier_type=args.classifier_type, projection=(args.projection=="True"))
     elif args.model_type == 'conv48':
         model = conv48.Conv48(num_classes=args.num_classes_train, 
+            classifier_type=args.classifier_type, projection=(args.projection=="True"))
+    elif args.model_type == 'conv32':
+        model = conv32.Conv32(num_classes=args.num_classes_train, 
             classifier_type=args.classifier_type, projection=(args.projection=="True"))
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(

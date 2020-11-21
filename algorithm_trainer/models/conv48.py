@@ -8,6 +8,7 @@ import numpy as np
 import torch.nn.functional as F
 from torch.nn.utils.weight_norm import WeightNorm
 from collections import defaultdict
+from copy import copy
 
 
 
@@ -84,7 +85,7 @@ class ConvBlock(nn.Module):
         
         self.block = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels)
+            nn.BatchNorm2d(out_channels, track_running_stats=False)
         )
         
         if retain_activation:
@@ -106,7 +107,7 @@ class ConvBlock(nn.Module):
 
 
 def conv_block(in_channels, out_channels):
-    bn = nn.BatchNorm2d(out_channels)
+    bn = nn.BatchNorm2d(out_channels, track_running_stats=False)
     nn.init.uniform_(bn.weight) # for pytorch 1.2 or later
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, 3, padding=1),
@@ -132,7 +133,8 @@ class Convnet(nn.Module):
 
 class Conv48(nn.Module):
     def __init__(self, num_classes, classifier_type='avg-linear', x_dim=3, h_dim=48, z_dim=48, 
-        retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.):
+        retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.,
+        device='cuda'):
         super(Conv48, self).__init__()
         
         self.encoder = nn.Sequential(
@@ -180,6 +182,21 @@ class Conv48(nn.Module):
         self.add_bias = add_bias
         # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         # self.scale_factor = 1.
+
+        
+
+        # initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                print("Initializing Conv2d with Xavier Uniform")
+                nn.init.xavier_uniform_(m.weight)
+            elif isinstance(m, nn.Linear):
+                print("Initializing Linear with Xavier Uniform")
+                nn.init.xavier_uniform_(m.weight)
+
+        self.running_stats = {} 
+        # self.backup_running_statistics()
+        self.device=device
         
 
     def forward(self, x, features_only=True):
@@ -199,3 +216,47 @@ class Conv48(nn.Module):
             x = self.fc.forward(x)
         
         return x
+
+
+
+    # def backup_running_statistics(self):
+        
+    #     for name, module in self.named_modules():
+    #         if isinstance(module, nn.BatchNorm2d):
+    #             print(name, module.running_mean)
+            
+    #             self.running_stats[f"{name}.running_mean"] = copy(module.running_mean.data)
+    #             self.running_stats[f"{name}.running_var"] = copy(module.running_var.data)
+    #     print(self.running_stats)
+
+
+    # def restore_running_statistics(self):
+        
+    #     for name, module in self.named_modules():
+    #         if isinstance(module, nn.BatchNorm2d):
+    #             module.running_mean = nn.Parameter(
+    #                 self.running_stats[f"{name}.running_mean"].to(device=self.device), requires_grad=False)
+    #             module.running_var = nn.Parameter(
+    #                 self.running_stats[f"{name}.running_var"].to(device=self.device), requires_grad=False)
+    #             print(name, module)
+
+    # def restore_running_statistics(self):
+
+    #                 self.backup_running_mean.data = copy(self.running_mean.data)
+    #         self.backup_running_var.data = copy(self.running_var.data)
+
+    #     momentum = self.momentum
+
+    #     output = F.batch_norm(input, running_mean, running_var, weight, bias,
+    #                           training=True, momentum=momentum, eps=self.eps)
+
+    #     return output
+
+    # def restore_backup_stats(self):
+    #     """
+    #     Resets batch statistics to their backup values which are collected after each forward pass.
+    #     """
+    #     if self.use_per_step_bn_statistics:
+    #         self.running_mean = nn.Parameter(self.backup_running_mean.to(device=self.device), requires_grad=False)
+    #         self.running_var = nn.Parameter(self.backup_running_var.to(device=self.device), requires_grad=False)
+    #     pass

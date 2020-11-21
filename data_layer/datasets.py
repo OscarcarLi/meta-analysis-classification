@@ -3,6 +3,8 @@ from PIL import Image
 import json
 import numpy as np
 import torchvision.transforms as transforms
+import concurrent.futures
+import tqdm
 import os
 identity = lambda x:x
 
@@ -52,11 +54,15 @@ class MetaDataset:
         self.cl_list = np.unique(self.meta['image_labels']).tolist()
 
         self.sub_meta = {}
+        self.class_images = {}
         for cl in self.cl_list:
             self.sub_meta[cl] = []
 
         for x,y in zip(self.meta['image_names'],self.meta['image_labels']):
             self.sub_meta[y].append(x)
+            
+        for cl in self.cl_list:
+            self.class_images[cl] = ClassImages(self.sub_meta[cl], cl)
 
         if n_shot > 0:
             self.support_sub_dataloader = [] 
@@ -65,9 +71,9 @@ class MetaDataset:
                                     num_workers = 0, #use main thread only or may receive multiple batches
                                     pin_memory = False)        
             for cl in self.cl_list:
-                sub_dataset = SubMetaDataset(
-                    (np.array(self.sub_meta[cl])[np.random.choice(len(self.sub_meta[cl]), self.fix_support, replace=False)]).tolist() if self.fix_support else self.sub_meta[cl], 
-                    cl, transform = support_transform)
+                print("Setting support loader for class", cl)
+                sub_dataset = SupportOrQueryForSubMetadataset(self.class_images[cl], 
+                    n_images=self.fix_support, cl=cl, transform=support_transform)
                 self.support_sub_dataloader.append(
                     torch.utils.data.DataLoader(sub_dataset, **support_sub_data_loader_params))
 
@@ -78,7 +84,8 @@ class MetaDataset:
                                     num_workers = 0, #use main thread only or may receive multiple batches
                                     pin_memory = False)        
             for cl in self.cl_list:
-                sub_dataset = SubMetaDataset(self.sub_meta[cl], cl, transform = query_transform)
+                print("Setting query loader for class", cl)
+                sub_dataset = SupportOrQueryForSubMetadataset(self.class_images[cl], cl=cl, transform = query_transform)
                 self.query_sub_dataloader.append(
                     torch.utils.data.DataLoader(sub_dataset, **query_sub_data_loader_params))
                 
@@ -101,25 +108,70 @@ class MetaDataset:
 
 
 
-class SubMetaDataset:
+def load_image(image_path):
+    img = Image.open(image_path).convert('RGB')
+    return img
 
-    def __init__(self, sub_meta, cl, 
-        transform=transforms.ToTensor(), target_transform=identity, printt=False):
 
-        self.sub_meta = sub_meta
+
+class SupportOrQueryForSubMetadataset:
+
+    def __init__(self, class_images, cl, n_images=0,
+        transform=transforms.ToTensor(), target_transform=identity):
+
+        self.class_images = class_images
+        self.indices = np.random.choice(len(class_images), n_images, replace=False)\
+             if n_images else np.arange(len(class_images))
+        print(f"using {len(self.indices)} images from class")
         self.cl = cl 
         self.transform = transform
         self.target_transform = target_transform
-        self.print=printt
         
+
     def __getitem__(self,i):
-        if self.print:
-            print( '%d -%d' %(self.cl,i), os.path.join(self.sub_meta[i]))
-        image_path = os.path.join(self.sub_meta[i])
-        img = Image.open(image_path).convert('RGB')
+        # image_path = os.path.join(self.sub_meta[i])
+        # img = Image.open(image_path).convert('RGB')
+        img = self.class_images[self.indices[i]]
         img = self.transform(img)
         target = self.target_transform(self.cl)
         return img, target
+
+    def __len__(self):
+        return len(self.indices)
+
+
+
+
+class ClassImages:
+
+    def __init__(self, sub_meta, cl, printt=False):
+
+        self.sub_meta = sub_meta
+        self.images = []
+        self.cl = cl 
+        self.print=printt
+
+
+        print("Attempt loading class {} into memory".format(cl))
+        # with tqdm.tqdm(total=len(self.sub_meta)) as pbar_memory_load:
+        with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
+            # Process the list of files, but split the work across the process pool to use all CPUs!
+            for image in executor.map(load_image, self.sub_meta):
+                self.images.append(image)
+                    # pbar_memory_load.update(1)
+        print("Done loading class {} into memory -- found {} images".format(cl, len(self.images)))
+                        
+    
+
+    def __getitem__(self,i):
+        # if self.print:
+        #     print( '%d -%d' %(self.cl,i), os.path.join(self.sub_meta[i]))
+        # image_path = os.path.join(self.sub_meta[i])
+        # img = Image.open(image_path).convert('RGB')
+        img = self.images[i]
+        # img = self.transform(img)
+        # target = self.target_transform(self.cl)
+        return img
 
     def __len__(self):
         return len(self.sub_meta)

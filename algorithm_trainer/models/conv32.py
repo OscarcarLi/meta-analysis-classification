@@ -116,24 +116,10 @@ def conv_block(in_channels, out_channels):
     )
 
 
-class Convnet(nn.Module):
-
-    def __init__(self, x_dim=3, hid_dim=64, z_dim=64):
-        super().__init__()
-        self.encoder = nn.Sequential(
-            conv_block(x_dim, hid_dim),
-            conv_block(hid_dim, hid_dim),
-            conv_block(hid_dim, hid_dim),
-            conv_block(hid_dim, z_dim),
-        )
-        self.out_channels = 1600
-
-
-
-class Conv64(nn.Module):
-    def __init__(self, num_classes, classifier_type='avg-linear', x_dim=3, h_dim=64, z_dim=64, 
+class Conv32(nn.Module):
+    def __init__(self, num_classes, classifier_type='avg-linear', x_dim=3, h_dim=32, z_dim=32, 
         retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.):
-        super(Conv64, self).__init__()
+        super(Conv32, self).__init__()
         
         self.encoder = nn.Sequential(
             conv_block(x_dim, h_dim),
@@ -159,8 +145,8 @@ class Conv64(nn.Module):
         # classifier creation
         self.projection = projection
         print("Unit norm projection is ", self.projection)
-        print("Avg pool is always False for Conv64")
-        self.final_feat_dim = 1600
+        print("Avg pool is always False for Conv32")
+        self.final_feat_dim = 800
         self.num_classes = num_classes
         self.no_fc_layer = (classifier_type == "no-classifier")
         self.classifier_type = classifier_type
@@ -180,7 +166,19 @@ class Conv64(nn.Module):
         self.add_bias = add_bias
         # self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         # self.scale_factor = 1.
+
+        # initialization
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                print("Initializing Conv2d with Xavier Uniform")
+                nn.init.xavier_uniform_(m.weight)
+            elif isinstance(m, nn.Linear):
+                print("Initializing Linear with Xavier Uniform")
+                nn.init.xavier_uniform_(m.weight)
+
+        self.running_stats = {} 
         
+                
 
     def forward(self, x, features_only=True):
         x = self.encoder(x)
@@ -199,4 +197,3 @@ class Conv64(nn.Module):
             x = self.fc.forward(x)
         
         return x
-

@@ -1230,6 +1230,16 @@ class MetaInit_algorithm_trainer(object):
         #     self._algorithm._model.eval()
 
         # loaders and iterators
+        # if isinstance(self._algorithm._model, torch.nn.DataParallel):
+        #     obj = self._algorithm._model.module
+        # else:
+        #     obj = self._algorithm._model
+        
+        # if not is_training:
+        #     obj.backup_running_statistics()
+        # else:
+        #     obj.restore_running_statistics()
+
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
                         leave=False, file=sys.stdout, position=0)
         
