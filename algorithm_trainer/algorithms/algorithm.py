@@ -93,10 +93,10 @@ class InitBasedAlgorithm(Algorithm):
         for param in self._model.parameters():
             self._backed_opt_state.append(torch.zeros_like(param)) 
         
-        print("--"*20+"learnable params"+"--"*20)
-        for name, param in self._model.named_parameters():
-            if param.requires_grad:
-                print(name)
+        # print("--"*20+"learnable params"+"--"*20)
+        # for name, param in self._model.named_parameters():
+        #     if param.requires_grad:
+        #         print(name)
         
         
 
@@ -110,7 +110,7 @@ class InitBasedAlgorithm(Algorithm):
         return logits
 
 
-    def compute_gradient_wrt_model(self, X, y, model, params_wrt_grad_is_computed, create_graph):
+    def compute_gradient_wrt_model(self, X, y, model, params_wrt_grad_is_computed, create_graph, wt=1.):
         """Compute gradient of self._loss_func(X, y; model),
         based on support, support_labels set but with respect to parameters in model
         """
@@ -119,7 +119,7 @@ class InitBasedAlgorithm(Algorithm):
         logits = self.get_logits(model=model, X=X)
         logits = logits.reshape(-1, logits.size(-1))
         y = y.reshape(-1)
-        loss = self._loss_func(logits, y)
+        loss = self._loss_func(logits, y) * wt
         # print("loss", loss)
         # for n, p in self._model.named_parameters():
         #     print(n, torch.norm(p))
@@ -253,7 +253,7 @@ class InitBasedAlgorithm(Algorithm):
         for i in range(self._num_updates):
             support_loss, support_accu, grad_list = self.compute_gradient_wrt_model(
                 X=support, y=support_labels, model=updated_model, params_wrt_grad_is_computed=updated_model.parameters(),
-                create_graph=self._second_order)
+                create_graph=self._second_order, wt=1.)
             updated_model = self.get_updated_model(model=updated_model, 
                 grad_list=grad_list)
             
@@ -297,8 +297,8 @@ class InitBasedAlgorithm(Algorithm):
         measurements_trajectory['accu'].append(support_accu * 100.)
         measurements_trajectory['mt_outer_loss'].append(query_loss.item())
         measurements_trajectory['mt_outer_accu'].append(query_accu * 100.)
-        if reset_stats:
-            print(measurements_trajectory)
+        # if reset_stats:
+        #     print(measurements_trajectory)
         # print(measurements_trajectory)
         return measurements_trajectory
 

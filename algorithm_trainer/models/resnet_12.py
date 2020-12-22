@@ -280,6 +280,7 @@ class ResNet(nn.Module):
         
         if self.no_fc_layer is True:
             self.fc = None
+            self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         elif classifier_type == 'linear':
             self.fc = nn.Linear(self.final_feat_dim, num_classes)
             self.fc.bias.data.fill_(0)
@@ -292,7 +293,6 @@ class ResNet(nn.Module):
             raise ValueError("classifier type not found")
 
         self.add_bias = add_bias
-        self.scale_factor = nn.Parameter(torch.FloatTensor([10.0]))
         
 
         # initialization
@@ -333,6 +333,7 @@ class ResNet(nn.Module):
         if self.projection:
             x_norm = torch.norm(x, dim=1, keepdim=True)+0.00001
             x = x.div(x_norm)
+            
 
         if features_only:
             return x

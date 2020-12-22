@@ -65,6 +65,12 @@ def main(args):
         n_way=args.n_way_train, n_shot=args.n_shot_train, n_query=max(args.n_query_train, args.n_query_pool), fix_support=args.fix_support)
     mt_loader = mt_datamgr.get_data_loader(
         args.dataset_path.split('/')[-1], train_file, support_aug=args.support_aug, query_aug=args.train_aug)
+    
+    ml_loss_datamgr = MetaDataManager(
+        image_size, batch_size=args.batch_size_val, n_episodes=args.n_iterations_val,
+        n_way=args.n_way_val, n_shot=args.n_shot_val, n_query=args.n_query_val)
+    ml_loss_loader = ml_loss_datamgr.get_data_loader(
+        args.dataset_path.split('/')[-1], train_file, support_aug=False, query_aug=False)
 
     print("--"*15, "VAL", "--"*15)
     val_file = os.path.join(args.dataset_path, 'val.json')
@@ -88,7 +94,7 @@ def main(args):
     ####################################################
 
     if args.model_type == 'resnet12':
-        if args.dataset_path.split('/')[-1] in ['miniImagenet', 'CUB']:
+        if args.dataset_path.split('/')[-1] in ['miniImagenet', 'miniImagenet-SR', 'CUB']:
             model = resnet_12.resnet12(avg_pool=(args.avg_pool == "True"), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
                 projection=(args.projection=="True"), classifier_metric=args.classifier_metric)
@@ -101,7 +107,7 @@ def main(args):
             classifier_type=args.classifier_type, projection=(args.projection=="True"))
     elif args.model_type == 'conv48':
         model = conv48.Conv48(num_classes=args.num_classes_train, 
-            classifier_type=args.classifier_type, projection=(args.projection=="True"))
+            classifier_type=args.classifier_type, projection=(args.projection=="True"), img_side_len=args.img_side_len)
     elif args.model_type == 'conv32':
         model = conv32.Conv32(num_classes=args.num_classes_train, 
             classifier_type=args.classifier_type, projection=(args.projection=="True"))
@@ -168,6 +174,12 @@ def main(args):
     ####################################################
     #                     TRAINER                      #
     ####################################################
+
+    # start tboard from restart iter
+    init_global_iteration = 0
+    if args.restart_iter:
+        init_global_iteration = args.restart_iter * args.n_iters_per_epoch 
+    
 
     # algorithm
     if args.algorithm == 'ProtonetCosine':
@@ -282,7 +294,8 @@ def main(args):
             writer=writer,
             log_interval=args.log_interval, 
             save_folder=save_folder, 
-            grad_clip=args.grad_clip)
+            grad_clip=args.grad_clip,
+            init_global_iteration=init_global_iteration)
 
 
     ####################################################
@@ -306,7 +319,8 @@ def main(args):
             writer=writer,
             log_interval=args.log_interval, 
             save_folder=save_folder, 
-            grad_clip=0.)
+            grad_clip=0.,
+        )
 
 
     ####################################################
@@ -315,19 +329,14 @@ def main(args):
 
 
     # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.06 if e < 40 else 0.012 if e < 50 else (0.0024))
-    # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else (0.2 if e < 40 else 0.04 )
-    # lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else 0.1
-
-    # lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-    #     optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
-
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.n_epochs,
-                                                        eta_min=args.lr)
-    # lr_scheduler = torch.optim.lr_scheduler.StepLR(
-    #     optimizer, step_size=2, gamma=0.5, last_epoch=-1)
-
+    lambda_epoch = lambda e: 1.0 if e < args.drop_lr_epoch else 0.2
+    lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
+         optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
     for _ in range(args.restart_iter):
         lr_scheduler.step()
+
+    val_based_lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 
+        mode='max', patience=5, factor=0.1, min_lr=5e-6)
     
     for iter_start in range(args.restart_iter, args.n_epochs):
 
@@ -338,6 +347,14 @@ def main(args):
         trainer.run(mt_loader, mt_datamgr, is_training=True, epoch=iter_start + 1, n_query=args.n_query_train)
 
         # validation
+        print("Train Loss on ML objective")
+        results = val_trainer.run(ml_loss_loader, ml_loss_datamgr, n_query=args.n_query_train, is_training=False)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
+        writer.add_scalar(
+            "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
+        writer.add_scalar(
+            "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
         print("Validation")
         results = val_trainer.run(mt_val_loader, mt_val_datamgr, n_query=args.n_query_train, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
@@ -346,6 +363,7 @@ def main(args):
             "validation_acc", results['test_loss_after']['accu'], iter_start + 1)
         writer.add_scalar(
             "validation_loss", results['test_loss_after']['loss'], iter_start + 1)
+        val_accu = results['test_loss_after']['accu']
         print("Test")
         results = val_trainer.run(mt_test_loader, mt_test_datamgr, n_query=args.n_query_train, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
@@ -355,7 +373,8 @@ def main(args):
         writer.add_scalar(
             "test_loss", results['test_loss_after']['loss'], iter_start + 1)
         # scheduler step
-        lr_scheduler.step()
+        # lr_scheduler.step()
+        val_based_lr_scheduler.step(val_accu)
         
 
 

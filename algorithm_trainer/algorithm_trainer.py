@@ -1206,7 +1206,7 @@ To learn the initialization parameters
 class MetaInit_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, label_offset=0):
+        save_folder, grad_clip, label_offset=0, init_global_iteration=0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -1215,7 +1215,8 @@ class MetaInit_algorithm_trainer(object):
         self._save_folder = save_folder
         self._grad_clip = grad_clip
         self._label_offset = label_offset
-        self._global_iteration = 0
+        self._global_iteration = init_global_iteration
+        print("Starting tboard logs from iter", self._global_iteration)
         assert isinstance(self._algorithm, InitBasedAlgorithm),\
              "Only Use MetaInit_algorithm_trainer for MAML type algorithms"
         
@@ -1224,10 +1225,10 @@ class MetaInit_algorithm_trainer(object):
 
 
         # Always using transductive setting
-        # if is_training:
-        #     self._algorithm._model.train()
-        # else:
-        #     self._algorithm._model.eval()
+        if is_training:
+            self._algorithm.restore_opt_state()
+        else:
+            self._algorithm.backup_opt_state()
 
         # loaders and iterators
         # if isinstance(self._algorithm._model, torch.nn.DataParallel):

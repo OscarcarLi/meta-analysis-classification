@@ -134,7 +134,7 @@ class Convnet(nn.Module):
 class Conv48(nn.Module):
     def __init__(self, num_classes, classifier_type='avg-linear', x_dim=3, h_dim=48, z_dim=48, 
         retain_last_activation=True, activation='ReLU', add_bias=False, projection=False, classifier_metric='euclidean', lambd=0.,
-        device='cuda'):
+        device='cuda', img_side_len=64):
         super(Conv48, self).__init__()
         
         self.encoder = nn.Sequential(
