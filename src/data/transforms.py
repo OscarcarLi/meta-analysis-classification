@@ -38,12 +38,11 @@ class TransformLoader:
 
     def get_composed_transform(self, dataset_name, aug = False):
         
-        if dataset_name in ['cifar', 'FC100']:
+        if  'cifar' in dataset_name.lower() or  'fc100' in dataset_name.lower():
             mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
             std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
             if aug:
-                print("Using meta-optnet version of augmentation")
                 transform = transforms.Compose([
                     transforms.RandomCrop(32, padding=4),
                     transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
@@ -60,7 +59,6 @@ class TransformLoader:
                 ])
         else:
             if aug:
-                print("Using our version of augmentation")
                 transform_list = ['RandomResizedCrop', 'ImageJitter', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
             else:
                 transform_list = ['Resize', 'ToTensor', 'Normalize']

@@ -3,8 +3,9 @@
 output='fixS5_MI_r12_PNeuc_n5s5q15Vtb2_SGD0.1Drop20'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='2'
-mkdir -o logs
-mkdir -o runs
+mkdir -p logs
+mkdir -p runs
+rm logs/${output}.log
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --fix-support 5 \
@@ -14,7 +15,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --num-classes-train 0 \
 --algorithm ProtoNet \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/miniImagenet-SR \
+--dataset-path datasets/filelists/cifar \
 --img-side-len 84 \
 --n-epochs 100 \
 --batch-size-train 2 \
@@ -44,5 +45,5 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --device cuda \
 --device-number ${device} \
 --log-interval 100 > logs/${output}.log &
-tail -f ${output}.out
+tail -f logs/${output}.log
 
