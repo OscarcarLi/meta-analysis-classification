@@ -1,9 +1,7 @@
 # project specific
-data/
-saves/
+datasets/
 logs/
-features_dump/
-train_dir/
+runs/
 *out
 
 # Byte-compiled / optimized / DLL files
