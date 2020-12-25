@@ -9,8 +9,8 @@ mkdir -p runs
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --fix-support 5 \
 --model-type resnet_12 \
---avg-pool False \
---projection True \
+--avg-pool True \
+--projection False \
 --num-classes-train 0 \
 --algorithm ProtoNet \
 --classifier-metric euclidean \

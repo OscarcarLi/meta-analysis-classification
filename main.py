@@ -85,7 +85,7 @@ def main(args):
         image_size=image_size, n_shot=args.n_shot_train, n_query=args.n_query_train, 
         randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, verbose=False)
     no_fixS_train_datamgr = MetaDataManager(dataset=no_fixS_train_meta_dataset, 
-        n_episodes=args.args.n_iterations_val, batch_size=args.batch_size_train, n_way=args.n_way_train)
+        n_episodes=args.n_iterations_val, batch_size=args.batch_size_train, n_way=args.n_way_train)
     no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
     
     print("\n", "--"*20, "VAL", "--"*20)
@@ -304,8 +304,9 @@ def main(args):
 
         # validation/test
         print("Train Loss on ML objective")
-        results = trainer.run(
-            no_fixS_train_loader, no_fixS_train_datamgr, is_training=False)
+        with torch.no_grad():
+            results = trainer.run(
+                no_fixS_train_loader, no_fixS_train_datamgr, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
@@ -313,8 +314,9 @@ def main(args):
         writer.add_scalar(
             "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
         print("Validation")
-        results = trainer.run(
-            val_loader, val_datamgr, is_training=False)
+        with torch.no_grad():
+            results = trainer.run(
+                val_loader, val_datamgr, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
@@ -323,8 +325,9 @@ def main(args):
             "val_loss", results['test_loss_after']['loss'], iter_start + 1)
         val_accu = results['test_loss_after']['accu']
         print("Test")
-        results = trainer.run(
-            test_loader, test_datamgr, is_training=False)
+        with torch.no_grad():
+            results = trainer.run(
+                test_loader, test_datamgr, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
@@ -332,8 +335,9 @@ def main(args):
         writer.add_scalar(
             "test_loss", results['test_loss_after']['loss'], iter_start + 1)
         print("Base Test")
-        results = trainer.run(
-            base_test_loader, base_test_datamgr, is_training=False)
+        with torch.no_grad():
+            results = trainer.run(
+                base_test_loader, base_test_datamgr, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
