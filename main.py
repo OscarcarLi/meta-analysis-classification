@@ -59,6 +59,7 @@ def main(args):
     train_file = os.path.join(args.dataset_path, 'base.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel.json')
+    base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     image_size = args.img_side_len
     dataset_name = args.dataset_path.split('/')[-1]
     print("Dataset name", dataset_name)
@@ -84,7 +85,7 @@ def main(args):
         image_size=image_size, n_shot=args.n_shot_train, n_query=args.n_query_train, 
         randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, verbose=False)
     no_fixS_train_datamgr = MetaDataManager(dataset=no_fixS_train_meta_dataset, 
-        n_episodes=args.n_iters_per_epoch, batch_size=args.batch_size_train, n_way=args.n_way_train)
+        n_episodes=args.args.n_iterations_val, batch_size=args.batch_size_train, n_way=args.n_way_train)
     no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
     
     print("\n", "--"*20, "VAL", "--"*20)
@@ -104,6 +105,16 @@ def main(args):
     test_datamgr = MetaDataManager(dataset=test_meta_dataset, n_way=args.n_way_val,
         n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
     test_loader = test_datamgr.get_data_loader()
+
+    
+    print("\n", "--"*20, "BASE TEST", "--"*20)
+    base_test_classes = ClassImagesSet(base_test_file)
+    base_test_meta_dataset = MetaDataset(class_images=base_test_classes, dataset_name=dataset_name,
+        image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
+        randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
+    base_test_datamgr = MetaDataManager(dataset=base_test_meta_dataset, n_way=args.n_way_val,
+        n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+    base_test_loader = base_test_datamgr.get_data_loader()
 
 
 
@@ -307,9 +318,9 @@ def main(args):
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
-            "validation_acc", results['test_loss_after']['accu'], iter_start + 1)
+            "val_acc", results['test_loss_after']['accu'], iter_start + 1)
         writer.add_scalar(
-            "validation_loss", results['test_loss_after']['loss'], iter_start + 1)
+            "val_loss", results['test_loss_after']['loss'], iter_start + 1)
         val_accu = results['test_loss_after']['accu']
         print("Test")
         results = trainer.run(
@@ -320,6 +331,15 @@ def main(args):
             "test_acc", results['test_loss_after']['accu'], iter_start + 1)
         writer.add_scalar(
             "test_loss", results['test_loss_after']['loss'], iter_start + 1)
+        print("Base Test")
+        results = trainer.run(
+            base_test_loader, base_test_datamgr, is_training=False)
+        pp = pprint.PrettyPrinter(indent=4)
+        pp.pprint(results)
+        writer.add_scalar(
+            "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
+        writer.add_scalar(
+            "base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
         
         # scheduler step
         if args.lr_scheduler_type == 'val_based':

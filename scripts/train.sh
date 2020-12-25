@@ -1,34 +1,32 @@
 #! /bin/bash
 
-output='fixS5_MI_r12_PNeuc_n5s5q15Vtb2_SGD0.1Drop20'
+output='fixS5_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop20'
 # method_dataset_model_innerAlg_config_outerOpt 
-device='2'
+device='0,1'
 mkdir -p logs
 mkdir -p runs
-rm logs/${output}.log
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --fix-support 5 \
 --model-type resnet_12 \
 --avg-pool False \
---projection False \
+--projection True \
 --num-classes-train 0 \
 --algorithm ProtoNet \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/cifar \
+--dataset-path datasets/filelists/miniImagenet \
 --img-side-len 84 \
---n-epochs 100 \
---batch-size-train 2 \
+--n-epochs 60 \
+--batch-size-train 4 \
 --n-way-train 5 \
 --n-shot-train 5 \
 --n-query-train 15 \
---n-query-pool 15 \
 --n-iters-per-epoch 500 \
---batch-size-val 1 \
+--batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
---n-iterations-val 100 \
+--n-iterations-val 250 \
 --support-aug False \
 --query-aug True \
 --randomize-query True \
