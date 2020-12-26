@@ -1,13 +1,13 @@
 #! /bin/bash
 
-output='fixS5_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop20'
+output='metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop20'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0,1'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
---fix-support 5 \
+--fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
 --projection False \
@@ -21,7 +21,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --n-way-train 5 \
 --n-shot-train 5 \
 --n-query-train 15 \
---n-iters-per-epoch 500 \
+--n-iters-per-epoch 1000 \
 --batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
@@ -33,7 +33,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \
---weight-decay 0.0 \
+--weight-decay 0.0005 \
 --grad-clip 0. \
 --drop-lr-epoch 20 \
 --lr-scheduler-type deterministic \
