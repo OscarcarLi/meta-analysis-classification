@@ -3,7 +3,6 @@ import warnings
 import time
 import numpy as np
 import itertools
-from copy import deepcopy
 from itertools import chain
 
 import torch
@@ -35,19 +34,16 @@ class Algorithm(object):
         raise NotImplementedError()
 
 
-DEFAULT_MEMO = dict()
-
 
 class InitBasedAlgorithm(Algorithm):
 
-    def __init__(self, model, loss_func, device, alpha, num_updates, method, 
+    def __init__(self, model, loss_func, device, alpha, method, 
             inner_loop_grad_clip, inner_update_method):
         
         self._model = model
         self._device = device
         self._loss_func = loss_func
         self._alpha = alpha # inner loop lr
-        self._num_updates = num_updates
         self._inner_loop_grad_clip = inner_loop_grad_clip
         self._method = method
         self._second_order = (self._method == 'MAML')
@@ -63,11 +59,11 @@ class InitBasedAlgorithm(Algorithm):
         # compute loss on support set
         orig_X_shape = X.shape
         logits = model(
-            X.reshape(-1, *orig_X_shape[2:]), features_only=False).reshape(*orig_X_shape[:2], -1)        
+            X.reshape(-1, *orig_X_shape[2:])).reshape(*orig_X_shape[:2], -1)        
         return logits
 
 
-    def compute_gradient_wrt_model(self, X, y, model, params_wrt_grad_is_computed, create_graph, wt=1.):
+    def compute_gradient_wrt_model(self, X, y, model, params_wrt_grad_is_computed, create_graph):
         """Compute gradient of self._loss_func(X, y; model),
         based on support, support_labels set but with respect to parameters in model
         """
@@ -76,7 +72,7 @@ class InitBasedAlgorithm(Algorithm):
         logits = self.get_logits(model=model, X=X)
         logits = logits.reshape(-1, logits.size(-1))
         y = y.reshape(-1)
-        loss = self._loss_func(logits, y) * wt
+        loss = self._loss_func(logits, y)
         accu = accuracy(logits, y)
         grad_list = torch.autograd.grad(loss, params_wrt_grad_is_computed,
                                     create_graph=create_graph, allow_unused=False, only_inputs=True)
@@ -135,7 +131,7 @@ class InitBasedAlgorithm(Algorithm):
 
 
     def inner_loop_adapt(self, support, support_labels, query, query_labels,
-        n_way, n_shot, n_query):
+        n_way, n_shot, n_query, num_updates_inner):
 
         
         # adapt means doing the complete inner loop update
@@ -143,11 +139,11 @@ class InitBasedAlgorithm(Algorithm):
         # copy every tenso's data in the original dictionary
         updated_model = self._model         
         
-        assert self._num_updates > 0
-        for i in range(self._num_updates):
+        assert num_updates_inner > 0
+        for i in range(num_updates_inner):
             support_loss, support_accu, grad_list = self.compute_gradient_wrt_model(
                 X=support, y=support_labels, model=updated_model, params_wrt_grad_is_computed=updated_model.parameters(),
-                create_graph=self._second_order, wt=1.)
+                create_graph=self._second_order)
             updated_model = self.get_updated_model(model=updated_model, 
                 grad_list=grad_list)
             
@@ -238,9 +234,9 @@ class SVM(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
                 
 
         tasks_per_batch = query.size(0)
@@ -568,9 +564,9 @@ class Ridge(Algorithm):
         orig_support_shape = support.shape
         
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:]), features_only=True).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:]), features_only=True).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
         
         
         lambda_reg = self._lambda_reg

@@ -2,6 +2,9 @@ import time
 import numpy as np
 from scipy.special import softmax
 import torch
+from copy import deepcopy
+
+DEFAULT_MEMO = dict()
 
 def computeGramMatrix(A, B):
     """
