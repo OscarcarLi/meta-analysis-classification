@@ -198,7 +198,8 @@ To learn the initialization parameters
 class Init_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, label_offset=0, init_global_iteration=0):
+        save_folder, grad_clip, num_updates_inner_train, num_updates_inner_val,
+        label_offset=0, init_global_iteration=0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -206,11 +207,11 @@ class Init_algorithm_trainer(object):
         self._log_interval = log_interval 
         self._save_folder = save_folder
         self._grad_clip = grad_clip
+        self._num_updates_inner_train = num_updates_inner_train
+        self._num_updates_inner_val = num_updates_inner_val
         self._label_offset = label_offset
         self._global_iteration = init_global_iteration
         print("Starting tboard logs from iter", self._global_iteration)
-        assert isinstance(self._algorithm, InitBasedAlgorithm),\
-             "Only Use MetaInit_algorithm_trainer for MAML type algorithms"
         
 
     def run(self, mt_loader, mt_manager, epoch=None, is_training=True, randomize_query=False):
@@ -293,7 +294,9 @@ class Init_algorithm_trainer(object):
                     query_labels=query_y[task_id:task_id+1], 
                     support=shots_x[task_id:task_id+1],  
                     support_labels=shots_y[task_id:task_id+1],
-                    n_way=n_way, n_shot=n_shot, n_query=n_query)
+                    n_way=n_way, n_shot=n_shot, n_query=n_query,
+                    num_updates_inner=self._num_updates_inner_train\
+                         if is_training else self._num_updates_inner_val)
 
                 # metrics accumulation
                 for k in measurements_trajectory:
