@@ -84,12 +84,13 @@ def main(args):
 
     # create a datamanager that has no fixed support
     no_fixS_train_meta_dataset = MetaDataset(class_images=train_classes, dataset_name=dataset_name,  
-        image_size=image_size, n_shot=args.n_shot_train, n_query=args.n_query_train, 
+        image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
         randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, verbose=False)
     no_fixS_train_datamgr = MetaDataManager(dataset=no_fixS_train_meta_dataset, 
-        n_episodes=args.n_iterations_val, batch_size=args.batch_size_train, n_way=args.n_way_train)
+        n_episodes=args.n_iterations_val, batch_size=args.batch_size_val, n_way=args.n_way_val)
     no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
-    
+
+
     print("\n", "--"*20, "VAL", "--"*20)
     val_classes = ClassImagesSet(val_file)
     val_meta_dataset = MetaDataset(class_images=val_classes, dataset_name=dataset_name,
@@ -118,6 +119,14 @@ def main(args):
             n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
         base_test_loader = base_test_datamgr.get_data_loader()
 
+        if args.fix_support > 0:
+            base_test_meta_dataset_using_fixS = MetaDataset(class_images=base_test_classes, dataset_name=dataset_name,
+                image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
+                randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, 
+                fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
+            base_test_datamgr_using_fixS = MetaDataManager(dataset=base_test_meta_dataset_using_fixS, n_way=args.n_way_val,
+                n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+            base_test_loader_using_fixS = base_test_datamgr_using_fixS.get_data_loader()
 
 
     ####################################################
@@ -307,7 +316,7 @@ def main(args):
         trainer.run(
             mt_loader=train_loader, mt_manager=train_datamgr, is_training=True, epoch=iter_start + 1, 
             randomize_query=str2bool(args.randomize_query))
-
+        
         # validation/test
         print("Train Loss on ML objective")
         results = trainer.run(
@@ -355,6 +364,18 @@ def main(args):
             writer.add_scalar(
                 "novel_gen_gap", novel_test_loss - base_train_loss, iter_start + 1)
         
+            if args.fix_support > 0:
+                print("Base Test using FixSupport, matching train and test for fixml")
+                results = trainer.run(
+                    base_test_loader_using_fixS, base_test_datamgr_using_fixS, is_training=False)
+                pp = pprint.PrettyPrinter(indent=4)
+                pp.pprint(results)
+                writer.add_scalar(
+                    "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
+
+
         # scheduler step
         if args.lr_scheduler_type == 'val_based':
             lr_scheduler.step(val_accu)
