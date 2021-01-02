@@ -1,35 +1,37 @@
 #! /bin/bash
 
-output='fixS1_MI_r12_PNeuc_n5s1q15Vtb4_SGD0.1det'
+output='metal_FC100_r12_SVMsc5_n5s15q6tb8_SGD0.1det'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='1'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
---fix-support 1 \
+--fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm ProtoNet \
+--algorithm SVM \
+--scale-factor 5. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/miniImagenet \
---img-side-len 84 \
+--dataset-path datasets/filelists/FC100 \
+--img-side-len 32 \
 --n-epochs 60 \
---batch-size-train 4 \
+--batch-size-train 8 \
 --n-way-train 5 \
---n-shot-train 1 \
---n-query-train 15 \
+--n-shot-train 15 \
+--n-query-train 6 \
 --n-iters-per-epoch 1000 \
 --batch-size-val 2 \
 --n-way-val 5 \
---n-shot-val 1 \
+--n-shot-val 5 \
+--do-one-shot-eval-too True \
 --n-query-val 15 \
 --n-iterations-val 250 \
---support-aug False \
+--support-aug True \
 --query-aug True \
---randomize-query True \
+--randomize-query False \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \

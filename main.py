@@ -64,7 +64,10 @@ def main(args):
         base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     image_size = args.img_side_len
     dataset_name = args.dataset_path.split('/')[-1]
-    print("Dataset name", dataset_name)
+    # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
+    # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
+    all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
+    print("Dataset name", dataset_name, "image_size", image_size, "all_n_shot_vals", all_n_shot_vals)
     
     """
     1. Create ClassImagesSet object, which handles preloading of images
@@ -90,26 +93,39 @@ def main(args):
         n_episodes=args.n_iterations_val, batch_size=args.batch_size_val, n_way=args.n_way_val)
     no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
 
-
     print("\n", "--"*20, "VAL", "--"*20)
-    val_classes = ClassImagesSet(val_file)
-    val_meta_dataset = MetaDataset(class_images=val_classes, dataset_name=dataset_name,
-        image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
-        randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
-    val_datamgr = MetaDataManager(dataset=val_meta_dataset, n_way=args.n_way_val,
-        n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
-    val_loader = val_datamgr.get_data_loader()
-    
+    val_classes = ClassImagesSet(val_file)    
+    val_meta_datasets = {}
+    val_datamgrs = {}
+    val_loaders = {}
+    for ns_val in all_n_shot_vals:
+        print("====", f"n_shots_val {ns_val}", "====")
+        val_meta_datasets[ns_val] = MetaDataset(class_images=val_classes, dataset_name=dataset_name,
+            image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
+            randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
+        val_datamgrs[ns_val] = MetaDataManager(dataset=val_meta_datasets[ns_val], n_way=args.n_way_val,
+            n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+        val_loaders[ns_val] = val_datamgrs[ns_val].get_data_loader()
+
+
     print("\n", "--"*20, "TEST", "--"*20)
     test_classes = ClassImagesSet(test_file)
-    test_meta_dataset = MetaDataset(class_images=test_classes, dataset_name=dataset_name,
-        image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
-        randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
-    test_datamgr = MetaDataManager(dataset=test_meta_dataset, n_way=args.n_way_val,
-        n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
-    test_loader = test_datamgr.get_data_loader()
+    test_meta_datasets = {}
+    test_datamgrs = {}
+    test_loaders = {}
+    for ns_val in all_n_shot_vals:
+        print("====", f"n_shots_val {ns_val}", "====")    
+        test_meta_datasets[ns_val] = MetaDataset(class_images=test_classes, dataset_name=dataset_name,
+            image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
+            randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
+        test_datamgrs[ns_val] = MetaDataManager(dataset=test_meta_datasets[ns_val], n_way=args.n_way_val,
+            n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+        test_loaders[ns_val] = test_datamgrs[ns_val].get_data_loader()
+        
 
     if 'miniImagenet' in dataset_name:
+        # can only do this if there is only one type of evaluation
+        assert len(all_n_shot_vals) == 1
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
         base_test_meta_dataset = MetaDataset(class_images=base_test_classes, dataset_name=dataset_name,
@@ -262,16 +278,19 @@ def main(args):
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             device='cuda',
+            scale=args.scale_factor,
             metric=args.classifier_metric)
     elif args.algorithm == 'SVM':
         algorithm = SVM(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
+            scale=args.scale_factor,
             device='cuda')
     elif args.algorithm == 'Ridge':
         algorithm = Ridge(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
+            scale=args.scale_factor,
             device='cuda')
     else:
         raise ValueError(
@@ -317,7 +336,7 @@ def main(args):
             mt_loader=train_loader, mt_manager=train_datamgr, is_training=True, epoch=iter_start + 1, 
             randomize_query=str2bool(args.randomize_query))
         
-        # validation/test
+        # On ML train objective
         print("Train Loss on ML objective")
         results = trainer.run(
             no_fixS_train_loader, no_fixS_train_datamgr, is_training=False)
@@ -328,27 +347,41 @@ def main(args):
         writer.add_scalar(
             "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
         base_train_loss = results['test_loss_after']['loss']
-        print("Validation")
-        results = trainer.run(
-            val_loader, val_datamgr, is_training=False)
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(results)
-        writer.add_scalar(
-            "val_acc", results['test_loss_after']['accu'], iter_start + 1)
-        writer.add_scalar(
-            "val_loss", results['test_loss_after']['loss'], iter_start + 1)
-        val_accu = results['test_loss_after']['accu']
-        print("Test")
-        results = trainer.run(
-            test_loader, test_datamgr, is_training=False)
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(results)
-        writer.add_scalar(
-            "test_acc", results['test_loss_after']['accu'], iter_start + 1)
-        writer.add_scalar(
-            "test_loss", results['test_loss_after']['loss'], iter_start + 1)
-        novel_test_loss = results['test_loss_after']['loss']
+        
+        # validation/test
+        val_accus = {}
+        novel_test_losses = {}
+        for ns_val in all_n_shot_vals:
+            print("Validation ", f"n_shots_val {ns_val}")
+            results = trainer.run(
+                val_loaders[ns_val], val_datamgrs[ns_val], is_training=False)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+            writer.add_scalar(
+                f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+            val_accus[ns_val] = results['test_loss_after']['accu']
+            
+            print("Test ", f"n_shots_val {ns_val}")
+            results = trainer.run(
+                test_loaders[ns_val], test_datamgrs[ns_val], is_training=False)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+            writer.add_scalar(
+                f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+            novel_test_losses[ns_val] = results['test_loss_after']['loss']
+
+        val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
+        novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
+        
+        # base class generalization
         if 'miniImagenet' in dataset_name:
+            # can only do this if there is only one type of evaluation
+            assert len(args.n_shot_val.split(",")) == 1
+
             print("Base Test")
             results = trainer.run(
                 base_test_loader, base_test_datamgr, is_training=False)
@@ -404,8 +437,8 @@ if __name__ == '__main__':
         help='classifier type [distance based, linear, GDA]')
     parser.add_argument('--loss-names', type=str, nargs='+', default='cross_ent',
         help='names of various loss functions that are part fo overall objective')
-    parser.add_argument('--gamma', type=float, default=0.01,
-        help='scalar factor multiplied with aux loss')
+    parser.add_argument('--scale-factor', type=float, default=1.,
+        help='scalar factor multiplied with logits')
 
     # Optimization
     parser.add_argument('--optimizer-type', type=str, default='SGDM',
@@ -463,6 +496,9 @@ if __name__ == '__main__':
         help='how many samples per class for train (meta train)')
     parser.add_argument('--n-shot-val', type=int, default=5,
         help='how many samples per class for train (meta val)')
+    parser.add_argument('--do-one-shot-eval-too', type=str, default="False",
+        help='do one shot eval too, especially for SVM expts\
+         where same train config is used for 5w1s, 5w5s')
     parser.add_argument('--n-way-train', type=int, default=5,
         help='how classes per task for train (meta train)')
     parser.add_argument('--n-way-val', type=int, default=5,
