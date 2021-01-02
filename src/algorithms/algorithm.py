@@ -193,7 +193,7 @@ class InitBasedAlgorithm(Algorithm):
 
 class SVM(Algorithm):
 
-    def __init__(self, model, inner_loss_func, device,
+    def __init__(self, model, inner_loss_func, device, scale,
         C_reg=0.1, max_iter=15, double_precision=False):
         
         self._model = model
@@ -202,7 +202,7 @@ class SVM(Algorithm):
         self._C_reg = C_reg
         self._max_iter = max_iter
         self._double_precision = double_precision
-        self._scale = 10.
+        self._scale = scale
         self.to(self._device)
    
 
@@ -310,9 +310,6 @@ class SVM(Algorithm):
 
         qp_sol = qp_sol.reshape(tasks_per_batch, total_n_support, n_way)
 
-        if return_estimator:
-            return torch.bmm(qp_sol.float().transpose(1 ,2), support)
-
         
         # Compute the classification score for query.
         compatibility_query = computeGramMatrix(support, query)
@@ -329,7 +326,7 @@ class SVM(Algorithm):
             compatibility_support = compatibility_support.unsqueeze(3).expand(tasks_per_batch, total_n_support, total_n_support, n_way)
             logits_support = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, total_n_support, total_n_support, n_way)
             logits_support = logits_support * compatibility_support
-            logits_support = torch.sum(logits_support, 1) * self.scale
+            logits_support = torch.sum(logits_support, 1) * self._scale
             
         # compute loss and acc on support
         logits_support = logits_support.reshape(-1, logits_support.size(-1))
@@ -358,13 +355,13 @@ class SVM(Algorithm):
 class ProtoNet(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, 
-             metric, normalize=True):
+             metric, scale, normalize=True):
         
         self._model = model
         self._device = device
         self._inner_loss_func = inner_loss_func
         self._normalize = normalize
-        self._scale = 10.0
+        self._scale = scale
         self._metric = metric # euc or cos
         self.to(self._device)
 
@@ -528,7 +525,7 @@ class ProtoNet(Algorithm):
 class Ridge(Algorithm):
 
     def __init__(self, model, inner_loss_func, device, 
-            normalize=True):
+            scale, normalize=True):
         
         self._model = model
         self._device = device
@@ -536,7 +533,7 @@ class Ridge(Algorithm):
         self._normalize = normalize
         self._lambda_reg = 50.0
         self._double_precision = False
-        self._scale = 10.0
+        self._scale = scale
         self.to(self._device)
 
 

@@ -62,6 +62,7 @@ class TransformLoader:
             std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
             if aug:
+                print("Using cifar/fc100 specific augmentation strategy")
                 transform = transforms.Compose([
                     transforms.RandomCrop(size=32, padding=4), # border is padded with 4 px on each side
                     transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4), # [max(0, 1 - brightness), 1 + brightness] 
@@ -78,6 +79,7 @@ class TransformLoader:
                 ])
         else:
             if aug:
+                print("Using MI specific augmentation strategy")
                 transform_list = ['RandomResizedCrop', 'ImageJitter', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
             else:
                 transform_list = ['Resize', 'ToTensor', 'Normalize']

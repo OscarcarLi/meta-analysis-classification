@@ -108,9 +108,16 @@ class Meta_algorithm_trainer(object):
             query_y = query_y.cuda()
             
             # compute logits and loss on query
-            logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                query=query_x, support=shots_x, support_labels=shots_y,
-                n_way=n_way, n_shot=n_shot, n_query=n_query)
+            if is_training:
+                logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                    query=query_x, support=shots_x, support_labels=shots_y,
+                    n_way=n_way, n_shot=n_shot, n_query=n_query)
+            else:
+                with torch.no_grad():
+                    logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
+                    query=query_x, support=shots_x, support_labels=shots_y,
+                    n_way=n_way, n_shot=n_shot, n_query=n_query)
+                    
             logits = logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
