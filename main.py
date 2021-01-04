@@ -126,7 +126,6 @@ def main(args):
 
     if base_class_generalization:
         # can only do this if there is only one type of evaluation
-        assert len(all_n_shot_vals) == 1
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
         base_test_meta_dataset = MetaDataset(support_class_images_set=base_test_classes, query_class_images_set=base_test_classes,
@@ -384,7 +383,7 @@ def main(args):
         # base class generalization
         if base_class_generalization:
             # can only do this if there is only one type of evaluation
-            assert len(args.n_shot_val.split(",")) == 1
+            assert len(all_n_shot_vals) == 1
 
             print("Base Test")
             results = trainer.run(
