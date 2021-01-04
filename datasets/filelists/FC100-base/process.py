@@ -39,7 +39,7 @@ if __name__ == '__main__':
             class_counts[cl] += 1
             if name == 'base' and class_counts[cl] in base_test_indices[cl]:
                 # if the index within the class cl is in the base_test_indices of the class cl
-                # put it in basetest, otherwise put in put.
+                # put it in basetest, otherwise put in base.
                 img.save(f'images/basetest_{cl:03d}_{class_counts[cl]:03d}.png')
             else:
                 img.save(f'images/{name}_{cl:03d}_{class_counts[cl]:03d}.png')
