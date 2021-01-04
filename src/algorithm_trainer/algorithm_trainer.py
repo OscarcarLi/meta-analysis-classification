@@ -16,10 +16,6 @@ from src.algorithm_trainer.utils import *
 from src.algorithms.utils import logistic_regression_grad_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
 
-
-
-
-
 class Meta_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
