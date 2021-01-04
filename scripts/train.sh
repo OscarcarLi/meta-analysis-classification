@@ -1,7 +1,7 @@
 #! /bin/bash
 
-output='metal_FC100_r12_SVMsc5_n5s15q6tb8_SGD0.1det'
-# method_dataset_model_innerAlg_config_outerOpt 
+output='metal_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det_basetest'
+# method_dataset_model_innerAlg_config_outerOpt_misc 
 device='1'
 mkdir -p logs
 mkdir -p runs
@@ -12,26 +12,26 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm SVM \
---scale-factor 5. \
+--algorithm ProtoNet \
+--scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/FC100 \
+--dataset-path datasets/filelists/FC100-base \
 --img-side-len 32 \
 --n-epochs 60 \
---batch-size-train 8 \
---n-way-train 5 \
---n-shot-train 15 \
---n-query-train 6 \
+--batch-size-train 1 \
+--n-way-train 20 \
+--n-shot-train 5 \
+--n-query-train 15 \
 --n-iters-per-epoch 1000 \
 --batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
---do-one-shot-eval-too True \
+--do-one-shot-eval-too False \
 --n-query-val 15 \
 --n-iterations-val 250 \
---support-aug True \
+--support-aug False \
 --query-aug True \
---randomize-query False \
+--randomize-query True \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \

@@ -62,7 +62,8 @@ class Meta_algorithm_trainer(object):
         for i, mt_batch in mt_iterator:
                     
             # global iterator count
-            self._global_iteration += 1
+            if is_training:
+                self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
 
             # randperm
@@ -246,9 +247,9 @@ class Init_algorithm_trainer(object):
             # set zero grad
             if is_training:
                 self._optimizer.zero_grad()
+                # global iterator count
+                self._global_iteration += 1
             
-            # global iterator count
-            self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
 
             # randperm

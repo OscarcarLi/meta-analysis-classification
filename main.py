@@ -56,17 +56,19 @@ def main(args):
 
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
-    train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel.json')
-    if 'miniImagenet' in dataset_name:
-        base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     image_size = args.img_side_len
     dataset_name = args.dataset_path.split('/')[-1]
     # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
     # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
     all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
+    base_class_generalization = 'miniimagenet' in dataset_name.lower() or 'fc100-base' in dataset_name.lower()
+    train_file = os.path.join(args.dataset_path, 'base.json')
+    val_file = os.path.join(args.dataset_path, 'val.json')
+    test_file = os.path.join(args.dataset_path, 'novel.json')
+    if base_class_generalization:
+        base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     print("Dataset name", dataset_name, "image_size", image_size, "all_n_shot_vals", all_n_shot_vals)
+    print("base_class_generalization:", base_class_generalization)
     
     """
     1. Create ClassImagesSet object, which handles preloading of images
@@ -76,8 +78,8 @@ def main(args):
 
     print("\n", "--"*20, "TRAIN", "--"*20)
     train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
-    train_meta_dataset = MetaDataset(class_images_set=train_classes, dataset_name=dataset_name, 
-        image_size=image_size, n_shot=args.n_shot_train, n_query=args.n_query_train, 
+    train_meta_dataset = MetaDataset(support_class_images_set=train_classes, query_class_images_set=train_classes, 
+        dataset_name=dataset_name, image_size=image_size, n_shot=args.n_shot_train, n_query=args.n_query_train, 
         support_aug=str2bool(args.support_aug), query_aug=str2bool(args.query_aug), fix_support=args.fix_support, save_folder=save_folder, 
         randomize_query=str2bool(args.randomize_query), fix_support_path=args.fix_support_path)
     train_datamgr = MetaDataManager(dataset=train_meta_dataset, n_way=args.n_way_train,
@@ -85,11 +87,11 @@ def main(args):
     train_loader = train_datamgr.get_data_loader()
 
     # create a datamanager that has no fixed support
-    no_fixS_train_meta_dataset = MetaDataset(class_images_set=train_classes, dataset_name=dataset_name,  
-        image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
+    no_fixS_train_meta_dataset = MetaDataset(support_class_images_set=train_classes, query_class_images_set=train_classes,
+        dataset_name=dataset_name, image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
         randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, verbose=False)
     no_fixS_train_datamgr = MetaDataManager(dataset=no_fixS_train_meta_dataset, 
-        n_episodes=args.n_iterations_val, batch_size=args.batch_size_val, n_way=args.n_way_val)
+        n_batches=args.n_iterations_val, batch_size=args.batch_size_val, n_way=args.n_way_val)
     no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
 
     print("\n", "--"*20, "VAL", "--"*20)
@@ -99,11 +101,11 @@ def main(args):
     val_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")
-        val_meta_datasets[ns_val] = MetaDataset(class_images_set=val_classes, dataset_name=dataset_name,
-            image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
+        val_meta_datasets[ns_val] = MetaDataset(support_class_images_set=val_classes, query_class_images_set=val_classes,
+            dataset_name=dataset_name, image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
             randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
         val_datamgrs[ns_val] = MetaDataManager(dataset=val_meta_datasets[ns_val], n_way=args.n_way_val,
-            n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+            n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
         val_loaders[ns_val] = val_datamgrs[ns_val].get_data_loader()
 
 
@@ -114,33 +116,33 @@ def main(args):
     test_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")    
-        test_meta_datasets[ns_val] = MetaDataset(class_images_set=test_classes, dataset_name=dataset_name,
-            image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
+        test_meta_datasets[ns_val] = MetaDataset(support_class_images_set=test_classes, query_class_images_set=test_classes, 
+            dataset_name=dataset_name, image_size=image_size, n_shot=ns_val, n_query=args.n_query_val, 
             randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
         test_datamgrs[ns_val] = MetaDataManager(dataset=test_meta_datasets[ns_val], n_way=args.n_way_val,
-            n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+            n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
         test_loaders[ns_val] = test_datamgrs[ns_val].get_data_loader()
         
 
-    if 'miniImagenet' in dataset_name:
+    if base_class_generalization:
         # can only do this if there is only one type of evaluation
         assert len(all_n_shot_vals) == 1
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
-        base_test_meta_dataset = MetaDataset(class_images_set=base_test_classes, dataset_name=dataset_name,
-            image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
+        base_test_meta_dataset = MetaDataset(support_class_images_set=base_test_classes, query_class_images_set=base_test_classes,
+            dataset_name=dataset_name, image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
             randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder)
         base_test_datamgr = MetaDataManager(dataset=base_test_meta_dataset, n_way=args.n_way_val,
             n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
         base_test_loader = base_test_datamgr.get_data_loader()
 
         if args.fix_support > 0:
-            base_test_meta_dataset_using_fixS = MetaDataset(class_images=base_test_classes, dataset_name=dataset_name,
-                image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
+            base_test_meta_dataset_using_fixS = MetaDataset(support_class_images_set=train_classes, query_class_images_set=base_test_classes,
+                dataset_name=dataset_name, image_size=image_size, n_shot=args.n_shot_val, n_query=args.n_query_val, 
                 randomize_query=False, support_aug=False, query_aug=False, fix_support=0, save_folder=save_folder, 
                 fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
             base_test_datamgr_using_fixS = MetaDataManager(dataset=base_test_meta_dataset_using_fixS, n_way=args.n_way_val,
-                n_episodes=args.n_iterations_val, batch_size=args.batch_size_val)
+                n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
             base_test_loader_using_fixS = base_test_datamgr_using_fixS.get_data_loader()
 
 
@@ -380,7 +382,7 @@ def main(args):
         novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
         
         # base class generalization
-        if 'miniImagenet' in dataset_name:
+        if base_class_generalization:
             # can only do this if there is only one type of evaluation
             assert len(args.n_shot_val.split(",")) == 1
 

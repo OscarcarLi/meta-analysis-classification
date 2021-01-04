@@ -22,7 +22,8 @@ def load_image(image_path):
 class MetaDataset(torch.utils.data.Dataset):
 
     def __init__(self, dataset_name,
-                       class_images_set,
+                       support_class_images_set,
+                       query_class_images_set,
                        image_size,
                        n_shot, n_query, 
                        support_aug, query_aug,
@@ -35,7 +36,8 @@ class MetaDataset(torch.utils.data.Dataset):
 
         Args:
             dataset_name (str): name of the dataset (to configure the type of data augmentation)
-            class_images_set (ClassImagesSet): a data structure that contains the images of each class
+            support_class_images_set (ClassImagesSet): a data structure that contains the support images of each class
+            query_class_images_set (ClassImagesSet): a data structure that contains the query images of each class
             image_size (int): the side length of the square image
             n_shot (int): number of support examples per class
             n_query (int): number of query examples per class
@@ -51,7 +53,8 @@ class MetaDataset(torch.utils.data.Dataset):
             verbose (bool, optional): print the configuration. Defaults to True.
         """
         self.dataset_name = dataset_name
-        self.class_images_set = class_images_set
+        self.support_class_images_set = support_class_images_set
+        self.query_class_images_set = query_class_images_set
         self.image_size = image_size
         self.n_shot = n_shot
         self.n_query = n_query
@@ -59,10 +62,18 @@ class MetaDataset(torch.utils.data.Dataset):
         self.query_aug = query_aug
         self.fix_support = fix_support
         self.randomize_query = randomize_query
+
+        # support and query class images set should have the same set of classes
+        # although they can have different set of images for each class
+        # in most cases support_class_images_set == query_class_images_set
+        # except in the case of base_test_acc evaluation using fixed support set
+
+        assert self.support_class_images_set.target2label.keys() == self.query_class_images_set.target2label.keys()
         
         # logs
         if verbose:
-            print("No. of classes in set", len(self.class_images_set))
+            print(f"No. of classes in set support {len(self.support_class_images_set)} \
+                query {len(self.query_class_images_set)}")
             print("Support set is fixed:", self.fix_support!=0)
             if self.fix_support!=0:
                 print("Size of fixed support:", self.fix_support)    
@@ -82,12 +93,12 @@ class MetaDataset(torch.utils.data.Dataset):
                                                   shuffle=True,
                                                   num_workers=0, #use main thread only or may receive multiple batches
                                                   pin_memory=False)
-            for cl in self.class_images_set:
+            for cl in self.support_class_images_set:
                 if verbose:
-                    print("Setting support loader for class", self.class_images_set.target2label[cl], end =" ")
+                    print("Setting support loader for class", self.support_class_images_set.target2label[cl], end =" ")
 
                 sub_dataset = SubMetadataset(
-                                class_images=self.class_images_set[cl], 
+                                class_images=self.support_class_images_set[cl], 
                                 n_images=self.fix_support, 
                                 cl=cl, 
                                 transform=support_transform,
@@ -109,12 +120,12 @@ class MetaDataset(torch.utils.data.Dataset):
                                                 num_workers=0, #use main thread only or may receive multiple batches
                                                 pin_memory=False)        
 
-            for cl in self.class_images_set:
+            for cl in self.query_class_images_set:
                 if verbose: 
-                    print("Setting query loader for class", self.class_images_set.target2label[cl], end=" ")
+                    print("Setting query loader for class", self.query_class_images_set.target2label[cl], end=" ")
 
                 sub_dataset = SubMetadataset(
-                    class_images=self.class_images_set[cl], 
+                    class_images=self.query_class_images_set[cl], 
                     n_images=0, 
                     cl=cl, 
                     transform=query_transform,
@@ -160,7 +171,7 @@ class MetaDataset(torch.utils.data.Dataset):
 
 
     def __len__(self):
-        return len(self.class_images_set)
+        return len(self.support_class_images_set)
 
 
     def save_fixed_support(self, save_folder):
@@ -172,11 +183,11 @@ class MetaDataset(torch.utils.data.Dataset):
         save_path = os.path.join(save_folder, "fixed_support_pool.pkl")
         self.fixed_support_pool  = {}
         for cl in self.support_sub_dataloader:
-            class_id = self.class_images_set.target2label[cl] 
+            class_id = self.support_class_images_set.target2label[cl] 
             cl_dataset = self.support_sub_dataloader[cl].dataset
             fixed_indices = cl_dataset.indices
             self.fixed_support_pool[class_id] = [
-                self.class_images_set[cl].sub_meta[idx] for idx in fixed_indices]
+                self.support_class_images_set[cl].sub_meta[idx] for idx in fixed_indices]
 
         print("Saving fixed support pool to path", save_path)
         with open(save_path, 'wb') as f:
@@ -195,11 +206,11 @@ class MetaDataset(torch.utils.data.Dataset):
             self.fixed_support_pool = torch.load(f)
 
         for class_id in self.fixed_support_pool:
-            cl = self.class_images_set.label2target[class_id] 
+            cl = self.support_class_images_set.label2target[class_id] 
             cl_dataset = self.support_sub_dataloader[cl].dataset
             fixed_images = self.fixed_support_pool[class_id]
             fixed_indices = [
-                self.class_images_set[cl].inv_sub_meta[path] for path in fixed_images]
+                self.support_class_images_set[cl].inv_sub_meta[path] for path in fixed_images]
             cl_dataset.indices = fixed_indices
             print(f"Loading fix support for {class_id} with indices {fixed_indices}")
 
@@ -267,7 +278,7 @@ class SubMetadataset(torch.utils.data.Dataset):
 class ClassImagesSet:
 
     def __init__(self, data_file, preload=False):
-        """data structure that holds each class's image dataset in the dictionary self.class_images_set
+        """data structure that holds each class's image dataset in the dictionary support_class_images_set/query_class_images_set
 
         Args:
             data_file (str): path of the json file.

@@ -7,7 +7,7 @@ cwd = os.getcwd()
 data_path = os.path.join(cwd,'images')
 
 savedir = './'
-dataset_list = ['base', 'basetest','val','novel']
+dataset_list = ['base', 'base_test','val','novel']
 
 
 for dataset in dataset_list:
