@@ -255,8 +255,13 @@ def main(args):
     if args.lr_scheduler_type == 'deterministic':
         drop_eps = [int(x) for x in args.drop_lr_epoch.split(',')]
         print("Drop lr at epochs", drop_eps)
-        assert len(drop_eps) == 3, "Must give three epochs to drop lr"
-        lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (0.06 if e < drop_eps[1] else 0.012 if e < drop_eps[2] else (0.0024))
+        assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
+        if len(drop_eps) == 3:
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (0.06 if e < drop_eps[1] else 0.012 if e < drop_eps[2] else (0.0024))
+        elif len(drop_eps) == 3:
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (0.06 if e < drop_eps[1] else 0.012)
+        else:
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else 0.06
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
              optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
         for _ in range(args.restart_iter):
