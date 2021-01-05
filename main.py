@@ -282,13 +282,12 @@ def main(args):
     ####################################################
 
     if args.checkpoint != '':
-        print(f"loading from {args.checkpoint}")
+        print(f"loading model from {args.checkpoint}")
         model_dict = model.state_dict()
-        chkpt = torch.load(args.checkpoint)
+        chkpt = torch.load(args.checkpoint, map_location=torch.device('cpu'))
         try:
-            if 'optimizer' in chkpt and args.load_optimizer:
-                print(f"loading optimizer from {args.checkpoint}")
-                optimizer.state = chkpt['optimizer'].state
+            print(f"loading optimizer from {args.checkpoint}")
+            optimizer.state = chkpt['optimizer'].state
             print("Successfully loaded optimizer")
         except:
             print("Failed to load optimizer")
