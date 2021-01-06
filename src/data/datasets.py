@@ -68,7 +68,8 @@ class MetaDataset(torch.utils.data.Dataset):
         # in most cases support_class_images_set == query_class_images_set
         # except in the case of base_test_acc evaluation using fixed support set
 
-        assert self.support_class_images_set.keys() == self.query_class_images_set.keys()
+        assert self.support_class_images_set.keys() == self.query_class_images_set.keys(),\
+            f"support and query classes not matching support: {self.support_class_images_set.keys()}, query: {self.query_class_images_set.keys()}"
         self.classes = support_class_images_set.keys()
 
         # logs
