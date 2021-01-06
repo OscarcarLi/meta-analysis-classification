@@ -16,10 +16,6 @@ from src.algorithm_trainer.utils import *
 from src.algorithms.utils import logistic_regression_grad_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
 
-
-
-
-
 class Meta_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
@@ -62,7 +58,8 @@ class Meta_algorithm_trainer(object):
         for i, mt_batch in mt_iterator:
                     
             # global iterator count
-            self._global_iteration += 1
+            if is_training:
+                self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
 
             # randperm
@@ -246,9 +243,9 @@ class Init_algorithm_trainer(object):
             # set zero grad
             if is_training:
                 self._optimizer.zero_grad()
+                # global iterator count
+                self._global_iteration += 1
             
-            # global iterator count
-            self._global_iteration += 1
             analysis = (i % self._log_interval == 0)
 
             # randperm
