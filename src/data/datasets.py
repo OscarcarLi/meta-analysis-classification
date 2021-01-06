@@ -68,8 +68,9 @@ class MetaDataset(torch.utils.data.Dataset):
         # in most cases support_class_images_set == query_class_images_set
         # except in the case of base_test_acc evaluation using fixed support set
 
-        assert self.support_class_images_set.target2label.keys() == self.query_class_images_set.target2label.keys()
-        
+        assert self.support_class_images_set.keys() == self.query_class_images_set.keys()
+        self.classes = support_class_images_set.keys()
+
         # logs
         if verbose:
             print(f"No. of classes in set support {len(self.support_class_images_set)} \
@@ -95,14 +96,15 @@ class MetaDataset(torch.utils.data.Dataset):
                                                   pin_memory=False)
             for cl in self.support_class_images_set:
                 if verbose:
-                    print("Setting support loader for class", self.support_class_images_set.target2label[cl], end =" ")
+                    print("Setting support loader for class", cl, end =" ")
 
                 sub_dataset = SubMetadataset(
                                 class_images=self.support_class_images_set[cl], 
                                 n_images=self.fix_support, 
                                 cl=cl, 
                                 transform=support_transform,
-                                verbose=verbose)
+                                verbose=verbose,
+                                target_transform=(lambda x: self.support_class_images_set.label2target[x]))
                 self.support_sub_dataloader[cl] = torch.utils.data.DataLoader(
                                                             dataset=sub_dataset, 
                                                             **support_sub_data_loader_params)
@@ -122,15 +124,15 @@ class MetaDataset(torch.utils.data.Dataset):
 
             for cl in self.query_class_images_set:
                 if verbose: 
-                    print("Setting query loader for class", self.query_class_images_set.target2label[cl], end=" ")
+                    print("Setting query loader for class", cl, end=" ")
 
                 sub_dataset = SubMetadataset(
                     class_images=self.query_class_images_set[cl], 
                     n_images=0, 
                     cl=cl, 
                     transform=query_transform,
-                    verbose=verbose)
-
+                    verbose=verbose,
+                    target_transform=(lambda x: self.query_class_images_set.label2target[x]))
                 self.query_sub_dataloader[cl]=torch.utils.data.DataLoader(
                     sub_dataset, **query_sub_data_loader_params)
 
@@ -183,10 +185,9 @@ class MetaDataset(torch.utils.data.Dataset):
         save_path = os.path.join(save_folder, "fixed_support_pool.pkl")
         self.fixed_support_pool  = {}
         for cl in self.support_sub_dataloader:
-            class_id = self.support_class_images_set.target2label[cl] 
             cl_dataset = self.support_sub_dataloader[cl].dataset
             fixed_indices = cl_dataset.indices
-            self.fixed_support_pool[class_id] = [
+            self.fixed_support_pool[cl] = [
                 self.support_class_images_set[cl].sub_meta[idx] for idx in fixed_indices]
 
         print("Saving fixed support pool to path", save_path)
@@ -205,14 +206,13 @@ class MetaDataset(torch.utils.data.Dataset):
         with open(fix_support_path, 'rb') as f:
             self.fixed_support_pool = torch.load(f)
 
-        for class_id in self.fixed_support_pool:
-            cl = self.support_class_images_set.label2target[class_id] 
+        for cl in self.fixed_support_pool:
             cl_dataset = self.support_sub_dataloader[cl].dataset
-            fixed_images = self.fixed_support_pool[class_id]
+            fixed_images = self.fixed_support_pool[cl]
             fixed_indices = [
                 self.support_class_images_set[cl].inv_sub_meta[path] for path in fixed_images]
             cl_dataset.indices = fixed_indices
-            print(f"Loading fix support for {class_id} with indices {fixed_indices}")
+            print(f"Loading fix support for {cl} with indices {fixed_indices}")
 
 
 class SubMetadataset(torch.utils.data.Dataset):
@@ -227,8 +227,8 @@ class SubMetadataset(torch.utils.data.Dataset):
         """the dataset for a specific class with covariate (input) transformation and variate (label) transformation
 
         Args:
-            class_images (ClassImages): the dataset for this class
-            cl (int): the unique index for this class
+            class_images (ClassImages): the set of images in class cl 
+            cl : unique index for the class in its parent class_images_set
             n_images (int, optional): the number of images in this Class. if n_images == 0,
                                       then use all the images in the dataset. Defaults to 0.
             transform (torch transform object, optional): the callable torch transformation to be applied to the input. 
@@ -277,27 +277,26 @@ class SubMetadataset(torch.utils.data.Dataset):
 
 class ClassImagesSet:
 
-    def __init__(self, data_file, preload=False):
+    def __init__(self, *data_files, preload=False):
         """data structure that holds each class's image dataset in the dictionary support_class_images_set/query_class_images_set
 
         Args:
-            data_file (str): path of the json file.
+            data_files (str): variable len argument to paths of the json files.
             preload (bool, optional): whether preload the images into memory. Defaults to False.
         """
 
         # read json file
-        with open(data_file, 'r') as f:
-            self.meta = json.load(f)
+        self.meta = {}
+        for data_file in data_files:
+            print("loading image paths, labels from json ", data_file)
+            with open(data_file, 'r') as f:
+                self.update_meta(json.load(f))
 
         # map class labels to unique integers in 0, ..., num_unique_classes - 1
         self.label2target = {v:k for k,v in enumerate(np.unique(self.meta['image_labels']))}
         self.target2label = {v:k for k,v in self.label2target.items()}
-        self.meta['image_labels'] = list(map(
-                                            lambda x: self.label2target[x],
-                                            self.meta['image_labels'])
-                                        )
-
-        # list of class labels in integers from 0 to num_unique_classes - 1
+        
+        # list of unique class labels in dataset
         self.classes = np.unique(self.meta['image_labels']).tolist()
 
         # fetch all image paths for each class
@@ -309,6 +308,25 @@ class ClassImagesSet:
         self.class_images_set = {}
         for cl in self.classes:
             self.class_images_set[cl] = ClassImages(self.per_class_image_paths[cl], cl, preload)
+
+
+    def update_meta(self, json_obj):
+        """
+        updates self.meta using new keys and values found in
+        given json_obj
+        """
+        
+        for key, value in json_obj.items():
+            assert type(value) == list, "json file has a value that is not a list"
+            """
+            the above assertion is necessary for the logic below to 
+            to update self.meta. The expected structure of json_obj is
+            {k1:v1, k2:v2 ... } where v1, v2 ... are lists
+            """
+            if key not in self.meta:
+                self.meta[key] = value
+            else:
+                self.meta[key].extend(value)
 
 
     def __len__(self):
@@ -335,6 +353,9 @@ class ClassImagesSet:
         for cl in self.class_images_set:
             yield cl, self.class_images_set[cl]
 
+    def keys(self):
+        # return classes, mainly to interface this class as a dict
+        return self.classes
 
 class ClassImages:
 
@@ -374,10 +395,8 @@ class ClassImages:
         return len(self.sub_meta)
 
 
-
 if __name__ == '__main__':
 
-    cis = \
-    ClassImagesSet(data_file='/home/oscarli/projects/meta-analysis-classification/data/new_miniimagenet/val.json',
-                   preload=False)
+    cis = ClassImagesSet(
+        'datasets/filelists/FC100/base.json', 'datasets/filelists/FC100/novel.json', preload=False)
     print(cis.class_images_set)

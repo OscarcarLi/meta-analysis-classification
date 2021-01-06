@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det_basetest'
+output='metal_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det05_basetest'
 # method_dataset_model_innerAlg_config_outerOpt_misc 
 device='1'
 mkdir -p logs
@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/FC100-base \
 --img-side-len 32 \
---n-epochs 60 \
+--n-epochs 15 \
 --batch-size-train 1 \
 --n-way-train 20 \
 --n-shot-train 5 \
@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --n-shot-val 5 \
 --do-one-shot-eval-too False \
 --n-query-val 15 \
---n-iterations-val 250 \
+--n-iterations-val 500 \
 --support-aug False \
 --query-aug True \
 --randomize-query True \
@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --lr 0.1 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 20,40,50 \
+--drop-lr-epoch 5 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \
@@ -46,4 +46,3 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --device-number ${device} \
 --log-interval 100 > logs/${output}.log &
 tail -f logs/${output}.log
-
