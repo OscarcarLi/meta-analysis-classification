@@ -25,11 +25,9 @@ class MetaDataset(torch.utils.data.Dataset):
                        support_class_images_set,
                        query_class_images_set,
                        image_size,
-                       n_shot, n_query, 
                        support_aug, query_aug,
-                       save_folder,
                        fix_support,
-                       randomize_query,
+                       save_folder,
                        fix_support_path='',
                        verbose=True):
         """[summary]
@@ -39,8 +37,6 @@ class MetaDataset(torch.utils.data.Dataset):
             support_class_images_set (ClassImagesSet): a data structure that contains the support images of each class
             query_class_images_set (ClassImagesSet): a data structure that contains the query images of each class
             image_size (int): the side length of the square image
-            n_shot (int): number of support examples per class
-            n_query (int): number of query examples per class
             support_aug (bool): whether to use data augmentation for support set
             query_aug (bool): whether to use data augmentation for query set
             save_folder (str): the folder to save the fixed support set information at
@@ -56,12 +52,12 @@ class MetaDataset(torch.utils.data.Dataset):
         self.support_class_images_set = support_class_images_set
         self.query_class_images_set = query_class_images_set
         self.image_size = image_size
-        self.n_shot = n_shot
-        self.n_query = n_query
+        # self.n_shot = n_shot
+        # self.n_query = n_query
         self.support_aug = support_aug
         self.query_aug = query_aug
         self.fix_support = fix_support
-        self.randomize_query = randomize_query
+        # self.randomize_query = randomize_query
 
         # support and query class images set should have the same set of classes
         # although they can have different set of images for each class
@@ -69,18 +65,18 @@ class MetaDataset(torch.utils.data.Dataset):
         # except in the case of base_test_acc evaluation using fixed support set
 
         assert self.support_class_images_set.keys() == self.query_class_images_set.keys(),\
-            f"support and query classes not matching support: {self.support_class_images_set.keys()}, query: {self.query_class_images_set.keys()}"
-        self.classes = support_class_images_set.keys()
+            f"""support and query classes not matching
+                support: {self.support_class_images_set.keys()},
+                query: {self.query_class_images_set.keys()}"""
 
+        self.classes = list(support_class_images_set.keys())
         # logs
         if verbose:
             print(f"No. of classes in set support {len(self.support_class_images_set)} \
                 query {len(self.query_class_images_set)}")
             print("Support set is fixed:", self.fix_support!=0)
-            if self.fix_support!=0:
+            if self.fix_support != 0:
                 print("Size of fixed support:", self.fix_support)    
-            print("Size of Support:", self.n_shot)
-            print("Size of Query:", self.n_query, "randomize query", self.randomize_query)
             print("support aug:", support_aug, "query aug:", query_aug)
 
         # transforms
@@ -89,53 +85,36 @@ class MetaDataset(torch.utils.data.Dataset):
         query_transform = self.trans_loader.get_composed_transform(dataset_name, aug=query_aug)
     
         # support
-        if n_shot > 0:
-            self.support_sub_dataloader = {} 
-            support_sub_data_loader_params = dict(batch_size=n_shot,
-                                                  shuffle=True,
-                                                  num_workers=0, #use main thread only or may receive multiple batches
-                                                  pin_memory=False)
-            for cl in self.support_class_images_set:
-                if verbose:
-                    print("Setting support loader for class", cl, end =" ")
+        self.support_sub_dataloader = {} 
+        for cl in self.support_class_images_set:
+            if verbose:
+                print("Setting support loader for class", cl, end =" ")
 
-                sub_dataset = SubMetadataset(
-                                class_images=self.support_class_images_set[cl], 
-                                n_images=self.fix_support, 
-                                cl=cl, 
-                                transform=support_transform,
-                                verbose=verbose,
-                                target_transform=(lambda x: self.support_class_images_set.label2target[x]))
-                self.support_sub_dataloader[cl] = torch.utils.data.DataLoader(
-                                                            dataset=sub_dataset, 
-                                                            **support_sub_data_loader_params)
+            sub_dataset = SubMetadataset(
+                            class_images=self.support_class_images_set[cl], 
+                            n_images=self.fix_support, 
+                            cl=cl, 
+                            transform=support_transform,
+                            target_transform=identity, # likely not needed
+                            verbose=verbose)
+            self.support_sub_dataloader[cl] = sub_dataset
 
         # query
-        if n_query > 0:
-            self.query_sub_dataloader = {} 
-            
-            # double query points if randomize_query is True. Sample more, permute and select top K 
-            # This is a pseudo method for inducing some variance. To increase this variance
-            # we can triple the query points instead of doubling them. also make corresponding change in trainer.
+        self.query_sub_dataloader = {} 
 
-            query_sub_data_loader_params = dict(batch_size=2*n_query if self.randomize_query else n_query,
-                                                shuffle=True,
-                                                num_workers=0, #use main thread only or may receive multiple batches
-                                                pin_memory=False)        
+        for cl in self.query_class_images_set:
+            if verbose: 
+                print("Setting query loader for class", self.query_class_images_set.target2label[cl], end=" ")
 
-            for cl in self.query_class_images_set:
-                if verbose: 
-                    print("Setting query loader for class", cl, end=" ")
+            sub_dataset = SubMetadataset(
+                            class_images=self.query_class_images_set[cl], 
+                            n_images=0, 
+                            cl=cl,
+                            transform=query_transform,
+                            target_transform=identity,
+                            verbose=verbose)
 
-                sub_dataset = SubMetadataset(
-                    class_images=self.query_class_images_set[cl], 
-                    n_images=0, 
-                    cl=cl, 
-                    transform=query_transform,
-                    verbose=verbose,
-                    target_transform=(lambda x: self.query_class_images_set.label2target[x]))
-                self.query_sub_dataloader[cl]=torch.utils.data.DataLoader(
-                    sub_dataset, **query_sub_data_loader_params)
+            self.query_sub_dataloader[cl] = sub_dataset
 
         # load from fix support path
         if fix_support_path != '':
@@ -146,31 +125,48 @@ class MetaDataset(torch.utils.data.Dataset):
             self.save_fixed_support(save_folder)
 
 
-    def __getitem__(self, cl):
+    def __getitem__(self, task_class_info):
         """return a random support, query (input, label) tuple of class cl
 
         Args:
-            cl (int): the index of the class
+            task_class_info (dict): a dictionary containing information of the class requested
+                                ['task_idx']: the index of the task
+                                ['cl']: the unique class index
+                                ['n_shot']: number of shots requested
+                                ['n_query']: number of query requested
+                                ['cl_label']: the label to be used for this class
 
         Returns:
-            (input, label): a tuple where input, label are tensors with the first part
-                            of the first dimension of the support set, the second
-                            part of the first dimension of the query set.
-                            for example, input of shape [20, 3, 84, 84]
-                                         label of shape [20]
-                                         when n_shot == 5 and n_query == 15.
-                                         input[:5,:], label[:5,:] support set of this class
-                                         input[5:,:], label[5:,:] query set of this class
+                dict: with keys
+                    'task_idx': the index of the task in the batch of tasks for assembling
+                    'support_x_cl': tensor of shape (task_class_info['n_shot], c, h, w)
+                    'support_y': tensor of shape (task_class_info['n_shot])
+                    'query_x_cl': tensor of shape (task_class_info['n_shot], c, h, w)
+                    'query_y': tensor of shape (task_class_info['n_shot])
+                    'cl': the unique cl identifier (for debugging)
         """
-        if self.n_shot > 0 and self.n_query == 0:
-            return next(iter(self.support_sub_dataloader[cl]))
-        elif self.n_query > 0 and self.n_shot == 0:
-            return next(iter(self.query_sub_dataloader[cl]))
-        elif self.n_shot > 0 and self.n_query > 0:
-            return torch.cat([next(iter(self.support_sub_dataloader[cl]))[0], next(iter(self.query_sub_dataloader[cl]))[0]], dim=0), \
-                   torch.cat([next(iter(self.support_sub_dataloader[cl]))[1], next(iter(self.query_sub_dataloader[cl]))[1]], dim=0)
-        else:
-            return None
+        cl = task_class_info['cl']
+        result = {'task_idx': task_class_info['task_idx'],
+                  'cl': cl}
+
+        if task_class_info['n_shot'] > 0:
+            support_x, support_y = self.support_sub_dataloader[cl].get_random_batch(
+                                        class_info={
+                                            'num': task_class_info['n_shot'],
+                                            'cl_label': task_class_info['cl_label'],
+                                        })
+            result['support_x_cl'] = support_x
+            result['support_y_cl'] = support_y
+        if task_class_info['n_query'] > 0:
+            query_x, query_y = self.query_sub_dataloader[cl].get_random_batch(
+                                        class_info={
+                                            'num': task_class_info['n_query'],
+                                            'cl_label': task_class_info['cl_label'],
+                                        })
+            result['query_x_cl'] = query_x
+            result['query_y_cl'] = query_y
+
+        return result
 
 
     def __len__(self):
@@ -186,10 +182,11 @@ class MetaDataset(torch.utils.data.Dataset):
         save_path = os.path.join(save_folder, "fixed_support_pool.pkl")
         self.fixed_support_pool  = {}
         for cl in self.support_sub_dataloader:
-            cl_dataset = self.support_sub_dataloader[cl].dataset
+            cl_dataset = self.support_sub_dataloader[cl]
             fixed_indices = cl_dataset.indices
             self.fixed_support_pool[cl] = [
-                self.support_class_images_set[cl].sub_meta[idx] for idx in fixed_indices]
+                self.support_class_images_set[cl].sub_meta[idx] for idx in fixed_indices
+            ]
 
         print("Saving fixed support pool to path", save_path)
         with open(save_path, 'wb') as f:
@@ -208,10 +205,11 @@ class MetaDataset(torch.utils.data.Dataset):
             self.fixed_support_pool = torch.load(f)
 
         for cl in self.fixed_support_pool:
-            cl_dataset = self.support_sub_dataloader[cl].dataset
+            cl_dataset = self.support_sub_dataloader[cl]
             fixed_images = self.fixed_support_pool[cl]
             fixed_indices = [
-                self.support_class_images_set[cl].inv_sub_meta[path] for path in fixed_images]
+                self.support_class_images_set[cl].inv_sub_meta[path] for path in fixed_images
+            ]
             cl_dataset.indices = fixed_indices
             print(f"Loading fix support for {cl} with indices {fixed_indices}")
 
@@ -228,8 +226,8 @@ class SubMetadataset(torch.utils.data.Dataset):
         """the dataset for a specific class with covariate (input) transformation and variate (label) transformation
 
         Args:
-            class_images (ClassImages): the set of images in class cl 
-            cl : unique index for the class in its parent class_images_set
+            class_images (ClassImages): the dataset for this class
+            cl (int): the unique index for this class
             n_images (int, optional): the number of images in this Class. if n_images == 0,
                                       then use all the images in the dataset. Defaults to 0.
             transform (torch transform object, optional): the callable torch transformation to be applied to the input. 
@@ -248,6 +246,7 @@ class SubMetadataset(torch.utils.data.Dataset):
         else:
             # only use n_images (indices fixed afterwards)
             self.indices = np.random.choice(len(class_images), size=n_images, replace=False)
+
         if verbose:
             print(f"using {len(self.indices)} images from class"),
 
@@ -256,6 +255,14 @@ class SubMetadataset(torch.utils.data.Dataset):
 
 
     def __getitem__(self, i):
+        """get ith item of this class's transformed input and transformed label
+
+        Args:
+            i (int): integer between 0 and len(self) - 1 that specifies a unique image
+
+        Returns:
+            (tuple): transformed img, transformed target
+        """        
         # fetch img
         img = self.class_images[self.indices[i]]
         # transforms
@@ -264,12 +271,35 @@ class SubMetadataset(torch.utils.data.Dataset):
         return img, target
 
 
-    # def get_list_of_items(self, ls):
-    #     return \
-    #     (torch.stack(tensors=[self.transform(self.class_images[self.indices[i]]) for i in ls],
-    #                 dim=0),
-    #     torch.stack(tensors=[self.target_transform(self.cl) for _ in ls],
-    #                 dim=0))
+    def get_random_batch(self, class_info):
+        """get a random batch of data from this submetadataset
+
+        Args:
+            class_info (dict): a dictionary containing information of the class requested
+                                ['num']: number of examples requested
+                                ['cl_label']: the label to be used for this class
+
+        Returns:
+            2-element tuple: inputs, labels
+                             inputs of shape (class_info['num'], c, h, w)
+                             labels of shape (class_info['num']) of integer labels specific by
+                                        class_info['cl_label']
+        """        
+
+        if class_info['num'] == 0:
+            # return None if not requesting
+            return None, None
+
+        inputs = \
+            [self.transform(self.class_images[idx])
+                for idx in np.random.choice(
+                                a=self.indices,
+                                size=class_info['num'],
+                                replace=False)] # class_info['num'] must be <= len(self.indices)
+
+        labels = [self.target_transform(class_info['cl_label'])] * class_info['num']
+
+        return torch.stack(tensors=inputs, dim=0), torch.tensor(labels)
 
 
     def __len__(self):
@@ -288,6 +318,7 @@ class ClassImagesSet:
 
         # read json file
         self.meta = {}
+        # merge multiple json files (this requires that 'image_labels' to be distinct for different classes)
         for data_file in data_files:
             print("loading image paths, labels from json ", data_file)
             with open(data_file, 'r') as f:
@@ -296,14 +327,13 @@ class ClassImagesSet:
         # map class labels to unique integers in 0, ..., num_unique_classes - 1
         self.label2target = {v:k for k,v in enumerate(np.unique(self.meta['image_labels']))}
         self.target2label = {v:k for k,v in self.label2target.items()}
-        
         # list of unique class labels in dataset
         self.classes = np.unique(self.meta['image_labels']).tolist()
 
         # fetch all image paths for each class
         self.per_class_image_paths = defaultdict(list)
-        for x,y in zip(self.meta['image_names'], self.meta['image_labels']):
-            self.per_class_image_paths[y].append(x)
+        for path, cl in zip(self.meta['image_names'], self.meta['image_labels']):
+            self.per_class_image_paths[cl].append(path)
         
         # create class images set
         self.class_images_set = {}
@@ -358,6 +388,7 @@ class ClassImagesSet:
         # return classes, mainly to interface this class as a dict
         return self.classes
 
+
 class ClassImages:
 
     def __init__(self, sub_meta, cl, preload=False):
@@ -382,7 +413,7 @@ class ClassImages:
                 for image in executor.map(load_image, self.sub_meta):
                     self.images.append(image)
             print(f"Done loading class {cl} into memory -- found {len(self.images)} images")
-                        
+
 
     def __getitem__(self, i):
         # load the i-th image of this class
@@ -392,12 +423,14 @@ class ClassImages:
             img = load_image(self.sub_meta[i])
         return img
 
+
     def __len__(self):
         return len(self.sub_meta)
 
 
 if __name__ == '__main__':
 
-    cis = ClassImagesSet(
-        'datasets/filelists/FC100/base.json', 'datasets/filelists/FC100/novel.json', preload=False)
+    cis = \
+    ClassImagesSet(data_file='/home/oscarli/projects/meta-analysis-classification/data/new_miniimagenet/val.json',
+                   preload=False)
     print(cis.class_images_set)

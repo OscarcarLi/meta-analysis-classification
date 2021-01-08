@@ -157,7 +157,17 @@ def one_hot(indices, depth):
 
 
 def smooth_loss(logits, labels, num_classes, eps):
+    """compute cross entropy loss using label smoothing
 
+    Args:
+        logits (torch Tensor): what is the shape?
+        labels (Tensor): integer class labels
+        num_classes (int): the total number of classes
+        eps (float): the smoothing constant, the probability of eps is split over (num_classes - 1) wrong classes.
+
+    Returns:
+        torch Tensor: float of the label-smoothing cross entropy loss
+    """
     smoothed_one_hot = one_hot(labels.reshape(-1), num_classes)
     smoothed_one_hot = smoothed_one_hot * (1 - eps) + (1 - smoothed_one_hot) * eps / (num_classes - 1)
     log_prb = F.log_softmax(logits.reshape(-1, num_classes), dim=1)
