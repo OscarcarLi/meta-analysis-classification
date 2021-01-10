@@ -17,7 +17,7 @@ from src.models import shallow_conv, resnet_12, wide_resnet, dense_net
 from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init_algorithm_trainer
 from src.algorithms.algorithm import SVM, ProtoNet, Ridge, InitBasedAlgorithm
 from src.optimizers import modified_sgd
-from src.data.dataset_managers import MetaDataManager
+from src.data.dataset_managers import MetaDataLoader
 from src.data.datasets import MetaDataset, ClassImagesSet
 
 
@@ -78,64 +78,71 @@ def main(args):
 
     print("\n", "--"*20, "TRAIN", "--"*20)
     train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
-    train_meta_dataset = MetaDataset(support_class_images_set=train_classes,
-                                     query_class_images_set=train_classes, 
-                                     dataset_name=dataset_name,
-                                     image_size=image_size,
-                                     n_shot=args.n_shot_train,
-                                     n_query=args.n_query_train, 
-                                     support_aug=str2bool(args.support_aug),
-                                     query_aug=str2bool(args.query_aug),
-                                     fix_support=args.fix_support, save_folder=save_folder, 
-                                     randomize_query=str2bool(args.randomize_query),
-                                     fix_support_path=args.fix_support_path)
+    train_meta_dataset = MetaDataset(
+                            dataset_name=dataset_name,
+                            support_class_images_set=train_classes,
+                            query_class_images_set=train_classes, 
+                            image_size=image_size,
+                            support_aug=str2bool(args.support_aug),
+                            query_aug=str2bool(args.query_aug),
+                            fix_support=args.fix_support,
+                            save_folder=save_folder,
+                            fix_support_path=args.fix_support_path)
 
-    train_datamgr = MetaDataManager(dataset=train_meta_dataset, n_way=args.n_way_train,
-        n_batches=args.n_iters_per_epoch, batch_size=args.batch_size_train)
-    train_loader = train_datamgr.get_data_loader()
+    train_loader = MetaDataLoader(
+                        dataset=train_meta_dataset,
+                        batch_size=args.batch_size_train,
+                        n_batches=args.n_iters_per_epoch,
+                        n_way=args.n_way_train,
+                        n_shot=args.n_shot_train,
+                        n_query=args.n_query_train,
+                        randomize_query=str2bool(args.randomize_query))
 
-    # create a datamanager that has no fixed support
+    # create a dataloader that has no fixed support
     no_fixS_train_meta_dataset = MetaDataset(
+                                    dataset_name=dataset_name,
                                     support_class_images_set=train_classes,
                                     query_class_images_set=train_classes,
-                                    dataset_name=dataset_name,
                                     image_size=image_size,
-                                    n_shot=args.n_shot_val,
-                                    n_query=args.n_query_val, 
-                                    randomize_query=False,
                                     support_aug=False,
                                     query_aug=False,
                                     fix_support=0, # no fixed support
-                                    save_folder=save_folder,
+                                    save_folder='',
                                     verbose=False)
 
-    no_fixS_train_datamgr = MetaDataManager(dataset=no_fixS_train_meta_dataset, 
-        n_batches=args.n_iterations_val, batch_size=args.batch_size_val, n_way=args.n_way_val)
-    no_fixS_train_loader = no_fixS_train_datamgr.get_data_loader()
+    no_fixS_train_loader = MetaDataLoader(
+                                dataset=no_fixS_train_meta_dataset,
+                                n_batches=args.n_iterations_val,
+                                batch_size=args.batch_size_val,
+                                n_way=args.n_way_val,
+                                n_shot=args.n_shot_val,
+                                n_query=args.n_query_val, 
+                                randomize_query=False)
 
     print("\n", "--"*20, "VAL", "--"*20)
     val_classes = ClassImagesSet(val_file, preload=False)    
     val_meta_datasets = {}
-    val_datamgrs = {}
     val_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")
         val_meta_datasets[ns_val] = MetaDataset(
+                                        dataset_name=dataset_name,
                                         support_class_images_set=val_classes,
                                         query_class_images_set=val_classes,
-                                        dataset_name=dataset_name,
                                         image_size=image_size,
-                                        n_shot=ns_val,
-                                        n_query=args.n_query_val, 
-                                        randomize_query=False,
                                         support_aug=False,
                                         query_aug=False,
                                         fix_support=0,
-                                        save_folder=save_folder)
+                                        save_folder='')
 
-        val_datamgrs[ns_val] = MetaDataManager(dataset=val_meta_datasets[ns_val], n_way=args.n_way_val,
-            n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
-        val_loaders[ns_val] = val_datamgrs[ns_val].get_data_loader()
+        val_loaders[ns_val] = MetaDataLoader(
+                                dataset=val_meta_datasets[ns_val],
+                                n_batches=args.n_iterations_val,
+                                batch_size=args.batch_size_val,
+                                n_way=args.n_way_val,
+                                n_shot=ns_val,
+                                n_query=args.n_query_val, 
+                                randomize_query=False)
 
     print("\n", "--"*20, "TEST", "--"*20)
     test_classes = ClassImagesSet(test_file)
@@ -145,59 +152,66 @@ def main(args):
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")    
         test_meta_datasets[ns_val] = MetaDataset(
+                                        dataset_name=dataset_name,
                                         support_class_images_set=test_classes,
                                         query_class_images_set=test_classes,
-                                        dataset_name=dataset_name,
                                         image_size=image_size,
-                                        n_shot=ns_val,
-                                        n_query=args.n_query_val, 
-                                        randomize_query=False,
                                         support_aug=False,
                                         query_aug=False,
                                         fix_support=0,
-                                        save_folder=save_folder)
+                                        save_folder='')
 
-        test_datamgrs[ns_val] = MetaDataManager(dataset=test_meta_datasets[ns_val], n_way=args.n_way_val,
-            n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
-        test_loaders[ns_val] = test_datamgrs[ns_val].get_data_loader()
+        test_dataloaders[ns_val] = MetaDataLoader(
+                                    dataset=test_meta_datasets[ns_val],
+                                    n_batches=args.n_iterations_val,
+                                    batch_size=args.batch_size_val,
+                                    n_way=args.n_way_val,
+                                    n_shot=ns_val,
+                                    n_query=args.n_query_val,
+                                    randomize_query=False,)
 
     if base_class_generalization:
         # can only do this if there is only one type of evaluation
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
         base_test_meta_dataset = MetaDataset(
+                                    dataset_name=dataset_name,
                                     support_class_images_set=base_test_classes,
                                     query_class_images_set=base_test_classes,
-                                    dataset_name=dataset_name,
                                     image_size=image_size,
-                                    n_shot=args.n_shot_val,
-                                    n_query=args.n_query_val, 
-                                    randomize_query=False,
                                     support_aug=False,
                                     query_aug=False,
                                     fix_support=0,
                                     save_folder=save_folder)
-        base_test_datamgr = MetaDataManager(dataset=base_test_meta_dataset, n_way=args.n_way_val,
-            n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
-        base_test_loader = base_test_datamgr.get_data_loader()
+        base_test_loader = MetaDataLoader(
+                                dataset=base_test_meta_dataset,
+                                n_batches=args.n_iterations_val,
+                                batch_size=args.batch_size_val,
+                                n_way=args.n_way_val,
+                                n_shot=args.n_shot_val,
+                                n_query=args.n_query_val, 
+                                randomize_query=False)
+
 
         if args.fix_support > 0:
             base_test_meta_dataset_using_fixS = MetaDataset(
-                                                    support_class_images_set=train_classes, query_class_images_set=base_test_classes,
                                                     dataset_name=dataset_name,
+                                                    support_class_images_set=train_classes, query_class_images_set=base_test_classes,
                                                     image_size=image_size,
-                                                    n_shot=args.n_shot_val,
-                                                    n_query=args.n_query_val, 
-                                                    randomize_query=False,
                                                     support_aug=False,
                                                     query_aug=False,
                                                     fix_support=0,
                                                     save_folder=save_folder, 
                                                     fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
 
-            base_test_datamgr_using_fixS = MetaDataManager(dataset=base_test_meta_dataset_using_fixS, n_way=args.n_way_val,
-                n_batches=args.n_iterations_val, batch_size=args.batch_size_val)
-            base_test_loader_using_fixS = base_test_datamgr_using_fixS.get_data_loader()
+            base_test_loader_using_fixS = MetaDataLoader(
+                                            dataset=base_test_meta_dataset_using_fixS,
+                                            n_batches=args.n_iterations_val,
+                                            batch_size=args.batch_size_val,
+                                            n_way=args.n_way_val,
+                                            n_shot=args.n_shot_val,
+                                            n_query=args.n_query_val, 
+                                            randomize_query=False,)
 
         print("\n", "--"*20, "BASE + NOVEL TEST", "--"*20)
         assert len(set(base_test_classes.keys()).intersection(set(test_classes.keys()))) == 0,\
@@ -205,29 +219,31 @@ def main(args):
         # combine both base and novel classes
         base_novel_test_classes = ClassImagesSet(base_test_file, test_file)
         base_novel_test_meta_dataset = MetaDataset(
+                                    dataset_name=dataset_name,
                                     support_class_images_set=base_novel_test_classes,
                                     query_class_images_set=base_novel_test_classes,
-                                    dataset_name=dataset_name,
                                     image_size=image_size,
-                                    n_shot=args.n_shot_val,
-                                    n_query=args.n_query_val, 
-                                    randomize_query=False,
                                     support_aug=False,
                                     query_aug=False,
                                     fix_support=0,
-                                    save_folder=save_folder)
+                                    save_folder='')
 
         # sample classes from base and novel with mix prob. given by lambd
-        base_novel_test_datamgrs = {}
-        base_novel_test_loaders = {}
+        base_novel_test_loaders_dict = {}
         for lambd in [0.2, 0.4, 0.6, 0.8]:
-            base_novel_test_datamgrs[lambd] = MetaDataManager(dataset=base_novel_test_meta_dataset, n_way=args.n_way_val,
-            n_batches=args.n_iterations_val, batch_size=args.batch_size_val, p_dict={
-                k: ((1-lambd) / len(base_test_classes) if k in base_test_classes else lambd / len(test_classes))
-                for k in list(base_test_classes) + list(test_classes)
-            })
-            base_novel_test_loaders[lambd] = base_novel_test_datamgrs[lambd].get_data_loader()
-
+            base_novel_test_loaders_dict[lambd] = MetaDataLoader(
+                dataset=base_novel_test_meta_dataset,
+                n_batches=args.n_iterations_val,
+                batch_size=args.batch_size_val, 
+                n_way=args.n_way_val,
+                n_shot=args.n_shot_val,
+                n_query=args.n_query_val, 
+                randomize_query=False,
+                p_dict={
+                    k: ((1-lambd) / len(base_test_classes) if k in base_test_classes else lambd / len(test_classes))
+                        for k in list(base_test_classes) + list(test_classes)
+                }
+            )
 
 
     ####################################################
@@ -425,13 +441,14 @@ def main(args):
             print('\n\nlearning rate:', param_group['lr'])
 
         trainer.run(
-            mt_loader=train_loader, mt_manager=train_datamgr, is_training=True, epoch=iter_start + 1, 
-            randomize_query=str2bool(args.randomize_query))
+            mt_loader=train_loader,
+            is_training=True,
+            epoch=iter_start + 1)
 
         # On ML train objective
         print("Train Loss on ML objective")
         results = trainer.run(
-            no_fixS_train_loader, no_fixS_train_datamgr, is_training=False)
+            mt_loader=no_fixS_train_loader, is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
         writer.add_scalar(
@@ -446,7 +463,7 @@ def main(args):
         for ns_val in all_n_shot_vals:
             print("Validation ", f"n_shots_val {ns_val}")
             results = trainer.run(
-                val_loaders[ns_val], val_datamgrs[ns_val], is_training=False)
+                mt_loader=val_loaders[ns_val], is_training=False)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
             writer.add_scalar(
@@ -457,7 +474,7 @@ def main(args):
             
             print("Test ", f"n_shots_val {ns_val}")
             results = trainer.run(
-                test_loaders[ns_val], test_datamgrs[ns_val], is_training=False)
+                mt_loader=test_loaders[ns_val], is_training=False)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
             writer.add_scalar(
@@ -475,7 +492,7 @@ def main(args):
             
             print("Base Test")
             results = trainer.run(
-                base_test_loader, base_test_datamgr, is_training=False)
+                mt_loader=base_test_loader, is_training=False)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
             writer.add_scalar(
@@ -491,7 +508,7 @@ def main(args):
             if args.fix_support > 0:
                 print("Base Test using FixSupport, matching train and test for fixml")
                 results = trainer.run(
-                    base_test_loader_using_fixS, base_test_datamgr_using_fixS, is_training=False)
+                    mt_loader=base_test_loader_using_fixS, is_training=False)
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(results)
                 writer.add_scalar(
@@ -499,10 +516,10 @@ def main(args):
                 writer.add_scalar(
                     "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
 
-            for lambd, base_novel_test_loader in base_novel_test_loaders.items():
+            for lambd, base_novel_test_loader in base_novel_test_loaders_dict.items():
                 print(f"Base + Novel Test lambda={lambd} Novel {1-lambd} Base")
                 results = trainer.run(
-                    base_novel_test_loader, base_novel_test_datamgrs[lambd], is_training=False)
+                    mt_loader=base_novel_test_loader, is_training=False)
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(results)
                 writer.add_scalar(

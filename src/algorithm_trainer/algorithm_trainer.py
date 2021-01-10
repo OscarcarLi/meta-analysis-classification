@@ -32,7 +32,7 @@ class Meta_algorithm_trainer(object):
         self._eps = 0.
         
 
-    def run(self, mt_loader, mt_manager, epoch=None, is_training=True, randomize_query=False):
+    def run(self, mt_loader, epoch=None, is_training=True):
 
         if is_training:
             self._algorithm._model.train()
@@ -47,21 +47,23 @@ class Meta_algorithm_trainer(object):
         aggregate = defaultdict(list)
         
         # constants
-        n_way = mt_manager.n_way
-        n_shot = mt_manager.n_shot
-        mt_batch_sz = mt_manager.batch_size
-        n_query = mt_manager.n_query
-        mt_batch_sz = mt_manager.batch_size        
+        n_way = mt_loader.n_way
+        n_shot = mt_loader.n_shot
+        mt_batch_sz = mt_loader.batch_size
+        n_query = mt_loader.n_query
+        randomize_query = mt_loader.randomize_query
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
         
 
         for i, mt_batch in mt_iterator:
-                    
+
             # global iterator count
             if is_training:
                 self._global_iteration += 1
+
             analysis = (i % self._log_interval == 0)
 
+            '''
             # randperm
             if randomize_query and is_training:
                 rp = np.random.permutation(2 * n_query * n_way)[:n_query * n_way]
@@ -93,8 +95,12 @@ class Meta_algorithm_trainer(object):
             # (batch_sz, n_way*n_query, channels , height , width)
             shots_y, query_y = get_labels(mt_batch_y, n_way=n_way, 
                 n_shot=n_shot, n_query=n_query, batch_sz=mt_batch_sz, rp=rp)
-            assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
-            assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
+            '''
+
+            # assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
+            # assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
+            assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
+            assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
             assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
             assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
@@ -105,16 +111,16 @@ class Meta_algorithm_trainer(object):
             query_y = query_y.cuda()
             
             # compute logits and loss on query
-            if is_training:
-                logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                    query=query_x, support=shots_x, support_labels=shots_y,
-                    n_way=n_way, n_shot=n_shot, n_query=n_query)
-            else:
-                with torch.no_grad():
-                    logits, measurements_trajectory = self._algorithm.inner_loop_adapt(
-                    query=query_x, support=shots_x, support_labels=shots_y,
-                    n_way=n_way, n_shot=n_shot, n_query=n_query)
-                    
+            with torch.enable_grad() if is_training else torch.no_grad():
+                logits, measurements_trajectory = \
+                    self._algorithm.inner_loop_adapt(
+                        support=shots_x,
+                        support_labels=shots_y,
+                        query=query_x,
+                        n_way=n_way,
+                        n_shot=n_shot,
+                        n_query=n_query)
+
             logits = logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
@@ -137,7 +143,6 @@ class Meta_algorithm_trainer(object):
                         max_norm=self._grad_clip, norm_type='inf')
                 self._optimizer.step()
 
-                    
             # logging
             if analysis and is_training:
                 metrics = {}
@@ -145,7 +150,6 @@ class Meta_algorithm_trainer(object):
                     metrics[name] = np.mean(values)
                 self.log_output(epoch, i, metrics)
                 aggregate = defaultdict(list)    
-
 
         # save model and log tboard for eval
         if is_training and self._save_folder is not None:
@@ -173,7 +177,6 @@ class Meta_algorithm_trainer(object):
         return results
 
 
-
     def log_output(self, epoch, iteration,
                 metrics_dict):
         if iteration is not None:
@@ -188,9 +191,6 @@ class Meta_algorithm_trainer(object):
                     key, metrics_dict[key], self._global_iteration)
         log_array.append(' ') 
         tqdm.write('\n'.join(log_array))
-
-
-
 
 
 
@@ -218,7 +218,7 @@ class Init_algorithm_trainer(object):
         print("Starting tboard logs from iter", self._global_iteration)
         
 
-    def run(self, mt_loader, mt_manager, epoch=None, is_training=True, randomize_query=False):
+    def run(self, mt_loader, epoch=None, is_training=True):
 
         # always transductive
         self._algorithm._model.train()
@@ -231,10 +231,11 @@ class Init_algorithm_trainer(object):
         aggregate = defaultdict(list)
         
         # constants
-        n_way = mt_manager.n_way
-        n_shot = mt_manager.n_shot
-        n_query = mt_manager.n_query
-        mt_batch_sz = mt_manager.batch_size        
+        n_way = mt_loader.n_way
+        n_shot = mt_loader.n_shot
+        n_query = mt_loader.n_query
+        mt_batch_sz = mt_loader.batch_size        
+        randomize_query = mt_loader.randomize_query
         print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
 
         # iterating over tasks
@@ -248,6 +249,7 @@ class Init_algorithm_trainer(object):
             
             analysis = (i % self._log_interval == 0)
 
+            '''
             # randperm
             if randomize_query and is_training:
                 rp = np.random.permutation(mgr_n_query * n_way)[:n_query * n_way]
@@ -279,8 +281,10 @@ class Init_algorithm_trainer(object):
             # (batch_sz, n_way*n_query, channels , height , width)
             shots_y, query_y = get_labels(mt_batch_y, n_way=n_way, 
                 n_shot=n_shot, n_query=n_query, batch_sz=mt_batch_sz, rp=rp)
-            assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
-            assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
+            '''
+
+            assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
+            assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
             assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
             assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
@@ -305,7 +309,7 @@ class Init_algorithm_trainer(object):
                 # metrics accumulation
                 for k in measurements_trajectory:
                     aggregate[k].append(measurements_trajectory[k][-1])
-            
+
             # optimizer step
             if is_training:
                 for param in self._algorithm._model.parameters():
@@ -330,7 +334,6 @@ class Init_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._algorithm._model.state_dict(),
                            'optimizer': self._optimizer}, f)
-
 
         results = {
             'train_loss_trajectory': {
