@@ -472,8 +472,7 @@ def main(args):
         # base class generalization
         if base_class_generalization:
             # can only do this if there is only one type of evaluation
-            assert len(all_n_shot_vals) == 1
-
+            
             print("Base Test")
             results = trainer.run(
                 base_test_loader, base_test_datamgr, is_training=False)
