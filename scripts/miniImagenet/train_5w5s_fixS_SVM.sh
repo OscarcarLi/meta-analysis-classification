@@ -1,23 +1,23 @@
 #! /bin/bash
 
-output='metal_FC100-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop20'
+output='fixS15_mini_r12_SVM_n5s15q6tb8_SGD0.1Drop20'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
---fix-support 0 \
+--fix-support 15 \
 --model-type resnet_12 \
 --avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm Ridge \
---scale-factor 7. \
+--algorithm SVM \
+--scale-factor 5. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/FC100-base \
---img-side-len 32 \
---n-epochs 30 \
+--dataset-path datasets/filelists/miniImagenet \
+--img-side-len 84 \
+--n-epochs 60 \
 --batch-size-train 8 \
 --n-way-train 5 \
 --n-shot-train 15 \
@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --lr 0.1 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 20 \
+--drop-lr-epoch 20,40,50 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \

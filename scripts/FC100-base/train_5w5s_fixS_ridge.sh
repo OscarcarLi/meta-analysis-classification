@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --n-shot-val 5 \
 --do-one-shot-eval-too True \
 --n-query-val 15 \
---n-iterations-val 500 \
+--n-iterations-val 1000 \
 --support-aug True \
 --query-aug True \
 --randomize-query False \
