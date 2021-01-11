@@ -537,7 +537,7 @@ class Ridge(Algorithm):
         self.to(self._device)
 
 
-    def inner_loop_adapt(self, support, support_labels, query):
+    def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
 
         """
         Fits the support set with ridge regression and 
@@ -569,12 +569,15 @@ class Ridge(Algorithm):
         lambda_reg = self._lambda_reg
         double_precision = self._double_precision
         tasks_per_batch = query.size(0)
-        n_support = support.size(1)
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        d = query.size(2)                 # dimension
         
         assert(query.dim() == 3)
         assert(support.dim() == 3)
         assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-        assert(n_support == n_way * n_shot)      # n_support must equal to n_way * n_shot
+        assert(total_n_support == n_way * n_shot)      # total_n_support must equal to n_way * n_shot
+        assert(total_n_query == n_way * n_query)      # total_n_support must equal to n_way * n_shot
 
         #Here we solve the dual problem:
         #Note that the classes are indexed by m & samples are indexed by i.
@@ -582,23 +585,23 @@ class Ridge(Algorithm):
 
         #where w_m(\alpha) = \sum_i \alpha^m_i x_i,
         
-        #\alpha is an (n_support, n_way) matrix
+        #\alpha is an (total_n_support, n_way) matrix
         kernel_matrix = computeGramMatrix(support, support)
-        kernel_matrix += lambda_reg * torch.eye(n_support).expand(tasks_per_batch, n_support, n_support).cuda()
+        kernel_matrix += lambda_reg * torch.eye(total_n_support).expand(tasks_per_batch, total_n_support, total_n_support).cuda()
 
-        block_kernel_matrix = kernel_matrix.repeat(n_way, 1, 1) #(n_way * tasks_per_batch, n_support, n_support)
+        block_kernel_matrix = kernel_matrix.repeat(n_way, 1, 1) #(n_way * tasks_per_batch, total_n_support, total_n_support)
         
-        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * n_support), n_way) # (tasks_per_batch * n_support, n_way)
-        support_labels_one_hot = support_labels_one_hot.transpose(0, 1) # (n_way, tasks_per_batch * n_support)
-        support_labels_one_hot = support_labels_one_hot.reshape(n_way * tasks_per_batch, n_support)     # (n_way*tasks_per_batch, n_support)
+        support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * total_n_support), n_way) # (tasks_per_batch * total_n_support, n_way)
+        support_labels_one_hot = support_labels_one_hot.transpose(0, 1) # (n_way, tasks_per_batch * total_n_support)
+        support_labels_one_hot = support_labels_one_hot.reshape(n_way * tasks_per_batch, total_n_support)     # (n_way*tasks_per_batch, total_n_support)
         
         G = block_kernel_matrix
         e = -2.0 * support_labels_one_hot
         
         #This is a fake inequlity constraint as qpth does not support QP without an inequality constraint.
-        id_matrix_1 = torch.zeros(tasks_per_batch*n_way, n_support, n_support)
+        id_matrix_1 = torch.zeros(tasks_per_batch*n_way, total_n_support, total_n_support)
         C = Variable(id_matrix_1)
-        h = Variable(torch.zeros((tasks_per_batch*n_way, n_support)))
+        h = Variable(torch.zeros((tasks_per_batch*n_way, total_n_support)))
         dummy = Variable(torch.Tensor()).cuda()      # We want to ignore the equality constraint.
 
         if double_precision:
@@ -614,18 +617,18 @@ class Ridge(Algorithm):
         qp_sol = QPFunction(verbose=False)(G, e.detach(), C.detach(), h.detach(), dummy.detach(), dummy.detach())
         #qp_sol = QPFunction(verbose=False)(G, e.detach(), dummy.detach(), dummy.detach(), dummy.detach(), dummy.detach())
 
-        #qp_sol (n_way*tasks_per_batch, n_support)
-        qp_sol = qp_sol.reshape(n_way, tasks_per_batch, n_support)
-        #qp_sol (n_way, tasks_per_batch, n_support)
+        #qp_sol (n_way*tasks_per_batch, total_n_support)
+        qp_sol = qp_sol.reshape(n_way, tasks_per_batch, total_n_support)
+        #qp_sol (n_way, tasks_per_batch, total_n_support)
         qp_sol = qp_sol.permute(1, 2, 0)
-        #qp_sol (tasks_per_batch, n_support, n_way)
+        #qp_sol (tasks_per_batch, total_n_support, n_way)
         
         # Compute the classification score.
         compatibility = computeGramMatrix(support, query)
         compatibility = compatibility.float()
-        compatibility = compatibility.unsqueeze(3).expand(tasks_per_batch, n_support, n_query, n_way)
-        qp_sol = qp_sol.reshape(tasks_per_batch, n_support, n_way)
-        logits = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, n_support, n_query, n_way)
+        compatibility = compatibility.unsqueeze(3).expand(tasks_per_batch, total_n_support, total_n_query, n_way)
+        qp_sol = qp_sol.reshape(tasks_per_batch, total_n_support, n_way)
+        logits = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, total_n_support, total_n_query, n_way)
         logits = logits * compatibility
         logits = torch.sum(logits, 1) * self._scale
 
@@ -633,8 +636,8 @@ class Ridge(Algorithm):
         with torch.no_grad():
             compatibility = computeGramMatrix(support, support)
             compatibility = compatibility.float()
-            compatibility = compatibility.unsqueeze(3).expand(tasks_per_batch, n_support, n_support, n_way)
-            logits_support = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, n_support, n_support, n_way)
+            compatibility = compatibility.unsqueeze(3).expand(tasks_per_batch, total_n_support, total_n_support, n_way)
+            logits_support = qp_sol.float().unsqueeze(2).expand(tasks_per_batch, total_n_support, total_n_support, n_way)
             logits_support = logits_support * compatibility
             logits_support = torch.sum(logits_support, 1)
             logits_support = logits_support.reshape(-1, logits_support.size(-1)) * self._scale

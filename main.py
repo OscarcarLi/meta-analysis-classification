@@ -147,7 +147,6 @@ def main(args):
     print("\n", "--"*20, "TEST", "--"*20)
     test_classes = ClassImagesSet(test_file)
     test_meta_datasets = {}
-    test_datamgrs = {}
     test_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")    
@@ -161,7 +160,7 @@ def main(args):
                                         fix_support=0,
                                         save_folder='')
 
-        test_dataloaders[ns_val] = MetaDataLoader(
+        test_loaders[ns_val] = MetaDataLoader(
                                     dataset=test_meta_datasets[ns_val],
                                     n_batches=args.n_iterations_val,
                                     batch_size=args.batch_size_val,
@@ -213,37 +212,37 @@ def main(args):
                                             n_query=args.n_query_val, 
                                             randomize_query=False,)
 
-        print("\n", "--"*20, "BASE + NOVEL TEST", "--"*20)
-        assert len(set(base_test_classes.keys()).intersection(set(test_classes.keys()))) == 0,\
-            f"the base and novel classes must have different ids, base:{set(base_test_classes.keys())}, novel: f{set(test_classes.keys())}"
-        # combine both base and novel classes
-        base_novel_test_classes = ClassImagesSet(base_test_file, test_file)
-        base_novel_test_meta_dataset = MetaDataset(
-                                    dataset_name=dataset_name,
-                                    support_class_images_set=base_novel_test_classes,
-                                    query_class_images_set=base_novel_test_classes,
-                                    image_size=image_size,
-                                    support_aug=False,
-                                    query_aug=False,
-                                    fix_support=0,
-                                    save_folder='')
+        # print("\n", "--"*20, "BASE + NOVEL TEST", "--"*20)
+        # assert len(set(base_test_classes.keys()).intersection(set(test_classes.keys()))) == 0,\
+        #     f"the base and novel classes must have different ids, base:{set(base_test_classes.keys())}, novel: f{set(test_classes.keys())}"
+        # # combine both base and novel classes
+        # base_novel_test_classes = ClassImagesSet(base_test_file, test_file)
+        # base_novel_test_meta_dataset = MetaDataset(
+        #                             dataset_name=dataset_name,
+        #                             support_class_images_set=base_novel_test_classes,
+        #                             query_class_images_set=base_novel_test_classes,
+        #                             image_size=image_size,
+        #                             support_aug=False,
+        #                             query_aug=False,
+        #                             fix_support=0,
+        #                             save_folder='')
 
-        # sample classes from base and novel with mix prob. given by lambd
-        base_novel_test_loaders_dict = {}
-        for lambd in [0.2, 0.4, 0.6, 0.8]:
-            base_novel_test_loaders_dict[lambd] = MetaDataLoader(
-                dataset=base_novel_test_meta_dataset,
-                n_batches=args.n_iterations_val,
-                batch_size=args.batch_size_val, 
-                n_way=args.n_way_val,
-                n_shot=args.n_shot_val,
-                n_query=args.n_query_val, 
-                randomize_query=False,
-                p_dict={
-                    k: ((1-lambd) / len(base_test_classes) if k in base_test_classes else lambd / len(test_classes))
-                        for k in list(base_test_classes) + list(test_classes)
-                }
-            )
+        # # sample classes from base and novel with mix prob. given by lambd
+        # base_novel_test_loaders_dict = {}
+        # for lambd in [0.2, 0.4, 0.6, 0.8]:
+        #     base_novel_test_loaders_dict[lambd] = MetaDataLoader(
+        #         dataset=base_novel_test_meta_dataset,
+        #         n_batches=args.n_iterations_val,
+        #         batch_size=args.batch_size_val, 
+        #         n_way=args.n_way_val,
+        #         n_shot=args.n_shot_val,
+        #         n_query=args.n_query_val, 
+        #         randomize_query=False,
+        #         p_dict={
+        #             k: ((1-lambd) / len(base_test_classes) if k in base_test_classes else lambd / len(test_classes))
+        #                 for k in list(base_test_classes) + list(test_classes)
+        #         }
+        #     )
 
 
     ####################################################
@@ -515,17 +514,17 @@ def main(args):
                     "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
                     "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
-
-            for lambd, base_novel_test_loader in base_novel_test_loaders_dict.items():
-                print(f"Base + Novel Test lambda={lambd} Novel {1-lambd} Base")
-                results = trainer.run(
-                    mt_loader=base_novel_test_loader, is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
-                writer.add_scalar(
-                    f"lambda={round(lambd, 2)}_novel_lambda={round(1-lambd, 2)}_base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"lambda={round(lambd, 2)}_novel_lambda={round(1-lambd, 2)}_base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
+    
+            # for lambd, base_novel_test_loader in base_novel_test_loaders_dict.items():
+            #     print(f"Base + Novel Test lambda={lambd} Novel {1-lambd} Base")
+            #     results = trainer.run(
+            #         mt_loader=base_novel_test_loader, is_training=False)
+            #     pp = pprint.PrettyPrinter(indent=4)
+            #     pp.pprint(results)
+            #     writer.add_scalar(
+            #         f"lambda={round(lambd, 2)}_novel_lambda={round(1-lambd, 2)}_base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
+            #     writer.add_scalar(
+            #         f"lambda={round(lambd, 2)}_novel_lambda={round(1-lambd, 2)}_base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
 
 
 

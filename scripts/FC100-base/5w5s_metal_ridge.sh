@@ -1,43 +1,43 @@
 #! /bin/bash
 
-output='fixS5_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest'
+output='metal_FC100-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop20'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0,1'
+device='0'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
---fix-support 5 \
+--fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm ProtoNet \
---scale-factor 10. \
+--algorithm Ridge \
+--scale-factor 7. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/miniImagenet \
---img-side-len 84 \
---n-epochs 60 \
---batch-size-train 4 \
+--dataset-path datasets/filelists/FC100-base \
+--img-side-len 32 \
+--n-epochs 30 \
+--batch-size-train 8 \
 --n-way-train 5 \
---n-shot-train 5 \
---n-query-train 15 \
+--n-shot-train 15 \
+--n-query-train 6 \
 --n-iters-per-epoch 1000 \
 --batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
---do-one-shot-eval-too False \
+--do-one-shot-eval-too True \
 --n-query-val 15 \
 --n-iterations-val 500 \
---support-aug False \
+--support-aug True \
 --query-aug True \
---randomize-query True \
+--randomize-query False \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 20,40,50 \
+--drop-lr-epoch 20 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \

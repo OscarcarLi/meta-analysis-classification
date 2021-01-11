@@ -97,6 +97,8 @@ class Meta_algorithm_trainer(object):
                 n_shot=n_shot, n_query=n_query, batch_sz=mt_batch_sz, rp=rp)
             '''
 
+            shots_x, shots_y, query_x, query_y = mt_batch
+            
             # assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
             # assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
             assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
@@ -282,6 +284,8 @@ class Init_algorithm_trainer(object):
             shots_y, query_y = get_labels(mt_batch_y, n_way=n_way, 
                 n_shot=n_shot, n_query=n_query, batch_sz=mt_batch_sz, rp=rp)
             '''
+
+            shots_x, shots_y, query_x, query_y = mt_batch
 
             assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
             assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)

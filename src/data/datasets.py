@@ -104,7 +104,7 @@ class MetaDataset(torch.utils.data.Dataset):
 
         for cl in self.query_class_images_set:
             if verbose: 
-                print("Setting query loader for class", self.query_class_images_set.target2label[cl], end=" ")
+                print("Setting query loader for class", cl, end=" ")
 
             sub_dataset = SubMetadataset(
                             class_images=self.query_class_images_set[cl], 
