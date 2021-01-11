@@ -44,5 +44,5 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---log-interval 100 > logs/${output}.log &
-tail -f logs/${output}.log
+--log-interval 100 > logs/${output}_train.log &
+tail -f logs/${output}_train.log

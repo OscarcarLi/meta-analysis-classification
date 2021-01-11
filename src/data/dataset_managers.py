@@ -99,7 +99,7 @@ class EpisodicBatchSampler(torch.utils.data.Sampler):
         else:
             self.p = []
             for cl in self.classes:
-                self.p = self.p.append(p_dict[cl])
+                self.p.append(p_dict[cl])
 
         print("Setting an episodic sampler over classes")
         for cl, prob in zip(self.classes, self.p):

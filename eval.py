@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pprint
-from tensorboardX import SummaryWriter
 import re
 import shutil
 from datetime import datetime
@@ -22,7 +21,7 @@ from src.data.datasets import MetaDataset, ClassImagesSet
 
 
 def ensure_path(path):
-    assert os.path.exists(path):
+    assert os.path.exists(path), "Output folder must already exist"
     return path
 
 
@@ -36,10 +35,9 @@ def main(args):
     #                LOGGING AND SAVING                #
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
-    writer = None
     eval_results = f'{args.output_folder}/eval_results.txt'
     with open(eval_results, 'w') as f:
-        f.write("--"*20, "EVALUATION RESULTS", "--"*20)
+        f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
 
     ####################################################
@@ -69,7 +67,7 @@ def main(args):
     """
 
     print("\n", "--"*20, "BASE", "--"*20)
-    train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
+    train_classes = ClassImagesSet(train_file, preload=True)
     
     # create a dataloader that has no fixed support
     no_fixS_train_meta_dataset = MetaDataset(
@@ -93,7 +91,7 @@ def main(args):
                                 randomize_query=False)
 
     print("\n", "--"*20, "VAL", "--"*20)
-    val_classes = ClassImagesSet(val_file, preload=False)    
+    val_classes = ClassImagesSet(val_file, preload=True)    
     val_meta_datasets = {}
     val_loaders = {}
     for ns_val in all_n_shot_vals:
@@ -118,7 +116,7 @@ def main(args):
                                 randomize_query=False)
 
     print("\n", "--"*20, "NOVEL", "--"*20)
-    test_classes = ClassImagesSet(test_file)
+    test_classes = ClassImagesSet(test_file, preload=True)
     test_meta_datasets = {}
     test_loaders = {}
     for ns_val in all_n_shot_vals:
@@ -145,7 +143,8 @@ def main(args):
     if base_class_generalization:
         # can only do this if there is only one type of evaluation
         print("\n", "--"*20, "BASE TEST", "--"*20)
-
+        base_test_classes = ClassImagesSet(base_test_file, preload=True)
+        
         if args.fix_support > 0:
             base_test_meta_dataset_using_fixS = MetaDataset(
                                                     dataset_name=dataset_name,
@@ -154,7 +153,7 @@ def main(args):
                                                     support_aug=False,
                                                     query_aug=False,
                                                     fix_support=0,
-                                                    save_folder=save_folder, 
+                                                    save_folder='', 
                                                     fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
 
             base_test_loader_using_fixS = MetaDataLoader(
@@ -305,23 +304,23 @@ def main(args):
     if args.algorithm != 'InitBasedAlgorithm':
         trainer = Meta_algorithm_trainer(
             algorithm=algorithm,
-            optimizer=optimizer,
-            writer=writer,
+            optimizer=None,
+            writer=None,
             log_interval=args.log_interval, 
-            save_folder=save_folder, 
-            grad_clip=args.grad_clip,
-            init_global_iteration=init_global_iteration)
+            save_folder='', 
+            grad_clip=None,
+            init_global_iteration=None)
     else:
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,
-            optimizer=optimizer,
-            writer=writer,
+            optimizer=None,
+            writer=None,
             log_interval=args.log_interval, 
-            save_folder=save_folder, 
-            grad_clip=args.grad_clip,
+            save_folder='', 
+            grad_clip=None,
             num_updates_inner_train=args.num_updates_inner_train,
             num_updates_inner_val=args.num_updates_inner_val,
-            init_global_iteration=init_global_iteration)
+            init_global_iteration=None)
 
 
     ####################################################
@@ -336,8 +335,8 @@ def main(args):
         mt_loader=no_fixS_train_loader, is_training=False)
     pp = pprint.PrettyPrinter(indent=4)
     pp.pprint(results)
-    with open(eval_results, 'wb') as f:
-        f.write(f"TrainLossOnML{args.n_way_val}w{ns_val}s: Loss {results['test_loss_after']['loss']} Acc {results['test_loss_after']['accu']}"+'\n')
+    with open(eval_results, 'a') as f:
+        f.write(f"TrainLossOnML{args.n_way_val}w{ns_val}s: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
     # validation/test
     val_accus = {}
@@ -348,21 +347,18 @@ def main(args):
             mt_loader=val_loaders[ns_val], is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
-        with open(eval_results, 'wb') as f:
-            f.write(f"Val{args.n_way_val}w{ns_val}s: Loss {results['test_loss_after']['loss']} Acc {results['test_loss_after']['accu']}"+'\n')
+        with open(eval_results, 'a') as f:
+            f.write(f"Val{args.n_way_val}w{ns_val}s: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
         print("Test ", f"n_shots_val {ns_val}")
         results = trainer.run(
             mt_loader=test_loaders[ns_val], is_training=False)
         pp = pprint.PrettyPrinter(indent=4)
         pp.pprint(results)
-        with open(eval_results, 'wb') as f:
-            f.write(f"Test{args.n_way_val}w{ns_val}s: Loss {results['test_loss_after']['loss']} Acc {results['test_loss_after']['accu']}"+'\n')
+        with open(eval_results, 'a') as f:
+            f.write(f"Test{args.n_way_val}w{ns_val}s: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
         
-    val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
-    novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
-    
     # base class generalization
     if base_class_generalization:
         # can only do this if there is only one type of evaluation
@@ -375,17 +371,17 @@ def main(args):
                 mt_loader=base_test_loader_using_fixS, is_training=False)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
-            with open(eval_results, 'wb') as f:
-                f.write(f"BaseTestUsingFixSupport: Loss {results['test_loss_after']['loss']} Acc {results['test_loss_after']['accu']}"+'\n')
+            with open(eval_results, 'a') as f:
+                f.write(f"BaseTestUsingFixSupport: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
         for lambd, base_novel_test_loader in base_novel_test_loaders_dict.items():
-            print(f"Base + Novel Test lambda={lambd} Novel {1-lambd} Base")
+            print(f"Base + Novel Test lambda={round(lambd, 2)} Novel {round(1-lambd, 2)} Base")
             results = trainer.run(
                 mt_loader=base_novel_test_loader, is_training=False)
             pp = pprint.PrettyPrinter(indent=4)
             pp.pprint(results)
-            with open(eval_results, 'wb') as f:
-                f.write(f"Base+NovelTestLambda={lambd}Novel{1-lambd}Base: Loss {results['test_loss_after']['loss']} Acc {results['test_loss_after']['accu']}"+'\n')
+            with open(eval_results, 'a') as f:
+                f.write(f"Base+NovelTestLambda={round(lambd, 2)}Novel{round(1-lambd, 2)}Base: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
 
 
@@ -438,6 +434,8 @@ if __name__ == '__main__':
         help='which dataset to use')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
+    parser.add_argument('--num-classes-train', type=int, default=200,
+        help='no of train classes')
     parser.add_argument('--num-classes-val', type=int, default=200,
         help='no of novel (val) classes')
     parser.add_argument('--batch-size-val', type=int, default=10,

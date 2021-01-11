@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='metal_FC100_r12_SVMsc5_n5s15q6tb8_SGD0.1det20_basetest'
+output='metal_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det05_basetest'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0'
+device='3'
 mkdir -p logs
 mkdir -p runs
 
@@ -12,8 +12,8 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm SVM \
---scale-factor 5. \
+--algorithm ProtoNet \
+--scale-factor 10. \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/FC100-base \
 --img-side-len 32 \
@@ -27,6 +27,6 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/metal_FC100_r12_SVMsc5_n5s15q6tb8_SGD0.1det20_basetest/chkpt_021.pt \
+--checkpoint runs/metal_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det05_basetest/chkpt_007.pt \
 --log-interval 100 > logs/${output}_eval.log &
 tail -f logs/${output}_eval.log
