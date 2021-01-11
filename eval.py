@@ -154,7 +154,7 @@ def main(args):
                                                     query_aug=False,
                                                     fix_support=0,
                                                     save_folder='', 
-                                                    fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
+                                                    fix_support_path=os.path.join(args.output_folder, "fixed_support_pool.pkl"))
 
             base_test_loader_using_fixS = MetaDataLoader(
                                             dataset=base_test_meta_dataset_using_fixS,

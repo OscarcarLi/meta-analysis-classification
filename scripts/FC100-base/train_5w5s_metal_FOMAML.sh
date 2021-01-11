@@ -2,7 +2,7 @@
 
 output='metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.0005det'
 # method_dataset_model_innerAlg_config_outerOpt 
-device='2'
+device='0'
 mkdir -p logs
 mkdir -p runs
 
@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --init-meta-algorithm FOMAML \
 --inner-update-method sgd \
 --alpha 0.01 \
---num-updates-inner-train 2 \
+--num-updates-inner-train 5 \
 --num-updates-inner-val 20 \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/FC100-base \
