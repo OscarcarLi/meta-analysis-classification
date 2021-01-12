@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='fixS5_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det05_basetest'
+output='fixS5_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='3'
+device='0'
 mkdir -p logs
 mkdir -p runs
 
@@ -15,8 +15,8 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/FC100-base \
---img-side-len 32 \
+--dataset-path datasets/filelists/miniImagenet \
+--img-side-len 84 \
 --batch-size-val 2 \
 --n-way-val 5 \
 --n-shot-val 5 \
@@ -27,6 +27,6 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/fixS5_FC100_r12_PNeuc_n20s5q15Vtb1_SGD0.1det05_basetest/chkpt_006.pt \
+--checkpoint runs/fixS5_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest/chkpt_056.pt \
 --log-interval 100 > logs/${output}_eval.log &
 tail -f logs/${output}_eval.log

@@ -28,5 +28,5 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --device cuda \
 --device-number ${device} \
 --checkpoint runs/metal_FC100-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop20/chkpt_021.pt \
---log-interval 100 > logs/${output}_train.log &
-tail -f logs/${output}_train.log
+--log-interval 100 > logs/${output}_eval.log &
+tail -f logs/${output}_eval.log
