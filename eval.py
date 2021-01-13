@@ -35,7 +35,10 @@ def main(args):
     #                LOGGING AND SAVING                #
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
-    eval_results = f'{args.output_folder}/eval_results.txt'
+    if str2bool(args.eot_model):
+        eval_results = f'{args.output_folder}/evaleot_results.txt'
+    else:
+        eval_results = f'{args.output_folder}/eval_results.txt'
     with open(eval_results, 'w') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
@@ -67,7 +70,7 @@ def main(args):
     """
 
     print("\n", "--"*20, "BASE", "--"*20)
-    train_classes = ClassImagesSet(train_file, preload=True)
+    train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
     
     # create a dataloader that has no fixed support
     no_fixS_train_meta_dataset = MetaDataset(
@@ -91,7 +94,7 @@ def main(args):
                                 randomize_query=False)
 
     print("\n", "--"*20, "VAL", "--"*20)
-    val_classes = ClassImagesSet(val_file, preload=True)    
+    val_classes = ClassImagesSet(val_file, preload=str2bool(args.preload_train))    
     val_meta_datasets = {}
     val_loaders = {}
     for ns_val in all_n_shot_vals:
@@ -116,7 +119,7 @@ def main(args):
                                 randomize_query=False)
 
     print("\n", "--"*20, "NOVEL", "--"*20)
-    test_classes = ClassImagesSet(test_file, preload=True)
+    test_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_train))
     test_meta_datasets = {}
     test_loaders = {}
     for ns_val in all_n_shot_vals:
@@ -143,7 +146,7 @@ def main(args):
     if base_class_generalization:
         # can only do this if there is only one type of evaluation
         print("\n", "--"*20, "BASE TEST", "--"*20)
-        base_test_classes = ClassImagesSet(base_test_file, preload=True)
+        base_test_classes = ClassImagesSet(base_test_file, preload=str2bool(args.preload_train))
         
         if args.fix_support > 0:
             base_test_meta_dataset_using_fixS = MetaDataset(
@@ -154,7 +157,7 @@ def main(args):
                                                     query_aug=False,
                                                     fix_support=0,
                                                     save_folder='', 
-                                                    fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
+                                                    fix_support_path=os.path.join(args.output_folder, "fixed_support_pool.pkl"))
 
             base_test_loader_using_fixS = MetaDataLoader(
                                             dataset=base_test_meta_dataset_using_fixS,
@@ -463,7 +466,8 @@ if __name__ == '__main__':
         help='number of iters in epoch')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
-    parser.add_argument('--preload-train', type=str, default="False")
+    parser.add_argument('--preload-train', type=str, default="True")
+    parser.add_argument('--eot-model', type=str, default="False")
 
 
     # Miscellaneous
