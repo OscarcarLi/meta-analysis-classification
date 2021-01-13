@@ -47,7 +47,7 @@ val = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
 f = open(pathname + '/cifar100/splits/bertinetto/val.txt')
 classes = f.readlines()
 
-count = 0
+count = 64
 for each in classes:
 	each = each.strip()
 	val['label_names'].append(each)
