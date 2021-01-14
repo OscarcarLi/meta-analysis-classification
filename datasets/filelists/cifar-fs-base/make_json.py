@@ -63,7 +63,7 @@ count = 80
 for each in classes:
     each = each.strip()
     test['label_names'].append(each)
-    files = sorted(glob.glob( '/cifar100/data/' + each + '/*'))
+    files = sorted(glob.glob( pathname + '/cifar100/data/' + each + '/*'))
     for image_name in files:
         test['image_names'].append( image_name)
         test['image_labels'].append(count)
