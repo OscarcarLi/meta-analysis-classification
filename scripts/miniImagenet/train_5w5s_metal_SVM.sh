@@ -13,7 +13,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --projection False \
 --num-classes-train 0 \
 --algorithm SVM \
---scale-factor 5. \
+--scale-factor 7. \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/miniImagenet \
 --img-side-len 84 \

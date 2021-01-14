@@ -13,7 +13,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --projection False \
 --num-classes-train 0 \
 --algorithm SVM \
---scale-factor 5. \
+--scale-factor 7. \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/FC100-base \
 --img-side-len 32 \
