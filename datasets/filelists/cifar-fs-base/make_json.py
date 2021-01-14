@@ -20,7 +20,7 @@ for each in classes:
     indices_base_test = set(np.random.choice(a=600, size=100, replace=False))
     base['label_names'].append(each)
     base_test['label_names'].append(each)
-    files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
+    files = sorted(glob.glob( pathname + '/cifar100/data/' + each + '/*'))
     for idx, image_name in enumerate(files):
         if idx in indices_base_test:
             base_test['image_names'].append(image_name)
@@ -44,7 +44,7 @@ count = 64
 for each in classes:
     each = each.strip()
     val['label_names'].append(each)
-    files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
+    files = sorted(glob.glob( pathname + '/cifar100/data/' + each + '/*'))
     for image_name in files:
         val['image_names'].append( image_name)
         val['image_labels'].append(count)
@@ -63,7 +63,7 @@ count = 80
 for each in classes:
     each = each.strip()
     test['label_names'].append(each)
-    files = glob.glob( pathname + '/cifar100/data/' + each + '/*')
+    files = sorted(glob.glob( '/cifar100/data/' + each + '/*'))
     for image_name in files:
         test['image_names'].append( image_name)
         test['image_labels'].append(count)
