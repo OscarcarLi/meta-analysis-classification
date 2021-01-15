@@ -61,7 +61,7 @@ def main(args):
     # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
     # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
     all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
-    base_class_generalization = 'miniimagenet' in dataset_name.lower() or 'fc100-base' in dataset_name.lower()
+    base_class_generalization = dataset_name.lower() in ['miniimagenet', 'fc100-base', 'cifar-fs-base']
     train_file = os.path.join(args.dataset_path, 'base.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel.json')
