@@ -506,7 +506,7 @@ if __name__ == '__main__':
 
 
     # Model
-    parser.add_argument('--model-type', type=str, default='gatedconv',
+    parser.add_argument('--model-type', type=str, default='resnet_12',
         help='type of the model')
     parser.add_argument('--classifier-type', type=str, default='no-classifier',
         help='classifier type [distance based, linear, GDA]')
@@ -556,9 +556,9 @@ if __name__ == '__main__':
         help='width and height of the input images')
     parser.add_argument('--batch-size-train', type=int, default=20,
         help='batch size for training')
-    parser.add_argument('--num-classes-train', type=int, default=200,
+    parser.add_argument('--num-classes-train', type=int, default=0,
         help='no of train classes')
-    parser.add_argument('--num-classes-val', type=int, default=200,
+    parser.add_argument('--num-classes-val', type=int, default=0,
         help='no of novel (val) classes')
     parser.add_argument('--batch-size-val', type=int, default=10,
         help='batch size for validation')
