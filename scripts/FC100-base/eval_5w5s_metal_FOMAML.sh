@@ -1,12 +1,13 @@
 #! /bin/bash
 
-output='metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.0005det'
+output='metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det'
 # method_dataset_model_innerAlg_config_outerOpt 
-device='0'
+device='1'
 mkdir -p logs
 mkdir -p runs
 
-CUDA_VISIBLE_DEVICES="$device" python nohup eval.py \
+CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
+--eot-model True \
 --fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
@@ -26,12 +27,11 @@ CUDA_VISIBLE_DEVICES="$device" python nohup eval.py \
 --n-way-val 5 \
 --n-shot-val 5 \
 --n-query-val 15 \
---n-iterations-val 500 \
+--n-iterations-val 1000 \
 --eps 0. \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.0005det/chkpt_022.pt \
---log-interval 100 > logs/${output}_eval.log
-tail -f logs/${output}_eval.log
-
+--checkpoint runs/metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det/chkpt_060.pt \
+--log-interval 100 > logs/${output}_evaleot.log &
+tail -f logs/${output}_evaleot.log

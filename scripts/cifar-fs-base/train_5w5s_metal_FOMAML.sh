@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_FC100-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det204050'
+output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det204050'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0'
 mkdir -p logs
@@ -20,7 +20,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --num-updates-inner-train 5 \
 --num-updates-inner-val 20 \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/FC100-base \
+--dataset-path datasets/filelists/cifar-fs-base \
 --img-side-len 32 \
 --n-epochs 60 \
 --batch-size-train 4 \
@@ -50,4 +50,3 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --device-number ${device} \
 --log-interval 100 > logs/${output}_train.log &
 tail -f logs/${output}_train.log
-
