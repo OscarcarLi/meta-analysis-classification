@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/miniImagenet \
+--dataset-path datasets/filelists/FC100-base \
 --img-side-len 84 \
 --batch-size-val 2 \
 --n-way-val 5 \
