@@ -2,11 +2,12 @@
 
 output='fixS15_cifar-fs-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0'
+device='1'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
+--eot-model True \
 --fix-support 15 \
 --model-type resnet_12 \
 --avg-pool True \
@@ -27,6 +28,6 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/fixS15_cifar-fs-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050/chkpt_025.pt \
---log-interval 100 > logs/${output}_eval.log &
-tail -f logs/${output}_eval.log
+--checkpoint runs/fixS15_cifar-fs-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050/chkpt_060.pt \
+--log-interval 100 > logs/${output}_evaleot.log &
+tail -f logs/${output}_evaleot.log

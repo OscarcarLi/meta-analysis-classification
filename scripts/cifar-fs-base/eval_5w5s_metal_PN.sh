@@ -7,6 +7,7 @@ mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
+--eot-model True \
 --fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
@@ -27,6 +28,6 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/metal_cifar-fs-base_r12_PN_n20s5q15tb1_SGD0.1Drop204050/chkpt_021.pt \
---log-interval 100 > logs/${output}_eval.log &
-tail -f logs/${output}_eval.log
+--checkpoint runs/metal_cifar-fs-base_r12_PN_n20s5q15tb1_SGD0.1Drop204050/chkpt_060.pt \
+--log-interval 100 > logs/${output}_evaleot.log &
+tail -f logs/${output}_evaleot.log

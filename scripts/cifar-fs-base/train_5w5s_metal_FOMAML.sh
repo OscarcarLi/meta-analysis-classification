@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det204050'
+output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.01det204050'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0'
 mkdir -p logs
@@ -38,7 +38,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --randomize-query False \
 --preload-train True \
 --optimizer-type Adam \
---lr 0.005 \
+--lr 0.01 \
 --weight-decay 0.0 \
 --grad-clip 0. \
 --drop-lr-epoch 20,40,50 \
