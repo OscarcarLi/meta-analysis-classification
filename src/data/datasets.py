@@ -428,6 +428,45 @@ class ClassImages:
         return len(self.sub_meta)
 
 
+
+# class SimpleDataset(torch.utils.data.Dataset):
+
+#     def __init__(self, dataset_name,
+#                        class_images_set,
+#                        image_size,
+#                        aug,
+#                        verbose=True):
+
+#          """[summary]
+
+#         Args:
+#             dataset_name (str): name of the dataset (to configure the type of data augmentation)
+#             class_images_set (ClassImagesSet): a data structure that contains the images of each class
+#             image_size (int): the side length of the square image
+#             aug (bool): whether to use data augmentation for support set
+#             verbose (bool, optional): print the configuration. Defaults to True.
+#         """
+#         self.dataset_name = dataset_name
+#         self.class_images_set = class_images_set
+#         self.image_size = image_size
+#         self.aug = aug
+        
+#         self.classes = list(class_images_set.keys())
+#         # logs
+#         if verbose:
+#             print(f"No. of classes in dataset {len(self.class_images_set)}")
+#             print("Augmentation:", aug)
+
+#         # create a single list of all images and their labels
+
+#     def __getitem__(self, i):
+
+
+#     def __len__(self):
+#         # sum all images for each ClassImages object in ClassImagesSet
+#         sum([len(class_images) for class_images in class_images_set])
+
+
 if __name__ == '__main__':
 
     cis = \
