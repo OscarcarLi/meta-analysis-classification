@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='fixS15_cifar-fs-base_r12_SVM_n5s15q6tb8_SGD0.1Drop204050'
+output='fixS15_cifar-fs-base_r12_SVMsc5_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0'
 mkdir -p logs

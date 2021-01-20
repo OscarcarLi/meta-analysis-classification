@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_cifar-fs-base_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050'
+output='metal_cifar-fs-base_r12_Ridge16000sc5_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0'
 mkdir -p logs
@@ -9,11 +9,11 @@ mkdir -p runs
 CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --fix-support 0 \
 --model-type resnet_12 \
---avg-pool True \
+--avg-pool False \
 --projection False \
 --num-classes-train 0 \
 --algorithm Ridge \
---scale-factor 7. \
+--scale-factor 5. \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/cifar-fs-base \
 --img-side-len 32 \
