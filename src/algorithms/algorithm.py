@@ -234,9 +234,9 @@ class SVM(Algorithm):
         orig_query_shape = query.shape
         orig_support_shape = support.shape
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
                 
 
         tasks_per_batch = query.size(0)
@@ -395,9 +395,9 @@ class ProtoNet(Algorithm):
         orig_support_shape = support.shape
 
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
         
 
         tasks_per_batch = query.size(0)
@@ -561,9 +561,9 @@ class Ridge(Algorithm):
         orig_support_shape = support.shape
         
         support = self._model(
-            support.reshape(-1, *orig_support_shape[2:])).reshape(*orig_support_shape[:2], -1)
+            support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
-            query.reshape(-1, *orig_query_shape[2:])).reshape(*orig_query_shape[:2], -1)
+            query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
         
         
         lambda_reg = self._lambda_reg

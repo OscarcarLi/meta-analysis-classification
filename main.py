@@ -14,11 +14,11 @@ from datetime import datetime
 
 
 from src.models import shallow_conv, resnet_12, wide_resnet, dense_net
-from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init_algorithm_trainer
+from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init_algorithm_trainer, TL_algorithm_trainer
 from src.algorithms.algorithm import SVM, ProtoNet, Ridge, InitBasedAlgorithm
 from src.optimizers import modified_sgd
 from src.data.dataset_managers import MetaDataLoader
-from src.data.datasets import MetaDataset, ClassImagesSet
+from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
 
 
 def ensure_path(path):
@@ -78,25 +78,43 @@ def main(args):
 
     print("\n", "--"*20, "TRAIN", "--"*20)
     train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
-    train_meta_dataset = MetaDataset(
+    if args.algorithm == 'TransferLearning':
+        """
+        For Transfer Learning we create a SimpleDataset.
+        The augmentation is decided by query_aug flag.
+        """
+        train_dataset = SimpleDataset(
                             dataset_name=dataset_name,
-                            support_class_images_set=train_classes,
-                            query_class_images_set=train_classes, 
+                            class_images_set=train_classes,
                             image_size=image_size,
-                            support_aug=str2bool(args.support_aug),
-                            query_aug=str2bool(args.query_aug),
-                            fix_support=args.fix_support,
-                            save_folder=save_folder,
-                            fix_support_path=args.fix_support_path)
+                            aug=str2bool(args.query_aug))
 
-    train_loader = MetaDataLoader(
-                        dataset=train_meta_dataset,
-                        batch_size=args.batch_size_train,
-                        n_batches=args.n_iters_per_epoch,
-                        n_way=args.n_way_train,
-                        n_shot=args.n_shot_train,
-                        n_query=args.n_query_train,
-                        randomize_query=str2bool(args.randomize_query))
+        train_loader = torch.utils.data.DataLoader(
+                            train_dataset, 
+                            batch_size=args.batch_size_train, 
+                            shuffle=True,
+                            num_workers=6)
+
+    else:
+        train_meta_dataset = MetaDataset(
+                                dataset_name=dataset_name,
+                                support_class_images_set=train_classes,
+                                query_class_images_set=train_classes, 
+                                image_size=image_size,
+                                support_aug=str2bool(args.support_aug),
+                                query_aug=str2bool(args.query_aug),
+                                fix_support=args.fix_support,
+                                save_folder=save_folder,
+                                fix_support_path=args.fix_support_path)
+
+        train_loader = MetaDataLoader(
+                            dataset=train_meta_dataset,
+                            batch_size=args.batch_size_train,
+                            n_batches=args.n_iters_per_epoch,
+                            n_way=args.n_way_train,
+                            n_shot=args.n_shot_train,
+                            n_query=args.n_query_train,
+                            randomize_query=str2bool(args.randomize_query))
 
     # create a dataloader that has no fixed support
     no_fixS_train_meta_dataset = MetaDataset(
@@ -267,14 +285,20 @@ def main(args):
     # learning rate scheduler creation
     if args.lr_scheduler_type == 'deterministic':
         drop_eps = [int(x) for x in args.drop_lr_epoch.split(',')]
+        if args.drop_factors != '':
+            drop_factors = [float(x) for x in args.drop_factors.split(',')]
+        else:
+            drop_factors = [0.06, 0.012, 0.0024]
+        assert len(drop_factors) >= len(drop_eps), "No ennough drop factors"
         print("Drop lr at epochs", drop_eps)
+        print("Drop factors", drop_factors[:len(drop_eps)])
         assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
         if len(drop_eps) == 3:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (0.06 if e < drop_eps[1] else 0.012 if e < drop_eps[2] else (0.0024))
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1] if e < drop_eps[2] else (drop_factors[2]))
         elif len(drop_eps) == 3:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (0.06 if e < drop_eps[1] else 0.012)
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1])
         else:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else 0.06
+            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else drop_factors[0]
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
              optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
         for _ in range(args.restart_iter):
@@ -367,21 +391,22 @@ def main(args):
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             scale=args.scale_factor,
             device='cuda')
+    elif args.algorithm == 'TransferLearning':
+        """
+        We use the ProtoNet algorithm at test time.
+        """
+        algorithm = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            device='cuda',
+            scale=args.scale_factor,
+            metric=args.classifier_metric)
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
 
 
-    if args.algorithm != 'InitBasedAlgorithm':
-        trainer = Meta_algorithm_trainer(
-            algorithm=algorithm,
-            optimizer=optimizer,
-            writer=writer,
-            log_interval=args.log_interval, 
-            save_folder=save_folder, 
-            grad_clip=args.grad_clip,
-            init_global_iteration=init_global_iteration)
-    else:
+    if args.algorithm == 'InitBasedAlgorithm':
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,
             optimizer=optimizer,
@@ -392,7 +417,26 @@ def main(args):
             num_updates_inner_train=args.num_updates_inner_train,
             num_updates_inner_val=args.num_updates_inner_val,
             init_global_iteration=init_global_iteration)
-
+    elif args.algorithm == 'TransferLearning':
+        trainer = TL_algorithm_trainer(
+            algorithm=algorithm,
+            optimizer=optimizer,
+            writer=writer,
+            log_interval=args.log_interval, 
+            save_folder=save_folder, 
+            grad_clip=args.grad_clip,
+            init_global_iteration=init_global_iteration
+        )
+    else:        
+        trainer = Meta_algorithm_trainer(
+            algorithm=algorithm,
+            optimizer=optimizer,
+            writer=writer,
+            log_interval=args.log_interval, 
+            save_folder=save_folder, 
+            grad_clip=args.grad_clip,
+            init_global_iteration=init_global_iteration)
+        
 
     ####################################################
     #                  TRAINER LOOP                    #
@@ -412,84 +456,85 @@ def main(args):
             is_training=True,
             epoch=iter_start + 1)
 
-        # On ML train objective
-        print("Train Loss on ML objective")
-        results = trainer.run(
-            mt_loader=no_fixS_train_loader, is_training=False)
-        pp = pprint.PrettyPrinter(indent=4)
-        pp.pprint(results)
-        writer.add_scalar(
-            "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
-        writer.add_scalar(
-            "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
-        base_train_loss = results['test_loss_after']['loss']
+        if iter_start % args.val_frequency == 0:
+            # On ML train objective
+            print("Train Loss on ML objective")
+            results = trainer.run(
+                mt_loader=no_fixS_train_loader, is_training=False)
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
+            writer.add_scalar(
+                "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
+            base_train_loss = results['test_loss_after']['loss']
 
-        # validation/test
-        val_accus = {}
-        novel_test_losses = {}
-        for ns_val in all_n_shot_vals:
-            print("Validation ", f"n_shots_val {ns_val}")
-            results = trainer.run(
-                mt_loader=val_loaders[ns_val], is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            writer.add_scalar(
-                f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-            writer.add_scalar(
-                f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-            val_accus[ns_val] = results['test_loss_after']['accu']
-            
-            print("Test ", f"n_shots_val {ns_val}")
-            results = trainer.run(
-                mt_loader=test_loaders[ns_val], is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            writer.add_scalar(
-                f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-            writer.add_scalar(
-                f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-            novel_test_losses[ns_val] = results['test_loss_after']['loss']
-
-        val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
-        novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
-        
-        # base class generalization
-        if base_class_generalization:
-            # can only do this if there is only one type of evaluation
-            
-            print("Base Test")
-            results = trainer.run(
-                mt_loader=base_test_loader, is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            writer.add_scalar(
-                "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
-            writer.add_scalar(
-                "base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
-            base_test_loss = results['test_loss_after']['loss']
-            writer.add_scalar(
-                "base_gen_gap", base_test_loss - base_train_loss, iter_start + 1)
-            writer.add_scalar(
-                "novel_gen_gap", novel_test_loss - base_train_loss, iter_start + 1)
-        
-            if args.fix_support > 0:
-                print("Base Test using FixSupport, matching train and test for fixml")
+            # validation/test
+            val_accus = {}
+            novel_test_losses = {}
+            for ns_val in all_n_shot_vals:
+                print("Validation ", f"n_shots_val {ns_val}")
                 results = trainer.run(
-                    mt_loader=base_test_loader_using_fixS, is_training=False)
+                    mt_loader=val_loaders[ns_val], is_training=False)
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(results)
                 writer.add_scalar(
-                    "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
+                    f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
-                    "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
+                    f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+                val_accus[ns_val] = results['test_loss_after']['accu']
+                
+                print("Test ", f"n_shots_val {ns_val}")
+                results = trainer.run(
+                    mt_loader=test_loaders[ns_val], is_training=False)
+                pp = pprint.PrettyPrinter(indent=4)
+                pp.pprint(results)
+                writer.add_scalar(
+                    f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+                novel_test_losses[ns_val] = results['test_loss_after']['loss']
+
+            val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
+            novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
+            
+            # base class generalization
+            if base_class_generalization:
+                # can only do this if there is only one type of evaluation
+                
+                print("Base Test")
+                results = trainer.run(
+                    mt_loader=base_test_loader, is_training=False)
+                pp = pprint.PrettyPrinter(indent=4)
+                pp.pprint(results)
+                writer.add_scalar(
+                    "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    "base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
+                base_test_loss = results['test_loss_after']['loss']
+                writer.add_scalar(
+                    "base_gen_gap", base_test_loss - base_train_loss, iter_start + 1)
+                writer.add_scalar(
+                    "novel_gen_gap", novel_test_loss - base_train_loss, iter_start + 1)
+            
+                if args.fix_support > 0:
+                    print("Base Test using FixSupport, matching train and test for fixml")
+                    results = trainer.run(
+                        mt_loader=base_test_loader_using_fixS, is_training=False)
+                    pp = pprint.PrettyPrinter(indent=4)
+                    pp.pprint(results)
+                    writer.add_scalar(
+                        "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
+                    writer.add_scalar(
+                        "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
     
 
         # scheduler step
         if args.lr_scheduler_type == 'val_based':
+            assert args.val_frequency == 1, "eval after every epoch is mandatory for val based lr scheduler"
             lr_scheduler.step(val_accu)
         else:
             lr_scheduler.step()
-        
 
 
 if __name__ == '__main__':
@@ -527,6 +572,7 @@ if __name__ == '__main__':
     parser.add_argument('--weight-decay', type=float, default=0.,
         help='weight decay')
     parser.add_argument('--drop-lr-epoch', type=str, default='20,40,50')
+    parser.add_argument('--drop-factors', type=str, default='')
     parser.add_argument('--lr-scheduler-type', type=str, default='deterministic')
 
 
@@ -613,6 +659,8 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--avg-pool', type=str, default='True',
         help='')
+    parser.add_argument('--val-frequency', type=int, default=1,
+        help='') 
     
     
     args = parser.parse_args()

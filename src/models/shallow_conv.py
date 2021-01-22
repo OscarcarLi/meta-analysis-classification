@@ -96,7 +96,7 @@ class ShallowConv(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-    def forward(self, x):
+    def forward(self, x, only_features=False):
         x = self.encoder(x)
         x = x.view(x.size(0), -1)
         
@@ -106,7 +106,7 @@ class ShallowConv(nn.Module):
             x = x.div(x_norm)
 
         # fc
-        if self.fc is not None:
+        if (self.fc is not None) and (not only_features):
             x = self.fc.forward(x)
         
         return x

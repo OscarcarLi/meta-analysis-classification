@@ -141,7 +141,7 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, ):
+    def forward(self, x, only_features=False):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -156,7 +156,7 @@ class ResNet(nn.Module):
             x = x.div(x_norm)
 
         # fc
-        if self.fc is not None:
+        if (self.fc is not None) and (not only_features):
             x = self.fc.forward(x)
         
         return x

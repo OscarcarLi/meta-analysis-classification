@@ -429,42 +429,66 @@ class ClassImages:
 
 
 
-# class SimpleDataset(torch.utils.data.Dataset):
+class SimpleDataset(torch.utils.data.Dataset):
 
-#     def __init__(self, dataset_name,
-#                        class_images_set,
-#                        image_size,
-#                        aug,
-#                        verbose=True):
+    def __init__(self, dataset_name,
+                       class_images_set,
+                       image_size,
+                       aug,
+                       verbose=True):
 
-#          """[summary]
+        """[summary]
 
-#         Args:
-#             dataset_name (str): name of the dataset (to configure the type of data augmentation)
-#             class_images_set (ClassImagesSet): a data structure that contains the images of each class
-#             image_size (int): the side length of the square image
-#             aug (bool): whether to use data augmentation for support set
-#             verbose (bool, optional): print the configuration. Defaults to True.
-#         """
-#         self.dataset_name = dataset_name
-#         self.class_images_set = class_images_set
-#         self.image_size = image_size
-#         self.aug = aug
+        Args:
+            dataset_name (str): name of the dataset (to configure the type of data augmentation)
+            class_images_set (ClassImagesSet): a data structure that contains the images of each class
+            image_size (int): the side length of the square image
+            aug (bool): whether to use data augmentation for support set
+            verbose (bool, optional): print the configuration. Defaults to True.
+        """
+        self.dataset_name = dataset_name
+        self.class_images_set = class_images_set
+        self.image_size = image_size
+        self.aug = aug
         
-#         self.classes = list(class_images_set.keys())
-#         # logs
-#         if verbose:
-#             print(f"No. of classes in dataset {len(self.class_images_set)}")
-#             print("Augmentation:", aug)
+        # list of classes
+        self.classes = list(class_images_set.keys())
+        
+        # logs
+        if verbose:
+            print(f"No. of classes in dataset {len(self.class_images_set)}")
+            print("Augmentation:", aug)
 
-#         # create a single list of all images and their labels
+        # transforms
+        self.trans_loader = TransformLoader(image_size)
+        self.transform = self.trans_loader.get_composed_transform(dataset_name, aug=aug)
+        
+        # create a single list of all images and their labels
+        # this is a concatenated list of indices within each class in class_images_set
+        self.indices_within_each_class_images_set = []
+        self.class_labels = []
+        for i, cl in enumerate(self.classes):
+            self.indices_within_each_class_images_set.extend(np.arange(len(self.class_images_set[cl])))
+            self.class_labels.extend([i] * len(self.class_images_set[cl]))
 
-#     def __getitem__(self, i):
+        assert len(self.class_labels) == len(self.indices_within_each_class_images_set)
+
+        # n_images in total
+        self.total_images = len(self.indices_within_each_class_images_set)
+        print("Total images", self.total_images)
+        
+
+    def __getitem__(self, i):
+        class_label = self.class_labels[i]
+        class_images = self.class_images_set[self.classes[class_label]]
+        img = class_images[self.indices_within_each_class_images_set[i]]
+        transformed_img = self.transform(img)
+        return transformed_img, class_label
 
 
-#     def __len__(self):
-#         # sum all images for each ClassImages object in ClassImagesSet
-#         sum([len(class_images) for class_images in class_images_set])
+    def __len__(self):
+        # sum all images for each ClassImages object in ClassImagesSet
+        return self.total_images
 
 
 if __name__ == '__main__':

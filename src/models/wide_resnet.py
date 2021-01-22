@@ -114,7 +114,7 @@ class WideResNet(nn.Module):
                 m.bias.data.zero_()
 
     
-    def forward(self, x):
+    def forward(self, x, only_features=False):
 
         out = x
         out = self.conv1(out)
@@ -129,7 +129,7 @@ class WideResNet(nn.Module):
             out_norm = torch.norm(out, dim=1, keepdim=True)+0.00001
             out = out.div(out_norm)
         
-        if self.fc is not None:
+        if (self.fc is not None) and (not only_features):
             out = self.fc.forward(out)
     
         return out

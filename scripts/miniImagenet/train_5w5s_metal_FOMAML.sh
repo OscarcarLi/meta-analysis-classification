@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.1det2040'
+output='metal_mini_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.1det2040'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0'
 mkdir -p logs
@@ -20,8 +20,8 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --num-updates-inner-train 5 \
 --num-updates-inner-val 20 \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/cifar-fs-base \
---img-side-len 32 \
+--dataset-path datasets/filelists/miniImagenet \
+--img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 4 \
 --n-way-train 5 \
