@@ -437,9 +437,9 @@ if __name__ == '__main__':
         help='which dataset to use')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
-    parser.add_argument('--num-classes-train', type=int, default=200,
+    parser.add_argument('--num-classes-train', type=int, default=0,
         help='no of train classes')
-    parser.add_argument('--num-classes-val', type=int, default=200,
+    parser.add_argument('--num-classes-val', type=int, default=0,
         help='no of novel (val) classes')
     parser.add_argument('--batch-size-val', type=int, default=10,
         help='batch size for validation')
