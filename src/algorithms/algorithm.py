@@ -204,7 +204,14 @@ class SVM(Algorithm):
         self._double_precision = double_precision
         self._scale = scale
         self.to(self._device)
-   
+
+        # scale
+        if isinstance(model, torch.nn.DataParallel) and hasattr(model.module, 'scale'):
+            self._scale = model.module.scale
+        elif hasattr(model, 'scale'):
+            self._scale = model.scale
+        print("Algorithm logits scale:", self._scale)
+
 
     def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
         """
@@ -364,6 +371,13 @@ class ProtoNet(Algorithm):
         self._scale = scale
         self._metric = metric # euc or cos
         self.to(self._device)
+        
+        # scale
+        if isinstance(model, torch.nn.DataParallel) and hasattr(model.module, 'scale'):
+            self._scale = model.module.scale
+        elif hasattr(model, 'scale'):
+            self._scale = model.scale
+        print("Algorithm logits scale:", self._scale)
 
    
     def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
@@ -535,6 +549,14 @@ class Ridge(Algorithm):
         self._double_precision = False
         self._scale = scale
         self.to(self._device)
+
+        # scale
+        if isinstance(model, torch.nn.DataParallel) and hasattr(model.module, 'scale'):
+            self._scale = model.module.scale
+        elif hasattr(model, 'scale'):
+            self._scale = model.scale
+        print("Algorithm logits scale:", self._scale)
+
 
 
     def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):

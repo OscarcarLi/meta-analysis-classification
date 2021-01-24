@@ -25,7 +25,14 @@ def conv3x3(in_planes, out_planes, stride=1):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None, drop_rate=0.0, drop_block=False, block_size=1):
+    def __init__(self, 
+        inplanes, 
+        planes, 
+        stride=1, 
+        downsample=None, 
+        drop_rate=0.0,
+        drop_block=False,
+        block_size=1):
         
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes)
@@ -82,8 +89,16 @@ class BasicBlock(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, classifier_type, avg_pool, drop_rate, dropblock_size,
-            projection, num_classes, keep_prob=1.0):
+    def __init__(self, 
+            block, 
+            classifier_type,
+            avg_pool,
+            drop_rate,
+            dropblock_size,
+            projection, 
+            num_classes, 
+            keep_prob=1.0,
+            learnable_scale=False):
 
         self.inplanes = 3
         super(ResNet, self).__init__()
@@ -124,6 +139,9 @@ class ResNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+        # init learnable scale
+        if learnable_scale:
+            self.scale = torch.nn.Parameter(torch.FloatTensor([1.0]))
 
 
     def _make_layer(self, block, planes, stride=1, drop_rate=0.0, drop_block=False, block_size=1):
