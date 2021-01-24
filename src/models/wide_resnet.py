@@ -58,7 +58,7 @@ class NetworkBlock(nn.Module):
 
     
 class WideResNet(nn.Module):
-    def __init__(self, depth=28, widen_factor=10, stride=1, projection=False):
+    def __init__(self, depth=28, widen_factor=10, stride=1, projection=False, learnable_scale=False):
 
         # fixed drop rate
         dropRate = 0.5
@@ -112,6 +112,11 @@ class WideResNet(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 m.weight.data.fill_(1)
                 m.bias.data.zero_()
+
+        # init learnable scale
+        if learnable_scale:
+            self.scale = torch.nn.Parameter(torch.FloatTensor([1.0]))
+
 
     
     def forward(self, x, only_features=False):

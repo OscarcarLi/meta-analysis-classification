@@ -60,7 +60,7 @@ class Convnet(nn.Module):
 
 class ShallowConv(nn.Module):
     def __init__(self, h_dim, z_dim, projection, classifier_type,
-        x_dim=3, retain_last_activation=True, activation='ReLU'):
+        x_dim=3, retain_last_activation=True, activation='ReLU', learnable_scale=False):
         super(Conv64, self).__init__()
         
         self.encoder = nn.Sequential(
@@ -94,6 +94,11 @@ class ShallowConv(nn.Module):
             elif isinstance(m, nn.BatchNorm2d):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
+        # init learnable scale
+        if learnable_scale:
+            self.scale = torch.nn.Parameter(torch.FloatTensor([1.0]))
+
 
 
     def forward(self, x, only_features=False):
