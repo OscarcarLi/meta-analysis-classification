@@ -187,7 +187,7 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base.json')
+    train_file = os.path.join(args.dataset_path, 'base_test.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel_large.json')
     basetest_file = os.path.join(args.dataset_path, 'base_test.json')
