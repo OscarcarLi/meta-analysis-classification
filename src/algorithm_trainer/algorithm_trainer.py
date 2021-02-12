@@ -397,7 +397,7 @@ class TL_algorithm_trainer(object):
         self._eps = 0.
         
 
-    def run(self, mt_loader, epoch=None, is_training=True):
+    def run(self, mt_loader, epoch=None, is_training=True, evaluate_supervised_classification=False):
 
         if is_training:
             self._algorithm._model.train()
@@ -412,7 +412,7 @@ class TL_algorithm_trainer(object):
         aggregate = defaultdict(list)
         
         # constants
-        if not is_training:
+        if not is_training and not evaluate_supervised_classification:
             n_way = mt_loader.n_way
             n_shot = mt_loader.n_shot
             mt_batch_sz = mt_loader.batch_size
@@ -431,7 +431,7 @@ class TL_algorithm_trainer(object):
             analysis = (i % self._log_interval == 0)
 
 
-            if is_training:
+            if is_training or evaluate_supervised_classification:
                 """
                 Train a standard image classification network
                 """
@@ -453,6 +453,8 @@ class TL_algorithm_trainer(object):
                 # metrics accumulation
                 aggregate['loss'].append(loss.item())
                 aggregate['accu'].append(accu)
+                aggregate['mt_outer_loss'].append(loss.item())
+                aggregate['mt_outer_accu'].append(accu)
 
             else:
                 """

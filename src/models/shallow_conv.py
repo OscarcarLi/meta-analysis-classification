@@ -59,9 +59,18 @@ class Convnet(nn.Module):
 
 
 class ShallowConv(nn.Module):
-    def __init__(self, h_dim, z_dim, projection, classifier_type,
-        x_dim=3, retain_last_activation=True, activation='ReLU', learnable_scale=False):
-        super(Conv64, self).__init__()
+    def __init__(self, 
+        h_dim,
+        z_dim, 
+        projection, 
+        classifier_type,
+        num_classes,
+        x_dim=3,
+        retain_last_activation=True,
+        activation='ReLU',
+        learnable_scale=False):
+        
+        super(ShallowConv, self).__init__()
         
         self.encoder = nn.Sequential(
             conv_block(x_dim, h_dim),

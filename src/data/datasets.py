@@ -7,6 +7,7 @@ import concurrent.futures
 from collections import defaultdict
 import tqdm
 import os
+from copy import deepcopy
 
 from src.data.transforms import TransformLoader
 
@@ -415,6 +416,10 @@ class ClassImages:
             print(f"Done loading class {cl} into memory -- found {len(self.images)} images")
 
 
+        self.original_sub_meta = self.sub_meta
+        self.original_images = self.images
+
+
     def __getitem__(self, i):
         # load the i-th image of this class
         if self.preload:
@@ -428,6 +433,18 @@ class ClassImages:
         return len(self.sub_meta)
 
 
+    def resample_images(self, n_chosen):
+        """
+        Randomly choose n_chosen objects out of original sub_meta to
+        create new sub_meta. Basically, it reduces the images in a class.  
+        """
+        assert n_chosen > 0, "Must select non zero examples for each class"
+        selected_indices = np.random.choice(len(self.original_sub_meta), n_chosen, replace=False)
+        self.sub_meta = [self.original_sub_meta[x] for x in selected_indices]
+        if self.preload:
+            self.images = [self.original_images[x] for x in selected_indices]
+        print(f"No. of samples in class {self.cl}: {len(self.sub_meta)}")
+
 
 class SimpleDataset(torch.utils.data.Dataset):
 
@@ -435,7 +452,8 @@ class SimpleDataset(torch.utils.data.Dataset):
                        class_images_set,
                        image_size,
                        aug,
-                       verbose=True):
+                       verbose=True,
+                       sample=0):
 
         """[summary]
 
@@ -445,11 +463,13 @@ class SimpleDataset(torch.utils.data.Dataset):
             image_size (int): the side length of the square image
             aug (bool): whether to use data augmentation for support set
             verbose (bool, optional): print the configuration. Defaults to True.
+            sample (int, optional): if sample > 0, each class samples "sample" number of examples from the given ClassImages
         """
         self.dataset_name = dataset_name
         self.class_images_set = class_images_set
         self.image_size = image_size
         self.aug = aug
+        self.sample = sample
         
         # list of classes
         self.classes = list(class_images_set.keys())
@@ -468,8 +488,13 @@ class SimpleDataset(torch.utils.data.Dataset):
         self.indices_within_each_class_images_set = []
         self.class_labels = []
         for i, cl in enumerate(self.classes):
-            self.indices_within_each_class_images_set.extend(np.arange(len(self.class_images_set[cl])))
-            self.class_labels.extend([i] * len(self.class_images_set[cl]))
+            if self.sample > 0:
+                sampled_indices = np.random.choice(
+                    np.arange(len(self.class_images_set[cl])), self.sample, replace=False)
+            else:
+                sampled_indices = np.arange(len(self.class_images_set[cl]))
+            self.indices_within_each_class_images_set.extend(sampled_indices)
+            self.class_labels.extend([i] * len(sampled_indices))
 
         assert len(self.class_labels) == len(self.indices_within_each_class_images_set)
 

@@ -175,7 +175,7 @@ def main(args):
     #                LOGGING AND SAVING                #
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
-    eval_results = f'{args.output_folder}/evallarge_results.txt'
+    eval_results = f'{args.output_folder}/base_acc_results.txt'
     with open(eval_results, 'w') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
@@ -187,9 +187,6 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel_large.json')
     basetest_file = os.path.join(args.dataset_path, 'base_test.json')
     print("Dataset name", dataset_name, "image_size", image_size)
     
@@ -199,114 +196,66 @@ def main(args):
     3. Create Dataloader object from MetaDataset
     """
 
-    print("\n", "--"*20, "VAL + NOVEL", "--"*20)
+    print("\n", "--"*20, "BASE", "--"*20)
     
     
-    if args.algorithm_1 == 'TransferLearning':
-        assert args.algorithm_2 == 'TransferLearning'
-        base_classes = ClassImagesSet(basetest_file, preload=str2bool(args.preload_train))
-    else:
-        novelval_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_train))
-        novelval_meta_datasets = MetaDataset(
-                                        dataset_name=dataset_name,
-                                        support_class_images_set=novelval_classes,
-                                        query_class_images_set=novelval_classes,
-                                        image_size=image_size,
-                                        support_aug=False,
-                                        query_aug=False,
-                                        fix_support=0,
-                                        save_folder='')
-
+    base_classes = ClassImagesSet(basetest_file, preload=str2bool(args.preload_train))
 
     ####################################################
     #             MODEL/BACKBONE CREATION              #
     ####################################################
     
-    model_1 = create_model_and_load_chkpt(
+    model = create_model_and_load_chkpt(
                     args, 
                     dataset_name=dataset_name, 
-                    checkpoint_path=args.checkpoint_1)
-    model_2 = create_model_and_load_chkpt(
-                    args, 
-                    dataset_name=dataset_name, 
-                    checkpoint_path=args.checkpoint_2)
+                    checkpoint_path=args.checkpoint)
 
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
     ####################################################
 
-    trainer_1 = create_alg_and_trainer(
+    trainer = create_alg_and_trainer(
                     args, 
-                    algorithm_type=args.algorithm_1,
-                    model=model_1)
-    trainer_2 = create_alg_and_trainer(
-                    args, 
-                    algorithm_type=args.algorithm_2,
-                    model=model_2)
+                    algorithm_type=args.algorithm,
+                    model=model)
 
     ####################################################
     #                    EVALUATION                    #
     ####################################################
 
-
     for run in range(args.n_runs):
-        
-        if args.algorithm_1 == 'TransferLearning':
 
-            assert args.algorithm_2 == 'TransferLearning'
+        # randomly select args.n_examples_per_class for each base class
+        for _, class_imgs in base_classes.items():
+            class_imgs.resample_images(n_chosen=args.n_examples_per_class)
 
-            novelval_dataset = SimpleDataset(
-                            dataset_name=dataset_name,
-                            class_images_set=base_classes,
-                            image_size=image_size,
-                            aug=False,
-                            sample=args.sample)
-            novelval_loaders = torch.utils.data.DataLoader(
-                            novelval_dataset, 
-                            batch_size=128, 
-                            shuffle=True,
-                            num_workers=6)
-
-            results_1 = trainer_1.run(
-                mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
-            results_2 = trainer_2.run(
-                mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
+        base_datasets = MetaDataset(
+            dataset_name=dataset_name,
+            support_class_images_set=base_classes,
+            query_class_images_set=base_classes,
+            image_size=image_size,
+            support_aug=False,
+            query_aug=False,
+            fix_support=0,
+            save_folder='')
             
-            with open(eval_results, 'a') as f:
-                f.write(f"Run{run+1}: ")
-                f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
-                f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}"+"\n")            
+        base_loaders = MetaDataLoader(
+            dataset=base_datasets,
+            n_batches=args.n_iterations_val,
+            batch_size=args.batch_size_val,
+            n_way=args.n_way_val,
+            n_shot=args.n_shot_val,
+            n_query=args.n_query_val, 
+            randomize_query=False,
+        )
 
-
-        else:
-            chosen_classes = np.random.choice(
-                list(novelval_classes.keys()), args.n_chosen_classes,replace=False)
-            novelval_loaders = MetaDataLoader(
-                    dataset=novelval_meta_datasets,
-                    n_batches=args.n_iterations_val,
-                    batch_size=args.batch_size_val,
-                    n_way=args.n_way_val,
-                    n_shot=args.n_shot_val,
-                    n_query=args.n_query_val, 
-                    randomize_query=False,
-                    p_dict={
-                        k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
-                            for k in list(novelval_classes)
-                    })
-
-            results_1 = trainer_1.run(
-                mt_loader=novelval_loaders, is_training=False)
-            results_2 = trainer_2.run(
-                mt_loader=novelval_loaders, is_training=False)
-        
-        
-            with open(eval_results, 'a') as f:
-                f.write(f"Run{run+1} {args.n_way_val}w{args.n_shot_val}s: ")
-                f.write(f"Classes {chosen_classes} ")
-                f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
-                f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}"+"\n")            
-
-
+        results = trainer.run(
+            mt_loader=base_loaders, is_training=False)
+            
+        with open(eval_results, 'a') as f:
+            f.write(f"Run {run+1} {args.n_way_val}w{args.n_shot_val}s: ")
+            f.write(f"Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)} \n")
+            
 
 if __name__ == '__main__':
 
@@ -318,9 +267,8 @@ if __name__ == '__main__':
         help='')
 
     # Algorithm
-    parser.add_argument('--algorithm-1', type=str, help='type of algorithm-1')
-    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2')
-
+    parser.add_argument('--algorithm', type=str, help='type of algorithm')
+    
     # Model
     parser.add_argument('--model-type', type=str, default='gatedconv',
         help='type of the model')
@@ -378,22 +326,18 @@ if __name__ == '__main__':
         help='gpu device number')
     parser.add_argument('--log-interval', type=int, default=100,
         help='number of batches between tensorboard writes')
-    parser.add_argument('--checkpoint-1', type=str, default='',
-        help='path to saved parameters for alg1.')
-    parser.add_argument('--checkpoint-2', type=str, default='',
-        help='path to saved parameters for alg2.')
+    parser.add_argument('--checkpoint', type=str, default='',
+        help='path to saved parameters for alg.')
     parser.add_argument('--classifier-metric', type=str, default='',
         help='')
     parser.add_argument('--projection', type=str, default='',
         help='')
     parser.add_argument('--avg-pool', type=str, default='True',
         help='')
-    parser.add_argument('--n-chosen-classes', type=int, default=5,
-        help='number of classes chosen for eval in a single run')
+    parser.add_argument('--n-examples-per-class', type=int, default=5,
+        help='number of examples chosen in the test set of a class')
     parser.add_argument('--n-runs', type=int, default=20,
         help='number of runs')
-    parser.add_argument('--sample', type=int, default=0,
-        help='samples per class')
     
     
     args = parser.parse_args()
