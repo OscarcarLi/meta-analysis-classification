@@ -295,7 +295,7 @@ def main(args):
                     list(novelval_classes.keys()), args.n_chosen_classes,replace=False)
             else:
                 novel_class_keys = list(novelval_classes.keys())
-                chosen_classes = [novel_class_keys[idx] for idx in chosen_classes_indices_list[run]]
+                chosen_classes = [novel_class_keys[int(idx)] for idx in chosen_classes_indices_list[run]]
             novelval_loaders = MetaDataLoader(
                     dataset=novelval_meta_datasets,
                     n_batches=args.n_iterations_val,
@@ -390,7 +390,7 @@ if __name__ == '__main__':
     
 
     # Miscellaneous
-    parser.add_argument('--chosen-indices-class-list', type=str, default='')
+    parser.add_argument('--chosen-classes-indices-list', type=str, default='')
     parser.add_argument('--output-folder', type=str, default='maml',
         help='name of the output folder')
     parser.add_argument('--device-number', type=str, default='0',
