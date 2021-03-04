@@ -226,8 +226,9 @@ def main(args):
     for run in range(args.n_runs):
 
         # randomly select args.n_examples_per_class for each base class
-        for _, class_imgs in base_classes.items():
-            class_imgs.resample_images(n_chosen=args.n_examples_per_class)
+        if args.n_examples_per_class > 0:
+            for _, class_imgs in base_classes.items():
+                class_imgs.resample_images(n_chosen=args.n_examples_per_class)
 
         base_datasets = MetaDataset(
             dataset_name=dataset_name,

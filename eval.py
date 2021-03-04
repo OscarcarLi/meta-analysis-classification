@@ -148,25 +148,25 @@ def main(args):
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file, preload=str2bool(args.preload_train))
         
-        if args.fix_support > 0:
-            base_test_meta_dataset_using_fixS = MetaDataset(
-                                                    dataset_name=dataset_name,
-                                                    support_class_images_set=train_classes, query_class_images_set=base_test_classes,
-                                                    image_size=image_size,
-                                                    support_aug=False,
-                                                    query_aug=False,
-                                                    fix_support=0,
-                                                    save_folder='', 
-                                                    fix_support_path=os.path.join(args.output_folder, "fixed_support_pool.pkl"))
+        # if args.fix_support > 0:
+        #     base_test_meta_dataset_using_fixS = MetaDataset(
+        #                                             dataset_name=dataset_name,
+        #                                             support_class_images_set=train_classes, query_class_images_set=base_test_classes,
+        #                                             image_size=image_size,
+        #                                             support_aug=False,
+        #                                             query_aug=False,
+        #                                             fix_support=0,
+        #                                             save_folder='', 
+        #                                             fix_support_path=os.path.join(args.output_folder, "fixed_support_pool.pkl"))
 
-            base_test_loader_using_fixS = MetaDataLoader(
-                                            dataset=base_test_meta_dataset_using_fixS,
-                                            n_batches=args.n_iterations_val,
-                                            batch_size=args.batch_size_val,
-                                            n_way=args.n_way_val,
-                                            n_shot=args.n_shot_val,
-                                            n_query=args.n_query_val, 
-                                            randomize_query=False,)
+        #     base_test_loader_using_fixS = MetaDataLoader(
+        #                                     dataset=base_test_meta_dataset_using_fixS,
+        #                                     n_batches=args.n_iterations_val,
+        #                                     batch_size=args.batch_size_val,
+        #                                     n_way=args.n_way_val,
+        #                                     n_shot=args.n_shot_val,
+        #                                     n_query=args.n_query_val, 
+        #                                     randomize_query=False,)
 
         print("\n", "--"*20, "BASE + NOVEL TEST", "--"*20)
         assert len(set(base_test_classes.keys()).intersection(set(test_classes.keys()))) == 0,\
@@ -368,14 +368,14 @@ def main(args):
         
         print("Base Test")
         
-        if args.fix_support > 0:
-            print("Base Test using FixSupport, matching train and test for fixml")
-            results = trainer.run(
-                mt_loader=base_test_loader_using_fixS, is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            with open(eval_results, 'a') as f:
-                f.write(f"BaseTestUsingFixSupport: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
+        # if args.fix_support > 0:
+        #     print("Base Test using FixSupport, matching train and test for fixml")
+        #     results = trainer.run(
+        #         mt_loader=base_test_loader_using_fixS, is_training=False)
+        #     pp = pprint.PrettyPrinter(indent=4)
+        #     pp.pprint(results)
+        #     with open(eval_results, 'a') as f:
+        #         f.write(f"BaseTestUsingFixSupport: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
         for lambd, base_novel_test_loader in base_novel_test_loaders_dict.items():
             print(f"Base + Novel Test lambda={round(lambd, 2)} Novel {round(1-lambd, 2)} Base")

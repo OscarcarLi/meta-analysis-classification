@@ -519,6 +519,6 @@ class SimpleDataset(torch.utils.data.Dataset):
 if __name__ == '__main__':
 
     cis = \
-    ClassImagesSet(data_file='/home/oscarli/projects/meta-analysis-classification/data/new_miniimagenet/val.json',
+    ClassImagesSet(data_file='/home/anonymous/projects/meta-analysis-classification/data/new_miniimagenet/val.json',
                    preload=False)
     print(cis.class_images_set)
