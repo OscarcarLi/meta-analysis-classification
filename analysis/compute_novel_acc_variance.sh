@@ -31,5 +31,5 @@ CUDA_VISIBLE_DEVICES="$device" nohup python compute_novel_acc_variance.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint-1 ../runs/metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest/chkpt_031.pt \
+--checkpoint-1 ../runs/metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest/chkpt_021.pt \
 --log-interval 100 > log_${output}.out &
