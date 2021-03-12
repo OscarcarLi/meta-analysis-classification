@@ -13,11 +13,11 @@ from datetime import datetime
 
 
 from src.models import shallow_conv, resnet_12, wide_resnet, dense_net
-from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init_algorithm_trainer
+from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init_algorithm_trainer, TL_algorithm_trainer
 from src.algorithms.algorithm import SVM, ProtoNet, Ridge, InitBasedAlgorithm
 from src.optimizers import modified_sgd
 from src.data.dataset_managers import MetaDataLoader
-from src.data.datasets import MetaDataset, ClassImagesSet
+from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
 
 
 def ensure_path(path):
@@ -120,21 +120,22 @@ def create_alg_and_trainer(args, algorithm_type, model):
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             scale=args.scale_factor,
             device='cuda')
+    elif algorithm_type == 'TransferLearning':
+        """
+        We use the ProtoNet algorithm at test time.
+        """
+        algorithm = ProtoNet(
+            model=model,
+            inner_loss_func=torch.nn.CrossEntropyLoss(),
+            device='cuda',
+            scale=args.scale_factor,
+            metric=args.classifier_metric)
     else:
         raise ValueError(
             'Unrecognized algorithm {}'.format(args.algorithm))
 
 
-    if algorithm_type != 'InitBasedAlgorithm':
-        trainer = Meta_algorithm_trainer(
-            algorithm=algorithm,
-            optimizer=None,
-            writer=None,
-            log_interval=args.log_interval, 
-            save_folder='', 
-            grad_clip=None,
-            init_global_iteration=None)
-    else:
+    if algorithm_type == 'InitBasedAlgorithm':
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,
             optimizer=None,
@@ -144,6 +145,25 @@ def create_alg_and_trainer(args, algorithm_type, model):
             grad_clip=None,
             num_updates_inner_train=args.num_updates_inner_train,
             num_updates_inner_val=args.num_updates_inner_val,
+            init_global_iteration=None)
+    elif algorithm_type == 'TransferLearning':
+        trainer = TL_algorithm_trainer(
+            algorithm=algorithm,
+            optimizer=None,
+            writer=None,
+            log_interval=args.log_interval, 
+            save_folder='', 
+            grad_clip=None,
+            init_global_iteration=None
+        )
+    else:
+        trainer = Meta_algorithm_trainer(
+            algorithm=algorithm,
+            optimizer=None,
+            writer=None,
+            log_interval=args.log_interval, 
+            save_folder='', 
+            grad_clip=None,
             init_global_iteration=None)
 
     return trainer
@@ -155,7 +175,7 @@ def main(args):
     #                LOGGING AND SAVING                #
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
-    eval_results = f'{args.output_folder}/evalvar_results.txt'
+    eval_results = f'{args.output_folder}/novel_acc_variance_{args.n_chosen_classes}.txt'
     with open(eval_results, 'w') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
@@ -169,7 +189,8 @@ def main(args):
     image_size = args.img_side_len
     train_file = os.path.join(args.dataset_path, 'base_test.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel.json')
+    test_file = os.path.join(args.dataset_path, 'novel_large.json')
+    basetest_file = os.path.join(args.dataset_path, 'base_test.json')
     print("Dataset name", dataset_name, "image_size", image_size)
     
     """
@@ -179,17 +200,22 @@ def main(args):
     """
 
     print("\n", "--"*20, "VAL + NOVEL", "--"*20)
-    novelval_classes = ClassImagesSet(val_file, test_file, preload=str2bool(args.preload_train))
-
-    novelval_meta_datasets = MetaDataset(
-                                    dataset_name=dataset_name,
-                                    support_class_images_set=novelval_classes,
-                                    query_class_images_set=novelval_classes,
-                                    image_size=image_size,
-                                    support_aug=False,
-                                    query_aug=False,
-                                    fix_support=0,
-                                    save_folder='')
+    
+    
+    if args.algorithm_1 == 'TransferLearning':
+        assert args.algorithm_2 == 'TransferLearning'
+        base_classes = ClassImagesSet(basetest_file, preload=str2bool(args.preload_train))
+    else:
+        novelval_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_train))
+        novelval_meta_datasets = MetaDataset(
+                                        dataset_name=dataset_name,
+                                        support_class_images_set=novelval_classes,
+                                        query_class_images_set=novelval_classes,
+                                        image_size=image_size,
+                                        support_aug=False,
+                                        query_aug=False,
+                                        fix_support=0,
+                                        save_folder='')
 
 
     ####################################################
@@ -200,10 +226,11 @@ def main(args):
                     args, 
                     dataset_name=dataset_name, 
                     checkpoint_path=args.checkpoint_1)
-    model_2 = create_model_and_load_chkpt(
-                    args, 
-                    dataset_name=dataset_name, 
-                    checkpoint_path=args.checkpoint_2)
+    if args.algorithm_2 != '':
+        model_2 = create_model_and_load_chkpt(
+                        args, 
+                        dataset_name=dataset_name, 
+                        checkpoint_path=args.checkpoint_2)
 
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
@@ -213,42 +240,89 @@ def main(args):
                     args, 
                     algorithm_type=args.algorithm_1,
                     model=model_1)
-    trainer_2 = create_alg_and_trainer(
-                    args, 
-                    algorithm_type=args.algorithm_2,
-                    model=model_2)
+    if args.algorithm_2 != '':
+        trainer_2 = create_alg_and_trainer(
+                        args, 
+                        algorithm_type=args.algorithm_2,
+                        model=model_2)
 
     ####################################################
     #                    EVALUATION                    #
     ####################################################
 
+    # check if there is pre specified list of novel classes for each run
+    chosen_classes_indices_list = None
+    if args.chosen_classes_indices_list != '':
+        print(f'Loading novel classes for each run from file {args.chosen_classes_indices_list}') 
+        chosen_classes_indices_list = []
+        with open(args.chosen_classes_indices_list, 'r') as f:
+            chosen_classes_indices_list = [line.strip().split(" ") for line in f.readlines()]
 
     for run in range(args.n_runs):
         
-        chosen_classes = np.random.choice(
-            list(novelval_classes.keys()), args.n_chosen_classes,replace=False)
-        novelval_loaders = MetaDataLoader(
-                dataset=novelval_meta_datasets,
-                n_batches=args.n_iterations_val,
-                batch_size=args.batch_size_val,
-                n_way=args.n_way_val,
-                n_shot=args.n_shot_val,
-                n_query=args.n_query_val, 
-                randomize_query=False,
-                p_dict={
-                    k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
-                        for k in list(novelval_classes)
-                })
+        if args.algorithm_1 == 'TransferLearning':
 
-        results_1 = trainer_1.run(
-            mt_loader=novelval_loaders, is_training=False)
-        results_2 = trainer_2.run(
-            mt_loader=novelval_loaders, is_training=False)
-        with open(eval_results, 'a') as f:
-            f.write(f"Run{run+1} {args.n_way_val}w{args.n_shot_val}s: ")
-            f.write(f"Classes {chosen_classes} ")
-            f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
-            f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}"+"\n")            
+            assert args.algorithm_2 == 'TransferLearning' or args.algorithm_2 == '' 
+
+            novelval_dataset = SimpleDataset(
+                            dataset_name=dataset_name,
+                            class_images_set=base_classes,
+                            image_size=image_size,
+                            aug=False,
+                            sample=args.sample)
+            novelval_loaders = torch.utils.data.DataLoader(
+                            novelval_dataset, 
+                            batch_size=128, 
+                            shuffle=True,
+                            num_workers=6)
+
+            results_1 = trainer_1.run(
+                mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
+            if args.algorithm_2 != '':
+                results_2 = trainer_2.run(
+                    mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
+            
+            with open(eval_results, 'a') as f:
+                f.write(f"Run{run+1}: ")
+                f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
+                if args.algorithm_2 != '':
+                    f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}")            
+                f.write("\n")
+
+        else:
+            if chosen_classes_indices_list is None:
+                chosen_classes = np.random.choice(
+                    list(novelval_classes.keys()), args.n_chosen_classes,replace=False)
+            else:
+                novel_class_keys = list(novelval_classes.keys())
+                chosen_classes = [novel_class_keys[int(idx)] for idx in chosen_classes_indices_list[run]]
+            novelval_loaders = MetaDataLoader(
+                    dataset=novelval_meta_datasets,
+                    n_batches=args.n_iterations_val,
+                    batch_size=args.batch_size_val,
+                    n_way=args.n_way_val,
+                    n_shot=args.n_shot_val,
+                    n_query=args.n_query_val, 
+                    randomize_query=False,
+                    p_dict={
+                        k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
+                            for k in list(novelval_classes)
+                    })
+
+            results_1 = trainer_1.run(
+                mt_loader=novelval_loaders, is_training=False)
+            if args.algorithm_2 != '':
+                results_2 = trainer_2.run(
+                    mt_loader=novelval_loaders, is_training=False)
+        
+        
+            with open(eval_results, 'a') as f:
+                f.write(f"Run{run+1} {args.n_way_val}w{args.n_shot_val}s: ")
+                f.write(f"Classes {chosen_classes} ")
+                f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
+                if args.algorithm_2 != '':
+                    f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}")
+                f.write("\n")
 
 
 
@@ -263,7 +337,7 @@ if __name__ == '__main__':
 
     # Algorithm
     parser.add_argument('--algorithm-1', type=str, help='type of algorithm-1')
-    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2')
+    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2', default='')
 
     # Model
     parser.add_argument('--model-type', type=str, default='gatedconv',
@@ -316,6 +390,7 @@ if __name__ == '__main__':
     
 
     # Miscellaneous
+    parser.add_argument('--chosen-classes-indices-list', type=str, default='')
     parser.add_argument('--output-folder', type=str, default='maml',
         help='name of the output folder')
     parser.add_argument('--device-number', type=str, default='0',
@@ -336,6 +411,8 @@ if __name__ == '__main__':
         help='number of classes chosen for eval in a single run')
     parser.add_argument('--n-runs', type=int, default=20,
         help='number of runs')
+    parser.add_argument('--sample', type=int, default=0,
+        help='samples per class')
     
     
     args = parser.parse_args()
