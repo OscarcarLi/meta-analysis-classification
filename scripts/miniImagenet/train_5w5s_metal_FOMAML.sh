@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_mini_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.1det2040'
+output='metal_mini_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.01det3565'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0'
 mkdir -p logs
@@ -22,7 +22,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --classifier-metric euclidean \
 --dataset-path datasets/filelists/miniImagenet \
 --img-side-len 84 \
---n-epochs 60 \
+--n-epochs 70 \
 --batch-size-train 4 \
 --n-way-train 5 \
 --n-shot-train 5 \
@@ -38,11 +38,11 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --randomize-query False \
 --preload-train True \
 --optimizer-type Adam \
---lr 0.1 \
+--lr 0.01 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 20,40 \
---drop-factors 0.06,0.012 \
+--drop-lr-epoch 35,65 \
+--drop-factors 0.1,0.01 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \

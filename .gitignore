@@ -1,4 +1,7 @@
 # project specific
+train_dir/
+train_dir_2/
+data/
 datasets/
 logs/
 runs/
@@ -113,6 +116,5 @@ venv.bak/
 *.sw[opn]
 *.pt
 *.hdf5
-train_dir/
 *tgz
 *tar.gz
