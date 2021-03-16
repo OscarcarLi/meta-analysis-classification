@@ -4,15 +4,33 @@ from tqdm import tqdm
 from collections import defaultdict
 import argparse
 
-def get_class_images(class_root_path, user_to_class_to_imagepath):
+def relabel_class(c):
+    '''
+    maps hexadecimal class value (string) to a decimal number
+    returns:
+    - 0 through 9 for classes representing respective numbers
+    - 10 through 35 for classes representing respective uppercase letters
+    - 36 through 61 for classes representing respective lowercase letters
+    '''
+    if c.isdigit() and int(c) < 40:
+        return (int(c) - 30)
+    elif int(c, 16) <= 90: # uppercase
+        return (int(c, 16) - 55)
+    else:
+        return (int(c, 16) - 61)
+
+def add_class_images(class_root_path, user_to_class_to_imagepath):
     """
-    Reads image paths correspeonding to a class
     class_root_path is root of class directory
-    user_to_class_to_imagepath is a dictionary mapping user->class->imagepath
+    user_to_class_to_imagepath: defaultdict(lambda: defaultdict(list))
+                                is a dictionary mapping user->class->imagepath
+
+    use .mit file's mapping information to add every example of this class to the correct user
     """
 
-    class_id = os.path.basename(class_root_path)
-    print(f"Reading class {class_id}")
+    class_hex = os.path.basename(class_root_path)
+    class_label = relabel_class(class_hex)
+    print(f"Reading class hex {class_hex}, char {chr(int(class_hex, 16))}")
             
     for hsf_fname in os.listdir(class_root_path):
         # read mit files which contain metadata
@@ -35,16 +53,9 @@ def get_class_images(class_root_path, user_to_class_to_imagepath):
                     image_fname
                 ) 
 
-                # if user is not present in dict create new user
-                if user_id not in user_to_class_to_imagepath: 
-                    user_to_class_to_imagepath[user_id] = defaultdict(list)
-                
                 # add data to class/user dict
-                user_to_class_to_imagepath[user_id][class_id].append(full_image_path)
+                user_to_class_to_imagepath[user_id][class_label].append(full_image_path)
 
-    return user_to_class_to_imagepath
-                
-            
 
 if __name__ == '__main__':
 
@@ -52,13 +63,13 @@ if __name__ == '__main__':
     parser.add_argument('--femnist-root', type=str, required=True)
     args = parser.parse_args()
 
-    user_to_class_to_imagepath = {}
+    user_to_class_to_imagepath = defaultdict(lambda: defaultdict(list))
     classes_home = os.path.join(args.femnist_root, "data/raw_data/by_class")
-    for class_name in os.listdir(classes_home):
+    for class_name in sorted(os.listdir(classes_home)):
         class_root_path = os.path.join(
             classes_home,
             class_name)
-        user_to_class_to_imagepath = get_class_images(
+        add_class_images(
             class_root_path,
             user_to_class_to_imagepath)
 
