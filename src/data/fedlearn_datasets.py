@@ -4,6 +4,7 @@ import torchvision.transforms as transforms
 import random
 import torch
 import json
+import numpy as np
 from tqdm import tqdm
 
 
@@ -40,6 +41,13 @@ class FedDataLoader:
             num_workers=8,
             pin_memory=True,
         )
+
+        # these variables are used by algorithm_trainer.py but these can actually be inferred from support_x, support_y
+        self.n_way = self.dataset.n_way
+        self.n_shot = self.dataset.n_shot_per_class
+        self.n_query = self.dataset.n_query_per_class
+        self.randomize_query = self.dataset.randomize_query
+
     
     def __iter__(self):
         '''
@@ -63,6 +71,7 @@ class FedBatchSampler(torch.utils.data.Sampler):
         self.n_batches = n_batches
         self.batch_size = batch_size
 
+
     def __len__(self):
         return self.n_batches
     
@@ -78,6 +87,7 @@ class FedDataset(torch.utils.data.Dataset):
                 n_shot_per_class,
                 n_query_per_class,
                 image_size=None,
+                randomize_query=False,
                 preload=False):
         """Dataset object that organizes all user's data through ClientDataset
 
@@ -88,6 +98,7 @@ class FedDataset(torch.utils.data.Dataset):
             n_query_per_class (int): number of query examples per class
             image_size (int or tuple of ints, optional): reshape the image to image_size.
                                         Defaults to None which means no resizing.
+            randomize_query (bool): whether to have random number of query points for each class
             preload (bool, optional): whether to have every client load the data into memory.
                                         Defaults to False.
         """                
@@ -101,6 +112,7 @@ class FedDataset(torch.utils.data.Dataset):
             # json.load can only return dictionary with key values as string
             # convert the string to integer for every class
             class_str_list = list(class_to_imagepathlist.keys())
+            self.n_way = len(class_str_list) # currently a hacky way to do this
             for cl_str in class_str_list:
                 class_to_imagepathlist[int(cl_str)] = class_to_imagepathlist[cl_str]
                 del class_to_imagepathlist[cl_str]
@@ -114,6 +126,9 @@ class FedDataset(torch.utils.data.Dataset):
         
         self.n_shot_per_class = n_shot_per_class
         self.n_query_per_class = n_query_per_class
+        # currently no implementation for randomize_query but it would happen in this ClientDataset
+        # object in sample()
+        self.randomize_query = randomize_query
 
     def __len__(self):
         return len(self.client_dict.keys())
@@ -123,7 +138,8 @@ class FedDataset(torch.utils.data.Dataset):
         #             (support_x, support_y, query_x, query_y)
         return self.client_dict[client_id].sample(
                     n_shot_per_class=self.n_shot_per_class,
-                    n_query_per_class=self.n_query_per_class)
+                    n_query_per_class=self.n_query_per_class,
+                    randomize_query=self.randomize_query)
     
     def client_id_list(self):
         return list(sorted(self.client_dict.keys()))
@@ -134,7 +150,6 @@ class ClientDataset:
                  client_id,
                  class_to_imagepathlist,
                  image_size=None,
-                #  randomize_query,
                  preload=False):
                 # augmentation or not
         """A data structure for sampling a specific client's data
@@ -142,7 +157,9 @@ class ClientDataset:
         Args:
             client_id (str): the unique identifier of the client
             class_to_imagepathlist (dict): maps a class integer to the list of image_paths
-            image_size (int or tuple of ints, optional): reshape the image to image_size.
+            image_size (tuple of ints, optional): reshape the image to image_size (h,w).
+                                        cannot pass a sinlge int because it would only match
+                                        the shorter sidelength to the image_size but not the longer side.
                                         Defaults to None which means no resizing.
             preload (bool, optional): whether to load the data into memory. Defaults to False.
         """
@@ -159,9 +176,7 @@ class ClientDataset:
         else:
             self.transform = transforms.ToTensor()
 
-
         self.image_size = image_size
-        # self.randomize_query = randomize_query
 
         self.preload = preload
         if self.preload:
@@ -171,7 +186,7 @@ class ClientDataset:
                     self.class_to_imagelist[cl].append(self.transform(load_image(image_path)))
 
 
-    def sample(self, n_shot_per_class, n_query_per_class):
+    def sample(self, n_shot_per_class, n_query_per_class, randomize_query=False):
         """
         For every class of which the client has data,
             sample n_shot_per_class for support set
@@ -189,20 +204,32 @@ class ClientDataset:
         query_x = []
         query_y = []
 
-        for cl in self.classes:
+        num_classes = len(self.classes)
+        if randomize_query:
+            # randomize query so that not every class will have the same number
+            # n_query_per_class, but the total number of query points is still equal to 
+            # n_query_per_class * num_classes
+            num_queries = np.random.multinomial(
+                                n=(n_query_per_class - 1) * num_classes,
+                                pvals=[1/num_classes] * num_classes) + \
+                                np.ones(shape=num_classes, dtype=int)
+        else:
+            num_queries = [n_query_per_class] * num_classes
+
+        for cl, n_q in zip(self.classes, num_queries):
             if self.preload:
                 # Return a k sized list of elements chosen from the population with replacement.
                 examples = random.choices(population=self.class_to_imagelist[cl],
-                                k=n_shot_per_class + n_query_per_class)
+                                k=n_shot_per_class + n_q)
             else:
                 example_paths = random.choices(population=self.class_to_imagepathlist[cl],
-                                                k=n_shot_per_class + n_query_per_class)
+                                                k=n_shot_per_class + n_q)
                 examples = [self.transform(load_image(path)) for path in example_paths]
 
             support_x.extend(examples[:n_shot_per_class])
             query_x.extend(examples[n_shot_per_class:])
             support_y.extend([cl] * n_shot_per_class)
-            query_y.extend([cl] * n_query_per_class)
+            query_y.extend([cl] * n_q)
         
         support_x = torch.stack(support_x, dim=0)
         support_y = torch.tensor(support_y)
