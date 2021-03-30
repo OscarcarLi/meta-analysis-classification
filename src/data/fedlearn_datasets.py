@@ -126,8 +126,6 @@ class FedDataset(torch.utils.data.Dataset):
         
         self.n_shot_per_class = n_shot_per_class
         self.n_query_per_class = n_query_per_class
-        # currently no implementation for randomize_query but it would happen in this ClientDataset
-        # object in sample()
         self.randomize_query = randomize_query
 
     def __len__(self):
