@@ -66,6 +66,7 @@ class ShallowConv(nn.Module):
         classifier_type,
         num_classes,
         x_dim=3,
+        x_width=84,
         retain_last_activation=True,
         activation='ReLU',
         learnable_scale=False):
@@ -83,7 +84,7 @@ class ShallowConv(nn.Module):
         self.projection = projection
         print("Unit norm projection is ", self.projection)
         print("Avg pool is always False for Conv64")
-        self.final_feat_dim = z_dim * 25
+        self.final_feat_dim = z_dim * ((x_width // 16) ** 2) # the feat size is z_dim x w X h, where w,h = (original_width // 16) due to 4 stacked Maxpool(2) operators
         self.num_classes = num_classes
         self.no_fc_layer = (classifier_type == "no-classifier")
         self.classifier_type = classifier_type
