@@ -279,7 +279,7 @@ def main(args):
         assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
         if len(drop_eps) == 3:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1] if e < drop_eps[2] else (drop_factors[2]))
-        elif len(drop_eps) == 3:
+        elif len(drop_eps) == 2:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1])
         else:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else drop_factors[0]
