@@ -107,7 +107,8 @@ def main(args):
                                 n_query_per_class=args.n_query_train,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
                                 randomize_query=str2bool(args.randomize_query),
-                                preload=args.preload_train)
+                                preload=args.preload_train,
+                                fixed_sq=str2bool(args.fixed_sq))
 
         train_loader = FedDataLoader(
                             dataset=train_meta_dataset,
@@ -125,7 +126,8 @@ def main(args):
                                 n_query_per_class=args.n_query_val,
                                 image_size=(image_size, image_size),
                                 randomize_query=False,
-                                preload=True)
+                                preload=True,
+                                fixed_sq=str2bool(args.fixed_sq))
         val_loaders[ns_val] = FedDataLoader(
                             dataset=val_meta_datasets[ns_val],
                             n_batches=args.n_iterations_val,
@@ -142,7 +144,8 @@ def main(args):
                                 n_query_per_class=args.n_query_val,
                                 image_size=(image_size, image_size),
                                 randomize_query=False,
-                                preload=True)
+                                preload=True,
+                                fixed_sq=str2bool(args.fixed_sq))
         test_loaders[ns_val] = FedDataLoader(
                             dataset=test_meta_datasets[ns_val],
                             n_batches=args.n_iterations_val,
@@ -632,6 +635,7 @@ if __name__ == '__main__':
     parser.add_argument('--randomize-query', type=str, default="False",
         help='random query pts per class')
     parser.add_argument('--preload-train', type=str, default="False")
+    parser.add_argument('--fixed_sq', type=str, default="False")
 
 
     # Miscellaneous

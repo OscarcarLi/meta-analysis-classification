@@ -88,7 +88,8 @@ class FedDataset(torch.utils.data.Dataset):
                 n_query_per_class,
                 image_size=None,
                 randomize_query=False,
-                preload=False):
+                preload=False,
+                fixed_sq=False):
         """Dataset object that organizes all user's data through ClientDataset
 
         Args:
@@ -96,11 +97,12 @@ class FedDataset(torch.utils.data.Dataset):
                                 client_id -> integer_class -> list of image_paths
             n_shot_per_class (int): number of support examples per class
             n_query_per_class (int): number of query examples per class
-            image_size (int or tuple of ints, optional): reshape the image to image_size.
+            image_size (tuple of ints, optional): reshape the image to image_size.
                                         Defaults to None which means no resizing.
-            randomize_query (bool): whether to have random number of query points for each class
+            randomize_query (bool, optional): whether to have random number of query points for each class
             preload (bool, optional): whether to have every client load the data into memory.
                                         Defaults to False.
+            fixed_sq (bool, optional): if true, for every client in the dataset, always use the same support and query set.
         """                
 
         with open(json_path, 'r') as file:
@@ -116,17 +118,21 @@ class FedDataset(torch.utils.data.Dataset):
             for cl_str in class_str_list:
                 class_to_imagepathlist[int(cl_str)] = class_to_imagepathlist[cl_str]
                 del class_to_imagepathlist[cl_str]
-
+        
             self.client_dict[client_id] = \
                 ClientDataset(
                         client_id=client_id,
                         class_to_imagepathlist=class_to_imagepathlist,
                         image_size=image_size,
-                        preload=preload)
-        
+                        preload=preload,
+                        fixed_sq=fixed_sq,
+                        fixed_n_shot=n_shot_per_class,
+                        fixed_n_query=n_query_per_class)
+
         self.n_shot_per_class = n_shot_per_class
         self.n_query_per_class = n_query_per_class
         self.randomize_query = randomize_query
+        self.fixed_sq = fixed_sq
 
     def __len__(self):
         return len(self.client_dict.keys())
@@ -134,10 +140,13 @@ class FedDataset(torch.utils.data.Dataset):
     def __getitem__(self, client_id):
         # given a client_id, return a sampled tuple 
         #             (support_x, support_y, query_x, query_y)
-        return self.client_dict[client_id].sample(
-                    n_shot_per_class=self.n_shot_per_class,
-                    n_query_per_class=self.n_query_per_class,
-                    randomize_query=self.randomize_query)
+        if not self.fixed_sq:
+            return self.client_dict[client_id].sample(
+                        n_shot_per_class=self.n_shot_per_class,
+                        n_query_per_class=self.n_query_per_class,
+                        randomize_query=self.randomize_query)
+        else:
+            return self.client_dict[client_id].fixed_sample()
     
     def client_id_list(self):
         return list(sorted(self.client_dict.keys()))
@@ -148,7 +157,10 @@ class ClientDataset:
                  client_id,
                  class_to_imagepathlist,
                  image_size=None,
-                 preload=False):
+                 preload=False,
+                 fixed_sq=False,
+                 fixed_n_shot=None,
+                 fixed_n_query=None):
                 # augmentation or not
         """A data structure for sampling a specific client's data
 
@@ -182,6 +194,58 @@ class ClientDataset:
             for cl, imagepathlist in self.class_to_imagepathlist.items():
                 for image_path in imagepathlist:
                     self.class_to_imagelist[cl].append(self.transform(load_image(image_path)))
+
+        # for every class fix the support and query examples and will always use this
+        # each time this client is sampled
+        # currently randomize_query has no influence on this
+        self.fixed_sq = fixed_sq
+        if self.fixed_sq:
+            self.class_to_fixed_support_indices = {
+                cl: random.choices(population=list(range(len(class_to_imagepathlist[cl]))),
+                               k=fixed_n_shot) for cl in self.classes
+            }
+            self.class_to_fixed_query_indices = {
+                cl: random.choices(population=list(range(len(class_to_imagepathlist[cl]))),
+                               k=fixed_n_query) for cl in self.classes
+            }
+
+    def fixed_sample(self):
+        # use this to always sample the same support and query set.
+        assert self.fixed_sq
+
+        support_x = []
+        support_y = []
+
+        query_x = []
+        query_y = []
+
+        for cl in self.classes:
+            # support_indices fixed when the client was generated
+            support_indices = self.class_to_fixed_support_indices[cl]
+            if self.preload:
+                support_examples = [self.class_to_imagelist[cl][idx] for idx in support_indices]
+            else:
+                support_example_paths = [self.class_to_imagepathlist[cl][idx] for idx in support_indices]
+                support_examples = [self.transform(load_image(path)) for path in support_example_paths]
+            support_x.extend(support_examples)
+            support_y.extend([cl] * len(support_examples))
+
+            # query_indices fixed when the client was generated
+            query_indices = self.class_to_fixed_query_indices[cl]
+            if self.preload:
+                query_examples = [self.class_to_imagelist[cl][idx] for idx in query_indices]
+            else:
+                query_example_paths = [self.class_to_imagepathlist[cl][idx] for idx in query_indices]
+                query_examples = [self.transform(load_image(path)) for path in query_example_paths]
+            query_x.extend(query_examples)
+            query_y.extend([cl] * len(query_examples))
+        
+        support_x = torch.stack(support_x, dim=0)
+        support_y = torch.tensor(support_y)
+        query_x = torch.stack(query_x, dim=0)
+        query_y = torch.tensor(query_y)
+
+        return (support_x, support_y, query_x, query_y)
 
 
     def sample(self, n_shot_per_class, n_query_per_class, randomize_query=False):
