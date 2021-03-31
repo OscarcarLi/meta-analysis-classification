@@ -45,7 +45,7 @@ def create_model_and_load_chkpt(args, dataset_name, checkpoint_path):
                 projection=str2bool(args.projection))
     elif args.model_type in ['conv64', 'conv48', 'conv32']:
         dim = int(args.model_type[-2:])
-        model = shallow_conv.ShallowConv(z_dim=dim, h_dim=dim, num_classes=args.num_classes_train, 
+        model = shallow_conv.ShallowConv(z_dim=dim, h_dim=dim, num_classes=args.num_classes_train, x_width=image_size,
             classifier_type=args.classifier_type, projection=str2bool(args.projection))
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
