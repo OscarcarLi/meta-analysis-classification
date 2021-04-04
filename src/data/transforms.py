@@ -57,7 +57,7 @@ class TransformLoader:
         Returns:
             [type]: [description]
         """        
-        if  'cifar' in dataset_name.lower() or  'fc100' in dataset_name.lower():
+        if  'cifar' in dataset_name.lower() or 'fc100' in dataset_name.lower():
             mean_pix = [x/255.0 for x in [129.37731888, 124.10583864, 112.47758569]]
             std_pix = [x/255.0 for x in [68.20947949, 65.43124043, 70.45866994]]
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
@@ -77,7 +77,8 @@ class TransformLoader:
                     transforms.ToTensor(),
                     normalize
                 ])
-        else:
+
+        elif 'mini' in dataset_name.lower():
             if aug:
                 print("Using MI specific augmentation strategy")
                 transform_list = ['RandomResizedCrop', 'ImageJitter', 'RandomHorizontalFlip', 'ToTensor', 'Normalize']
@@ -86,6 +87,26 @@ class TransformLoader:
             transform_funcs = [self.parse_transform(x) for x in transform_list]
             transform = transforms.Compose(transform_funcs)
 
+        else:
+            assert 'tier' in dataset_name.lower()
+            mean_pix = [x/255.0 for x in [120.39586422,  115.59361427, 104.54012653]]
+            std_pix = [x/255.0 for x in [70.68188272,  68.27635443,  72.54505529]]
+            normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
+            if aug:
+                transform = transforms.Compose([
+                    transforms.RandomCrop(84, padding=8),
+                    transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
+                    transforms.RandomHorizontalFlip(),
+                    lambda x: np.asarray(x),
+                    transforms.ToTensor(),
+                    normalize
+                ])
+            else:
+                transform = transforms.Compose([
+                    lambda x: np.asarray(x),
+                    transforms.ToTensor(),
+                    normalize
+                ])
 
         return transform
 
