@@ -356,7 +356,7 @@ class SimpleFedDataset(torch.utils.data.Dataset):
             self.images = []
             with concurrent.futures.ProcessPoolExecutor(max_workers=12) as executor:
                 # Process the list of files, but split the work across the process pool to use all CPUs!
-                for image in executor.map(load_image, self.imagepaths):
+                for image in tqdm(executor.map(load_image, self.imagepaths)):
                     self.images.append(image)
             print(f"Preloading done. Have {len(self.images)} images loaded in memory.")
         else:
