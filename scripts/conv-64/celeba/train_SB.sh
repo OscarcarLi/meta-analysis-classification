@@ -1,13 +1,13 @@
 #! /bin/bash
 
-output='SB_celeba_r12_bs128_SGD0.1Drop90'
+output='SB_celeba_conv64_bs128_SGD0.1Drop90'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0'
 mkdir -p logs
 mkdir -p runs
 
 CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
---model-type resnet_12 \
+--model-type conv64 \
 --avg-pool True \
 --projection False \
 --algorithm SupervisedBaseline \
