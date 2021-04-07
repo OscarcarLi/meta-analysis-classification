@@ -21,7 +21,7 @@ from src.optimizers import modified_sgd
 # from src.data.dataset_managers import MetaDataLoader
 # from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
 
-from src.data.fedlearn_datasets import FedDataset, FedDataLoader
+from src.data.fedlearn_datasets import FedDataset, FedDataLoader, SimpleFedDataset
 
 
 def ensure_path(path):
@@ -81,25 +81,22 @@ def main(args):
     """
 
     print("\n", "--"*20, "TRAIN", "--"*20)
-    if args.algorithm == 'TransferLearning':
+    if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
         """
-        For Transfer Learning we create a SimpleDataset.
+        For Transfer Learning we create a SimpleFedDataset.
         The augmentation is decided by query_aug flag.
         """
-        assert False, "currently for fed_main we don't have the code for supervised data sampling"
-        '''
-        train_dataset = SimpleDataset(
-                            dataset_name=dataset_name,
-                            class_images_set=train_classes,
-                            image_size=image_size,
-                            aug=str2bool(args.query_aug))
+        
+        train_dataset = SimpleFedDataset(
+                            json_path=train_file,
+                            image_size=(image_size, image_size), # has to be a (h, w) tuple
+                            preload=str2bool(args.preload_train))
 
         train_loader = torch.utils.data.DataLoader(
                             train_dataset, 
                             batch_size=args.batch_size_train, 
                             shuffle=True,
                             num_workers=6)
-        '''
     else:
         train_meta_dataset = FedDataset(
                                 json_path=train_file,
@@ -107,7 +104,7 @@ def main(args):
                                 n_query_per_class=args.n_query_train,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
                                 randomize_query=str2bool(args.randomize_query),
-                                preload=args.preload_train,
+                                 preload=str2bool(args.preload_train),
                                 fixed_sq=str2bool(args.fixed_sq))
 
         train_loader = FedDataLoader(
@@ -116,40 +113,66 @@ def main(args):
                             batch_size=args.batch_size_train)
 
     print("\n", "--"*20, "VAL", "--"*20) 
-    val_meta_datasets = {}
-    val_loaders = {}
-    for ns_val in all_n_shot_vals:
-        print("====", f"n_shots_val {ns_val}", "====")
-        val_meta_datasets[ns_val]= FedDataset(
-                                json_path=val_file,
-                                n_shot_per_class=ns_val,
-                                n_query_per_class=args.n_query_val,
-                                image_size=(image_size, image_size),
-                                randomize_query=False,
-                                preload=True,
-                                fixed_sq=str2bool(args.fixed_sq))
-        val_loaders[ns_val] = FedDataLoader(
-                            dataset=val_meta_datasets[ns_val],
-                            n_batches=args.n_iterations_val,
-                            batch_size=args.batch_size_val)
+    if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
+        val_dataset = SimpleFedDataset(
+                            json_path=val_file,
+                            image_size=(image_size, image_size), # has to be a (h, w) tuple
+                            preload=True)
+
+        val_loader = torch.utils.data.DataLoader(
+                            val_dataset, 
+                            batch_size=args.batch_size_val, 
+                            shuffle=False,
+                            drop_last=False,
+                            num_workers=6)
+    else:
+        val_meta_datasets = {}
+        val_loaders = {}
+        for ns_val in all_n_shot_vals:
+            print("====", f"n_shots_val {ns_val}", "====")
+            val_meta_datasets[ns_val]= FedDataset(
+                                    json_path=val_file,
+                                    n_shot_per_class=ns_val,
+                                    n_query_per_class=args.n_query_val,
+                                    image_size=(image_size, image_size),
+                                    randomize_query=False,
+                                    preload=True,
+                                    fixed_sq=str2bool(args.fixed_sq))
+            val_loaders[ns_val] = FedDataLoader(
+                                dataset=val_meta_datasets[ns_val],
+                                n_batches=args.n_iterations_val,
+                                batch_size=args.batch_size_val)
 
     print("\n", "--"*20, "TEST", "--"*20)
-    test_meta_datasets = {}
-    test_loaders = {}
-    for ns_val in all_n_shot_vals:
-        print("====", f"n_shots_val {ns_val}", "====")    
-        test_meta_datasets[ns_val] = FedDataset(
-                                json_path=test_file,
-                                n_shot_per_class=ns_val,
-                                n_query_per_class=args.n_query_val,
-                                image_size=(image_size, image_size),
-                                randomize_query=False,
-                                preload=True,
-                                fixed_sq=str2bool(args.fixed_sq))
-        test_loaders[ns_val] = FedDataLoader(
-                            dataset=test_meta_datasets[ns_val],
-                            n_batches=args.n_iterations_val,
-                            batch_size=args.batch_size_val)
+    if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
+        test_dataset = SimpleFedDataset(
+                            json_path=test_file,
+                            image_size=(image_size, image_size), # has to be a (h, w) tuple
+                            preload=True)
+
+        test_loader = torch.utils.data.DataLoader(
+                            test_dataset, 
+                            batch_size=args.batch_size_val, 
+                            shuffle=False,
+                            drop_last=False,
+                            num_workers=6)
+    else:
+        test_meta_datasets = {}
+        test_loaders = {}
+        for ns_val in all_n_shot_vals:
+            print("====", f"n_shots_val {ns_val}", "====")    
+            test_meta_datasets[ns_val] = FedDataset(
+                                    json_path=test_file,
+                                    n_shot_per_class=ns_val,
+                                    n_query_per_class=args.n_query_val,
+                                    image_size=(image_size, image_size),
+                                    randomize_query=False,
+                                    preload=True,
+                                    fixed_sq=str2bool(args.fixed_sq))
+            test_loaders[ns_val] = FedDataLoader(
+                                dataset=test_meta_datasets[ns_val],
+                                n_batches=args.n_iterations_val,
+                                batch_size=args.batch_size_val)
 
     '''
     # currently for fedlearn_datasets there is no notion of base_class because the classes
@@ -381,7 +404,7 @@ def main(args):
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             scale=args.scale_factor,
             device='cuda')
-    elif args.algorithm == 'TransferLearning':
+    elif args.algorithm in ['TransferLearning', 'SupervisedBaseline']:
         """
         We use the ProtoNet algorithm at test time.
         """
@@ -407,7 +430,7 @@ def main(args):
             num_updates_inner_train=args.num_updates_inner_train,
             num_updates_inner_val=args.num_updates_inner_val,
             init_global_iteration=init_global_iteration)
-    elif args.algorithm == 'TransferLearning':
+    elif args.algorithm in ['TransferLearning', 'SupervisedBaseline']:
         trainer = TL_algorithm_trainer(
             algorithm=algorithm,
             optimizer=optimizer,
@@ -441,10 +464,18 @@ def main(args):
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
 
-        trainer.run(
-            mt_loader=train_loader,
-            is_training=True,
-            epoch=iter_start + 1)
+        if args.algorithm in ['SupervisedBaseline']:
+            trainer.run(
+                mt_loader=train_loader,
+                evaluate_supervised_classification=True,
+                is_training=True,
+                epoch=iter_start + 1)
+
+        else:
+            trainer.run(
+                mt_loader=train_loader,
+                is_training=True,
+                epoch=iter_start + 1)
 
         if iter_start % args.val_frequency == 0:
             '''
@@ -466,8 +497,12 @@ def main(args):
             novel_test_losses = {}
             for ns_val in all_n_shot_vals:
                 print("Validation ", f"n_shots_val {ns_val}")
-                results = trainer.run(
-                    mt_loader=val_loaders[ns_val], is_training=False)
+                if args.algorithm in ["SupervisedBaseline"]:
+                    results = trainer.run(
+                        mt_loader=val_loader, is_training=False, evaluate_supervised_classification=True)
+                else:
+                    results = trainer.run(
+                        mt_loader=val_loaders[ns_val], is_training=False)
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(results)
                 writer.add_scalar(
@@ -477,8 +512,12 @@ def main(args):
                 val_accus[ns_val] = results['test_loss_after']['accu']
                 
                 print("Test ", f"n_shots_val {ns_val}")
-                results = trainer.run(
-                    mt_loader=test_loaders[ns_val], is_training=False)
+                if args.algorithm in ["SupervisedBaseline"]:
+                    results = trainer.run(
+                        mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
+                else:
+                    results = trainer.run(
+                        mt_loader=test_loaders[ns_val], is_training=False)
                 pp = pprint.PrettyPrinter(indent=4)
                 pp.pprint(results)
                 writer.add_scalar(

@@ -6,6 +6,8 @@ import torch
 import json
 import numpy as np
 from tqdm import tqdm
+from collections import Counter
+import concurrent.futures
 
 
 def load_image(image_path):
@@ -299,3 +301,86 @@ class ClientDataset:
         query_y = torch.tensor(query_y)
 
         return (support_x, support_y, query_x, query_y)
+
+
+
+class SimpleFedDataset(torch.utils.data.Dataset):
+
+    def __init__(self, json_path,
+                       preload,
+                       image_size,
+                       verbose=True):
+
+        """[summary]
+
+        Args:
+            json_path (str): the path for the json file that has the hierarchy:
+                                client_id -> integer_class -> list of image_paths
+            preload (bool, optional): whether to load the data into memory. Defaults to False.
+            image_size (int): the side length of the square image
+            verbose (bool, optional): log dataset creation details. Defaults to True.
+        """
+
+        # load json
+        with open(json_path, 'r') as file:
+            client_to_class_to_imagepathlist = json.load(file, parse_int=True)
+
+        # initialize lists
+        self.imagepaths = [] # list of all image paths
+        self.labels = [] # list of all labels
+
+        # iterate over json elements
+        for client_id, class_to_imagepathlist in tqdm(client_to_class_to_imagepathlist.items()):
+
+            # json.load can only return dictionary with key values as string
+            # convert the string to integer for every class
+            # then append the corresponding labels and imagepathlist to global vars self.labels and self.imagepaths
+            for cl_str, imagepathlist in class_to_imagepathlist.items():
+                self.imagepaths += imagepathlist
+                self.labels += [int(cl_str)] * len(imagepathlist)
+
+        # transforms
+        # resize image to the image_size (can be a single integer or a tuple)
+        self.image_size = image_size
+        if self.image_size is not None:
+            self.transform = transforms.Compose(
+                [transforms.Resize(size=self.image_size),
+                transforms.ToTensor()])
+        else:
+            self.transform = transforms.ToTensor()
+
+        # preloading
+        self.preload = preload
+        if self.preload:
+            print("Please wait ... preloading images.")
+            self.images = []
+            with concurrent.futures.ProcessPoolExecutor(max_workers=12) as executor:
+                # Process the list of files, but split the work across the process pool to use all CPUs!
+                for image in executor.map(load_image, self.imagepaths):
+                    self.images.append(image)
+            print(f"Preloading done. Have {len(self.images)} images loaded in memory.")
+        else:
+            self.images = self.imagepaths
+            print(f"No preloading done. Have {len(self.images)} imagepaths.")
+
+        
+        # logs
+        if verbose:
+            print(f"No. of classes in dataset {set(self.labels)}")
+            print(f"No. of images per class in the dataset {Counter(self.labels)}")
+            
+
+
+    def __getitem__(self, i):
+        if self.preload:
+            img = self.images[i]
+        else:
+            img = load_image(self.images[i])
+        transformed_img = self.transform(img)
+        return transformed_img, self.labels[i]
+
+
+    def __len__(self):
+        return len(self.images)
+
+
