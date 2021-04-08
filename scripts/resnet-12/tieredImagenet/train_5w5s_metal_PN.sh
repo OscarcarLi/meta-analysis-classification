@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/tieredImagenet \
+--dataset-path datasets/filelists/tieredImagenet-base \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 1 \
@@ -28,7 +28,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --n-shot-val 5 \
 --do-one-shot-eval-too False \
 --n-query-val 15 \
---n-iterations-val 5000 \
+--n-iterations-val 1000 \
 --support-aug False \
 --query-aug True \
 --randomize-query True \
