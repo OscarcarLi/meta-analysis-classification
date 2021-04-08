@@ -83,6 +83,20 @@ class FedBatchSampler(torch.utils.data.Sampler):
             yield random.sample(population=self.client_id_list, k=self.batch_size)
 
 
+def construct_client_dataset(input):
+    client_id, class_to_imagepathlist, kwargs = input
+    class_str_list = list(class_to_imagepathlist.keys())
+    # json.load can only return dictionary with key values as string
+    # convert the string to integer for every class
+    for cl_str in class_str_list:
+        class_to_imagepathlist[int(cl_str)] = class_to_imagepathlist[cl_str]
+        del class_to_imagepathlist[cl_str]
+
+    return ClientDataset(
+                client_id=client_id,
+                class_to_imagepathlist=class_to_imagepathlist,
+                **kwargs)
+
 class FedDataset(torch.utils.data.Dataset):
     def __init__(self,
                 json_path,
@@ -111,26 +125,22 @@ class FedDataset(torch.utils.data.Dataset):
             client_to_class_to_imagepathlist = json.load(file, parse_int=True)
 
         self.client_dict = {}
-        for client_id, class_to_imagepathlist in tqdm(client_to_class_to_imagepathlist.items()):
+        kwargs = {
+            'image_size': image_size,
+            'preload': preload,
+            'fixed_sq': fixed_sq,
+            'fixed_n_shot': n_shot_per_class,
+            'fixed_n_query': n_query_per_class,
+        }
+        input_list = [(client_id, class_to_imagepathlist, kwargs) \
+                        for client_id, class_to_imagepathlist in client_to_class_to_imagepathlist.items()]
 
-            # json.load can only return dictionary with key values as string
-            # convert the string to integer for every class
-            class_str_list = list(class_to_imagepathlist.keys())
-            self.n_way = len(class_str_list) # currently a hacky way to do this
-            for cl_str in class_str_list:
-                class_to_imagepathlist[int(cl_str)] = class_to_imagepathlist[cl_str]
-                del class_to_imagepathlist[cl_str]
-        
-            self.client_dict[client_id] = \
-                ClientDataset(
-                        client_id=client_id,
-                        class_to_imagepathlist=class_to_imagepathlist,
-                        image_size=image_size,
-                        preload=preload,
-                        fixed_sq=fixed_sq,
-                        fixed_n_shot=n_shot_per_class,
-                        fixed_n_query=n_query_per_class)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
+                # Process the list of files, but split the work across the thread pools!
+                for client in tqdm(executor.map(construct_client_dataset, input_list)):
+                    self.client_dict[client.client_id] = client
 
+        self.n_way = len(next(iter(self.client_dict.values())).classes) # currently a hacky way to count number of ways from an arbitrary client
         self.n_shot_per_class = n_shot_per_class
         self.n_query_per_class = n_query_per_class
         self.randomize_query = randomize_query
@@ -384,3 +394,17 @@ class SimpleFedDataset(torch.utils.data.Dataset):
         return len(self.images)
 
 
+if __name__ == '__main__':
+    train_meta_dataset = FedDataset(
+                        json_path='../../fed_data/celeba/base.json',
+                        n_shot_per_class=1,
+                        n_query_per_class=5,
+                        image_size=(84, 84), # has to be a (h, w) tuple
+                        randomize_query=False,
+                        preload=True,
+                        fixed_sq=False)
+
+    train_loader = FedDataLoader(
+                        dataset=train_meta_dataset,
+                        n_batches=200,
+                        batch_size=20)
