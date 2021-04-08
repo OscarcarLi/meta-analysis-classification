@@ -72,7 +72,9 @@ def main(args):
     if base_class_generalization:
         base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     '''
-    print("Dataset name", dataset_name, "image_size", image_size, "all_n_shot_vals", all_n_shot_vals)
+    print("Dataset name", dataset_name, "image_size", image_size)
+    if args.algorithm != 'SupervisedBaseline':
+        print("all_n_shot_vals", all_n_shot_vals)
     # print("base_class_generalization:", base_class_generalization)
     
     """
