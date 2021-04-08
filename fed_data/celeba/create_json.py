@@ -6,7 +6,7 @@ import json
 # change this to the path of the folder containing three files:
 # identity_CelebA.txt  img_align_celeba  list_attr_celeba.txt
 # img_align_celeba is the unzipped folder from img_align_celeba.zip (containing jpeg files)
-celeba_root = '/home/oscarli/projects/leaf/data/celeba/data/raw/'
+celeba_root = os.getcwd()
 
 with open(os.path.join(celeba_root, 'list_attr_celeba.txt'), 'r') as file:
     file_iter = iter(file)
