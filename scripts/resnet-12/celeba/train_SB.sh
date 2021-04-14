@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='SB_celeba_r12_bs128_SGD0.1Drop90'
+output='SB_celeba_r12_bs128_SGD0.1Drop30,90_0.1,0.01'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0'
+device='2'
 mkdir -p logs
 mkdir -p runs
 
@@ -24,8 +24,8 @@ CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
 --lr 0.1 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 90 \
---drop-factors 0.1 \
+--drop-lr-epoch 30,90 \
+--drop-factors 0.1,0.01 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \

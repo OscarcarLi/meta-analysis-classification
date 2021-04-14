@@ -72,7 +72,9 @@ def main(args):
     if base_class_generalization:
         base_test_file = os.path.join(args.dataset_path, 'base_test.json')
     '''
-    print("Dataset name", dataset_name, "image_size", image_size, "all_n_shot_vals", all_n_shot_vals)
+    print("Dataset name", dataset_name, "image_size", image_size)
+    if args.algorithm != 'SupervisedBaseline':
+        print("all_n_shot_vals", all_n_shot_vals)
     # print("base_class_generalization:", base_class_generalization)
     
     """
@@ -493,41 +495,53 @@ def main(args):
             '''
 
             # validation/test
-            val_accus = {}
-            novel_test_losses = {}
-            for ns_val in all_n_shot_vals:
-                print("Validation ", f"n_shots_val {ns_val}")
-                if args.algorithm in ["SupervisedBaseline"]:
-                    results = trainer.run(
-                        mt_loader=val_loader, is_training=False, evaluate_supervised_classification=True)
-                else:
+            if args.algorithm in ["SupervisedBaseline"]:
+                print("Validation")
+                results = trainer.run(
+                    mt_loader=val_loader, is_training=False, evaluate_supervised_classification=True)
+                writer.add_scalar(
+                    f"val_acc", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    f"val_loss", results['test_loss_after']['loss'], iter_start + 1)
+                val_accu = results['test_loss_after']['accu']
+            else:
+                val_accus = {}
+                for ns_val in all_n_shot_vals:
+                    print("Validation ", f"n_shots_val {ns_val}")
                     results = trainer.run(
                         mt_loader=val_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
-                writer.add_scalar(
-                    f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-                val_accus[ns_val] = results['test_loss_after']['accu']
+                    writer.add_scalar(
+                        f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
+                    writer.add_scalar(
+                        f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+                    val_accus[ns_val] = results['test_loss_after']['accu']
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
                 
+            if args.algorithm in ["SupervisedBaseline"]:
+                print("Test")
+                results = trainer.run(
+                    mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
+                writer.add_scalar(
+                    f"test_acc", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    f"test_loss", results['test_loss_after']['loss'], iter_start + 1)
+                novel_test_loss = results['test_loss_after']['loss']
+            else:
                 print("Test ", f"n_shots_val {ns_val}")
-                if args.algorithm in ["SupervisedBaseline"]:
-                    results = trainer.run(
-                        mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
-                else:
-                    results = trainer.run(
-                        mt_loader=test_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                results = trainer.run(
+                    mt_loader=test_loaders[ns_val], is_training=False)
                 writer.add_scalar(
                     f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
                     f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
                 novel_test_losses[ns_val] = results['test_loss_after']['loss']
+            pp = pprint.PrettyPrinter(indent=4)
+            pp.pprint(results)
 
-            val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
-            novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
+            if args.algorithm !=  "SupervisedBaseline": 
+                val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
+                novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
             
             # base class generalization
             '''
