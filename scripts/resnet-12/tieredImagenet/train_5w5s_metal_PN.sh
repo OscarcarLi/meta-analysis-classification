@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050'
+output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0,1'
 mkdir -p logs
@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path datasets/filelists/tieredImagenet \
+--dataset-path datasets/filelists/tieredImagenet-base \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 1 \

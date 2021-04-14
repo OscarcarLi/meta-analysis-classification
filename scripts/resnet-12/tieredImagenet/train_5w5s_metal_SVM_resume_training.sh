@@ -42,6 +42,8 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --eps 0.1 \
 --restart-iter 0 \
 --output-folder ${output} \
+--checkpoint ./runs/metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050/chkpt_055.pt \
+--restart-iter 55 \
 --device cuda \
 --device-number ${device} \
 --log-interval 100 > logs/${output}_train.log &

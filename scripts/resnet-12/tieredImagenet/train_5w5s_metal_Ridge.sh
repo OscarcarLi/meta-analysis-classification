@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_tiered_r12_Ridge_n5s15q6tb8_SGD0.1Drop20'
+output='metal_tiered_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0,1,2,3'
 mkdir -p logs

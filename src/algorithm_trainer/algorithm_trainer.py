@@ -521,7 +521,7 @@ class TL_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._algorithm._model.state_dict(),
                            'optimizer': self._optimizer}, f)
-
+                            # 'optimizer': self._optimizer.state_dict()}, f) # technically only need to save state_dict but not the actual optimizer
         results = {}
         if not is_training:
             results = {
