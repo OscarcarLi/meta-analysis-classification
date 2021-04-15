@@ -6,7 +6,7 @@ device='0'
 mkdir -p logs
 mkdir -p runs
 
-CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
+CUDA_VISIBLE_DEVICES="$device" python main.py \
 --model-type resnet_12 \
 --avg-pool True \
 --projection True \
@@ -39,5 +39,4 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --restart-iter 0 \
 --output-folder ${output} \
 --device-number ${device} \
---log-interval 100 > logs/${output}_train.log &
-tail -f logs/${output}_train.log
+--log-interval 100

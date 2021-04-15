@@ -7,7 +7,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pprint
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import re
 import shutil
 from datetime import datetime
@@ -20,6 +21,9 @@ from src.algorithms.algorithm import SVM, ProtoNet, Ridge, InitBasedAlgorithm
 from src.optimizers import modified_sgd
 from src.data.dataset_managers import MetaDataLoader
 from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
+
+import src.logger
+import sys
 
 
 def ensure_path(path):
@@ -53,10 +57,17 @@ def main(args):
     else:
         args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     writer = SummaryWriter(args.output_folder)
-    with open(f'{args.output_folder}/config_{datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")}.txt', 'w') as config_txt:
+
+    time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
+    with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
         for k, v in sorted(vars(args).items()):
             config_txt.write(f'{k}: {v}\n')
     save_folder = args.output_folder
+
+    # replace stdout with Logger; the original sys.stdout is saved in src.logger.stdout
+    sys.stdout = src.logger.Logger(log_filename=f'{args.output_folder}/train_{time_now}.log')
+    src.logger.stdout.write('hi!')
+
 
 
     ####################################################
@@ -512,8 +523,7 @@ def main(args):
             print("Train Loss on ML objective")
             results = trainer.run(
                 mt_loader=no_fixS_train_loader, is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
+            print(pprint.pformat(results, indent=4))
             writer.add_scalar(
                 "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
             writer.add_scalar(
@@ -527,8 +537,7 @@ def main(args):
                 print("Validation ", f"n_shots_val {ns_val}")
                 results = trainer.run(
                     mt_loader=val_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -538,8 +547,7 @@ def main(args):
                 print("Test ", f"n_shots_val {ns_val}")
                 results = trainer.run(
                     mt_loader=test_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -556,8 +564,7 @@ def main(args):
                 print("Base Test")
                 results = trainer.run(
                     mt_loader=base_test_loader, is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -572,8 +579,7 @@ def main(args):
                     print("Base Test using FixSupport, matching train and test for fixml")
                     results = trainer.run(
                         mt_loader=base_test_loader_using_fixS, is_training=False)
-                    pp = pprint.PrettyPrinter(indent=4)
-                    pp.pprint(results)
+                    print(pprint.pformat(results, indent=4))
                     writer.add_scalar(
                         "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
                     writer.add_scalar(
