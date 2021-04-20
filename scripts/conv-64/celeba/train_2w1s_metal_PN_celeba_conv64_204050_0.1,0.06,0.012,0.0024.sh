@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_celeba_r12_PN_n2s1q5tb20_SGD0.1Drop204050_conv64'
+output='metal_celeba_PN_n2s1q5tb20_SGD0.1Drop204050_0.06,0.012,0.0024_conv64'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='2'
 mkdir -p logs
@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
 --classifier-metric euclidean \
 --dataset-path fed_data/celeba \
 --img-side-len 84 \
---n-epochs 60 \
+--n-epochs 100 \
 --batch-size-train 20 \
 --n-way-train 2 \
 --n-shot-train 1 \
@@ -27,13 +27,14 @@ CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
 --n-shot-val 1 \
 --do-one-shot-eval-too False \
 --n-query-val 10 \
---n-iterations-val 100 \
+--n-iterations-val 200 \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \
---weight-decay 0.0005 \
+--weight-decay 0.01 \
 --grad-clip 0. \
 --drop-lr-epoch 20,40,50 \
+--drop-factors 0.06,0.012,0.0024 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \
