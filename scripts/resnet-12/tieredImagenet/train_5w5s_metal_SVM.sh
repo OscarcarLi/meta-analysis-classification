@@ -6,7 +6,7 @@ device='0,1,2,3'
 mkdir -p logs
 mkdir -p runs
 
-CUDA_VISIBLE_DEVICES="$device" python main.py \
+python main.py \
 --fix-support 0 \
 --model-type resnet_12 \
 --avg-pool False \

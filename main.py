@@ -368,10 +368,8 @@ def main(args):
 
         ### load model
         chkpt_state_dict = chkpt['model']
-        # chkpt_state_dict_cpy = chkpt_state_dict.copy()
         chkpt_state_dict_old_keys = list(chkpt_state_dict.keys())
         # remove "module." from key, possibly present as it was dumped by data-parallel
-        # for key in chkpt_state_dict_cpy.keys():
         for key in chkpt_state_dict_old_keys:
             if 'module.' in key:
                 new_key = re.sub('module\.', '',  key)
