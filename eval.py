@@ -316,7 +316,8 @@ def main(args):
             log_interval=args.log_interval, 
             save_folder='', 
             grad_clip=None,
-            init_global_iteration=None)
+            init_global_iteration=None,
+            eps=args.eps)
     else:
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,
