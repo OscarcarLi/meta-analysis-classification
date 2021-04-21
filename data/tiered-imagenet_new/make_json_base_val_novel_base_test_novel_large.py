@@ -51,10 +51,12 @@ json.dump(val , open('val.json','w'))
 
 ########## meta-test ##########
 test = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
+test_synset_to_int_label = {}
 
 for cl in sorted(os.listdir(os.path.join(pathname, 'test'))):
     cl_folder = os.path.join(pathname, 'test', cl)
     test['label_names'].append(cl)
+    test_synset_to_int_label[cl] = count # record the test class's unique integer label
     files = sorted(glob.glob(os.path.join(cl_folder, '*')))
     for image_name in files:
         test['image_names'].append(image_name)
@@ -62,3 +64,26 @@ for cl in sorted(os.listdir(os.path.join(pathname, 'test'))):
     count += 1
 
 json.dump(test , open('novel.json','w'))
+
+
+########## meta-test ##########
+test_large = {'label_names': [] , 'image_names':[] , 'image_labels':[]}
+
+for cl in sorted(os.listdir(os.path.join(pathname, 'test_large'))):
+    cl_folder = os.path.join(pathname, 'test_large', cl)
+    test_large['label_names'].append(cl)
+    files = sorted(glob.glob(os.path.join(cl_folder, '*')))
+    if cl in test_synset_to_int_label:
+        # this means the class synset cl has appeared in the test set
+        # so we use the same unique integer label used in the folder test.
+        label = test_synset_to_int_label[cl]
+    else:
+        # we haven't used this class in the test set, so we assign a unique integer label to it
+        label = count
+        count += 1
+
+    for image_name in files:
+        test_large['image_names'].append(image_name)
+        test_large['image_labels'].append(label)
+
+json.dump(test_large , open('novel_large.json','w'))

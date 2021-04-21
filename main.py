@@ -485,7 +485,8 @@ def main(args):
             log_interval=args.log_interval, 
             save_folder=save_folder, 
             grad_clip=args.grad_clip,
-            init_global_iteration=init_global_iteration
+            init_global_iteration=init_global_iteration,
+            eps=args.eps,
         )
     else:        
         trainer = Meta_algorithm_trainer(
@@ -495,7 +496,8 @@ def main(args):
             log_interval=args.log_interval, 
             save_folder=save_folder, 
             grad_clip=args.grad_clip,
-            init_global_iteration=init_global_iteration)
+            init_global_iteration=init_global_iteration,
+            eps=args.eps)
         
 
     ####################################################
@@ -614,7 +616,9 @@ if __name__ == '__main__':
         help='names of various loss functions that are part fo overall objective')
     parser.add_argument('--scale-factor', type=float, default=1.,
         help='''fix scalar factor multiplied with logits; if learnable scale is True,
-            then the scale_factor is never used and always initialized at 1.
+            then the scale_factor is never used and always initialized at 1. scale-factor
+            is passed to the algorithm object to be used in case the model does not have
+            a learnable self.scale
             ''')
     parser.add_argument('--learnable-scale', type=str, default="False",
         help='scalar receives grads')
