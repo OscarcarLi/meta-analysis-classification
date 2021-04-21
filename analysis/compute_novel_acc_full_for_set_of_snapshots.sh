@@ -2,12 +2,13 @@
 
 n_total_classes=100
 
-func(chkpt) {
-    output=metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest_chkpt_${chkpt}
+func() {
+    echo "running script for $1"
+    output=metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest_chkpt_$1
     # method_dataset_model_innerAlg_config_outerOpt_misc
     device='0,1'
     export PYTHONPATH='..'
-    CUDA_VISIBLE_DEVICES="$device" nohup python compute_novel_acc_variance.py \
+    CUDA_VISIBLE_DEVICES="$device" python compute_novel_acc_variance.py \
     --n-chosen-classes ${n_total_classes} \
     --n-runs 1 \
     --preload-train True \
@@ -30,11 +31,11 @@ func(chkpt) {
     --output-folder ${output} \
     --device cuda \
     --device-number ${device} \
-    --checkpoint-1 ../runs/metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest/${chkpt}.pt \
-    --log-interval 100 > log_${output}.out &
+    --checkpoint-1 ../runs/metal_MI_r12_PNeuc_n5s5q15Vtb4_SGD0.1Drop204050_basetest/$1.pt \
+    --log-interval 100
 }
 
 for snapshot in chkpt_021 chkpt_022 chkpt_025
 do
-    func($snapshot)
+    func $snapshot
 done

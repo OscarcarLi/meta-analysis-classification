@@ -39,9 +39,8 @@ python main.py \
 --grad-clip 0. \
 --drop-lr-epoch 20,40,50 \
 --lr-scheduler-type deterministic \
---eps 0.1 \
+--eps 0.0 \
 --restart-iter 55 \
---checkpoint runs/metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050/chkpt_055.pt \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \

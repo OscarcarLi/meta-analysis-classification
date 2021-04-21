@@ -39,7 +39,7 @@ def main(args):
         eval_results = f'{args.output_folder}/evaleot_results.txt'
     else:
         eval_results = f'{args.output_folder}/eval_results.txt'
-    with open(eval_results, 'w') as f:
+    with open(eval_results, 'a') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
 
@@ -316,7 +316,8 @@ def main(args):
             log_interval=args.log_interval, 
             save_folder='', 
             grad_clip=None,
-            init_global_iteration=None)
+            init_global_iteration=None,
+            eps=args.eps)
     else:
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,

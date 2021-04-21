@@ -21,7 +21,7 @@ import src.logger
 class Meta_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, init_global_iteration=0):
+        save_folder, grad_clip, init_global_iteration=0, eps=0.0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -30,7 +30,8 @@ class Meta_algorithm_trainer(object):
         self._save_folder = save_folder # where to save the model and optimizer checkpoints
         self._grad_clip = grad_clip # clip the meta (outer) loss's gradient
         self._global_iteration = init_global_iteration
-        self._eps = 0.
+        self._eps = eps
+        print(f'eps is {self._eps}')
         
 
     def run(self, mt_loader, epoch=None, is_training=True):
@@ -388,7 +389,7 @@ Trains the transfer learning baseline
 class TL_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, label_offset=0, init_global_iteration=0):
+        save_folder, grad_clip, label_offset=0, init_global_iteration=0, eps=0.0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -398,7 +399,8 @@ class TL_algorithm_trainer(object):
         self._grad_clip = grad_clip
         self._label_offset = label_offset
         self._global_iteration = init_global_iteration
-        self._eps = 0.
+        self._eps = eps
+        print(f'eps is {self._eps}')
         
 
     def run(self, mt_loader, epoch=None, is_training=True, evaluate_supervised_classification=False):
