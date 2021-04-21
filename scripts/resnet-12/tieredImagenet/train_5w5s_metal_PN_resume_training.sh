@@ -1,12 +1,13 @@
 #! /bin/bash
 
-output='metal_celeba_r12_PN_n2s1q5tb20_SGD0.1Drop204050'
+output='tiered_PN_try'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0'
+device='0,1'
 mkdir -p logs
 mkdir -p runs
 
-CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
+CUDA_VISIBLE_DEVICES="$device" python main.py \
+--fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
 --projection False \
@@ -14,20 +15,23 @@ CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path fed_data/celeba \
+--dataset-path datasets/filelists/tieredImagenet-base \
 --img-side-len 84 \
 --n-epochs 60 \
---batch-size-train 20 \
---n-way-train 2 \
---n-shot-train 1 \
---n-query-train 5 \
+--batch-size-train 1 \
+--n-way-train 20 \
+--n-shot-train 5 \
+--n-query-train 15 \
 --n-iters-per-epoch 1000 \
---batch-size-val 20 \
---n-way-val 2 \
---n-shot-val 1 \
+--batch-size-val 2 \
+--n-way-val 5 \
+--n-shot-val 5 \
 --do-one-shot-eval-too False \
---n-query-val 10 \
---n-iterations-val 1000 \
+--n-query-val 15 \
+--n-iterations-val 5000 \
+--support-aug False \
+--query-aug True \
+--randomize-query True \
 --preload-train True \
 --optimizer-type SGDM \
 --lr 0.1 \
@@ -38,11 +42,7 @@ CUDA_VISIBLE_DEVICES="$device" nohup python fed_main.py \
 --eps 0. \
 --restart-iter 0 \
 --output-folder ${output} \
+--checkpoint ./runs/tiered_PN_try/chkpt_055.pt \
+--restart-iter 55 \
 --device-number ${device} \
---log-interval 100 > logs/${output}_train.log &
-tail -f logs/${output}_train.log
-
-# --fix-support 0 \
-# --support-aug False \
-# --query-aug True \
-# --randomize-query True \
+--log-interval 100

@@ -7,10 +7,12 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pprint
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import re
 import shutil
 from datetime import datetime
+import pytz
 
 
 from src.models import shallow_conv, resnet_12, wide_resnet, dense_net
@@ -20,11 +22,15 @@ from src.optimizers import modified_sgd
 from src.data.dataset_managers import MetaDataLoader
 from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
 
+import src.logger
+import sys
+
 
 def ensure_path(path):
     if os.path.exists(path):
         print("Path Exists", path, "Appending timestamp")
-        path = path + "_" + datetime.now().strftime("%d:%b:%Y:%H:%M:%S")
+        timezone = pytz.timezone("America/New_York")
+        path = path + "_" + datetime.now(timezone).strftime("%d:%b:%Y:%H:%M:%S")
         print("New path is", path)
         os.makedirs(path)
     else:
@@ -42,12 +48,26 @@ def main(args):
     ####################################################
     #                LOGGING AND SAVING                #
     ####################################################
-    args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
+    if args.checkpoint != '':
+        # if we are reloading, we don't need to timestamp and create a new folder
+        # instead keep writing to the original output_folder
+        assert os.path.exists(f'./runs/{args.output_folder}')
+        args.output_folder = f'./runs/{args.output_folder}'
+        print(f'resume training and will write to {args.output_folder}')
+    else:
+        args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     writer = SummaryWriter(args.output_folder)
-    with open(f'{args.output_folder}/config.txt', 'w') as config_txt:
+
+    time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
+    with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
         for k, v in sorted(vars(args).items()):
             config_txt.write(f'{k}: {v}\n')
     save_folder = args.output_folder
+
+    # replace stdout with Logger; the original sys.stdout is saved in src.logger.stdout
+    sys.stdout = src.logger.Logger(log_filename=f'{args.output_folder}/train_{time_now}.log')
+    src.logger.stdout.write('hi!')
+
 
 
     ####################################################
@@ -238,6 +258,7 @@ def main(args):
     print("\n", "--"*20, "MODEL", "--"*20)
 
     if args.model_type == 'resnet_12':
+        # technically tieredimagenet should also have dropblock size of 5
         if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
             model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
@@ -289,18 +310,40 @@ def main(args):
             drop_factors = [float(x) for x in args.drop_factors.split(',')]
         else:
             drop_factors = [0.06, 0.012, 0.0024]
-        assert len(drop_factors) >= len(drop_eps), "No ennough drop factors"
+
         print("Drop lr at epochs", drop_eps)
         print("Drop factors", drop_factors[:len(drop_eps)])
-        assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
+
+        assert len(drop_factors) >= len(drop_eps), "No enough drop factors"
+        # assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
+        '''
         if len(drop_eps) == 3:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1] if e < drop_eps[2] else (drop_factors[2]))
-        elif len(drop_eps) == 3:
+        elif len(drop_eps) == 2:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1])
         else:
             lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else drop_factors[0]
+        '''
+        def lr_lambda(x):
+            '''
+            x is an epoch number
+            drop_eps is assumed to an list of strictly increasing epoch numbers
+            here we require len(drop_factors) >= len(drop_eps)
+            ideally they are of the same length
+            but technically the code can just not use the additional factors
+            '''
+            for i in range(len(drop_eps)):
+                if x >= drop_eps[i]:
+                    continue
+                else:
+                    if i == 0:
+                        return 1.0
+                    else:
+                        return drop_factors[i-1]
+            return drop_factors[len(drop_eps) - 1]
+
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-             optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+                optimizer, lr_lambda=lr_lambda, last_epoch=-1)
         for _ in range(args.restart_iter):
             lr_scheduler.step()
 
@@ -320,37 +363,54 @@ def main(args):
 
     if args.checkpoint != '':
         print(f"loading model from {args.checkpoint}")
-        model_dict = model.state_dict()
+        model_dict = model.state_dict() # new model's state dict
         chkpt = torch.load(args.checkpoint, map_location=torch.device('cpu'))
-        try:
-            print(f"loading optimizer from {args.checkpoint}")
-            optimizer.state = chkpt['optimizer'].state
-            print("Successfully loaded optimizer")
-        except:
-            print("Failed to load optimizer")
+
+        ### load model
         chkpt_state_dict = chkpt['model']
-        chkpt_state_dict_cpy = chkpt_state_dict.copy()
+        chkpt_state_dict_old_keys = list(chkpt_state_dict.keys())
         # remove "module." from key, possibly present as it was dumped by data-parallel
-        for key in chkpt_state_dict_cpy.keys():
+        for key in chkpt_state_dict_old_keys:
             if 'module.' in key:
                 new_key = re.sub('module\.', '',  key)
                 chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
-        chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
-        model_dict.update(chkpt_state_dict)
-        updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
-        print(f"Updated {len(updated_keys)} keys using chkpt")
-        print("Following keys updated :", "\n".join(sorted(updated_keys)))
-        missed_keys = set(model_dict).difference(set(chkpt_state_dict))
+        load_model_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
+        model_dict.update(load_model_state_dict)
+        # updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
+        print(f"Updated {len(load_model_state_dict.keys())} keys using chkpt")
+        print("Following keys updated :", "\n".join(sorted(load_model_state_dict.keys())))
+        missed_keys = set(model_dict).difference(set(load_model_state_dict))
         print(f"Missed {len(missed_keys)} keys")
         print("Following keys missed :", "\n".join(sorted(missed_keys)))
         model.load_state_dict(model_dict)
-                    
+
+        ### load optimizer
+        try:
+            print(f"loading optimizer from {args.checkpoint}")
+            optimizer.load_state_dict(chkpt['optimizer'].state_dict())
+            print("Successfully loaded optimizer")
+
+        except:
+            print("Failed to load optimizer")
         
-    # Multi-gpu support and device setup
+    ### Multi-gpu support and device setup
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number
     print('Using GPUs: ', os.environ["CUDA_VISIBLE_DEVICES"])
+    # move model to cuda
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
     model.cuda()
+    print("Successfully moved the model to cuda")
+
+    # move the optimizer's states to cuda if loaded
+    if args.checkpoint != '':
+        # https://github.com/pytorch/pytorch/issues/2830
+        # when using gpu, need to move all the statistics of the optimizer to cuda
+        # in addition to the model parameters
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda()
+        print("Successfully moved the optimizer's states to cuda")
 
 
     ####################################################
@@ -454,15 +514,14 @@ def main(args):
         trainer.run(
             mt_loader=train_loader,
             is_training=True,
-            epoch=iter_start + 1)
+            epoch=iter_start + 1) # 1 based instead of 0 based
 
         if iter_start % args.val_frequency == 0:
             # On ML train objective
             print("Train Loss on ML objective")
             results = trainer.run(
                 mt_loader=no_fixS_train_loader, is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
+            print(pprint.pformat(results, indent=4))
             writer.add_scalar(
                 "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
             writer.add_scalar(
@@ -476,8 +535,7 @@ def main(args):
                 print("Validation ", f"n_shots_val {ns_val}")
                 results = trainer.run(
                     mt_loader=val_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -487,8 +545,7 @@ def main(args):
                 print("Test ", f"n_shots_val {ns_val}")
                 results = trainer.run(
                     mt_loader=test_loaders[ns_val], is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -505,8 +562,7 @@ def main(args):
                 print("Base Test")
                 results = trainer.run(
                     mt_loader=base_test_loader, is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
@@ -521,8 +577,7 @@ def main(args):
                     print("Base Test using FixSupport, matching train and test for fixml")
                     results = trainer.run(
                         mt_loader=base_test_loader_using_fixS, is_training=False)
-                    pp = pprint.PrettyPrinter(indent=4)
-                    pp.pprint(results)
+                    print(pprint.pformat(results, indent=4))
                     writer.add_scalar(
                         "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
                     writer.add_scalar(
@@ -558,7 +613,9 @@ if __name__ == '__main__':
     parser.add_argument('--loss-names', type=str, nargs='+', default='cross_ent',
         help='names of various loss functions that are part fo overall objective')
     parser.add_argument('--scale-factor', type=float, default=1.,
-        help='scalar factor multiplied with logits')
+        help='''fix scalar factor multiplied with logits; if learnable scale is True,
+            then the scale_factor is never used and always initialized at 1.
+            ''')
     parser.add_argument('--learnable-scale', type=str, default="False",
         help='scalar receives grads')
 
@@ -654,7 +711,7 @@ if __name__ == '__main__':
     parser.add_argument('--checkpoint', type=str, default='',
         help='path to saved parameters.')
     parser.add_argument('--restart-iter', type=int, default=0,
-        help='iteration at restart') 
+        help='iteration at restart, it should be the same as the xx in chkpt_0xx.pt') 
     parser.add_argument('--classifier-metric', type=str, default='',
         help='')
     parser.add_argument('--projection', type=str, default='',

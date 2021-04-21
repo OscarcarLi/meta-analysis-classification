@@ -3,7 +3,7 @@ import json
 import os
 import numpy as np
 
-pathname = os.getcwd()
+pathname = os.getcwd() # the folder where tiered-imagenet_new.tar is untarred.
 print(pathname)
 
 

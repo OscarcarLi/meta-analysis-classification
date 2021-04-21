@@ -54,7 +54,7 @@ def main(args):
     # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
     # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
     all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
-    base_class_generalization = dataset_name.lower() in ['miniimagenet', 'fc100-base', 'cifar-fs-base']
+    base_class_generalization = dataset_name.lower() in ['miniimagenet', 'fc100-base', 'cifar-fs-base', 'tieredimagenet-base']
     train_file = os.path.join(args.dataset_path, 'base.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel.json')
@@ -151,13 +151,15 @@ def main(args):
         # if args.fix_support > 0:
         #     base_test_meta_dataset_using_fixS = MetaDataset(
         #                                             dataset_name=dataset_name,
-        #                                             support_class_images_set=train_classes, query_class_images_set=base_test_classes,
+        #                                             support_class_images_set=train_classes,
+        #                                             query_class_images_set=base_test_classes,
         #                                             image_size=image_size,
         #                                             support_aug=False,
         #                                             query_aug=False,
         #                                             fix_support=0,
         #                                             save_folder='', 
-        #                                             fix_support_path=os.path.join(args.output_folder, "fixed_support_pool.pkl"))
+        #                                             fix_support_path=os.path.join(args.output_folder,
+        #                                                                           "fixed_support_pool.pkl"))
 
         #     base_test_loader_using_fixS = MetaDataLoader(
         #                                     dataset=base_test_meta_dataset_using_fixS,
@@ -241,19 +243,21 @@ def main(args):
     print(f"loading model from {args.checkpoint}")
     model_dict = model.state_dict()
     chkpt = torch.load(args.checkpoint, map_location=torch.device('cpu'))
+
+    ### load model
     chkpt_state_dict = chkpt['model']
-    chkpt_state_dict_cpy = chkpt_state_dict.copy()
+    chkpt_state_dict_old_keys = list(chkpt_state_dict.keys())
     # remove "module." from key, possibly present as it was dumped by data-parallel
-    for key in chkpt_state_dict_cpy.keys():
+    for key in chkpt_state_dict_old_keys:
         if 'module.' in key:
             new_key = re.sub('module\.', '',  key)
             chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
-    chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
-    model_dict.update(chkpt_state_dict)
-    updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
-    print(f"Updated {len(updated_keys)} keys using chkpt")
-    print("Following keys updated :", "\n".join(sorted(updated_keys)))
-    missed_keys = set(model_dict).difference(set(chkpt_state_dict))
+    load_model_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
+    model_dict.update(load_model_state_dict)
+    # updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
+    print(f"Updated {len(load_model_state_dict.keys())} keys using chkpt")
+    print("Following keys updated :", "\n".join(sorted(load_model_state_dict.keys())))
+    missed_keys = set(model_dict).difference(set(load_model_state_dict))
     print(f"Missed {len(missed_keys)} keys")
     print("Following keys missed :", "\n".join(sorted(missed_keys)))
     model.load_state_dict(model_dict)
@@ -342,8 +346,8 @@ def main(args):
         f.write(f"TrainLossOnML{args.n_way_val}w{ns_val}s: Loss {round(results['test_loss_after']['loss'], 3)} Acc {round(results['test_loss_after']['accu'], 3)}"+'\n')
 
     # validation/test
-    val_accus = {}
-    novel_test_losses = {}
+    # val_accus = {}
+    # novel_test_losses = {}
     for ns_val in all_n_shot_vals:
         print("Validation ", f"n_shots_val {ns_val}")
         results = trainer.run(

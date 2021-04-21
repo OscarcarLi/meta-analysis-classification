@@ -1,12 +1,12 @@
 #! /bin/bash
 
-output='metal_tiered_r12_Ridge_n5s15q6tb8_SGD0.1Drop20'
+output='metal_tiered_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='0,1,2,3'
 mkdir -p logs
 mkdir -p runs
 
-CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
+CUDA_VISIBLE_DEVICES="$device" python main.py \
 --fix-support 0 \
 --model-type resnet_12 \
 --avg-pool False \
@@ -44,5 +44,4 @@ CUDA_VISIBLE_DEVICES="$device" nohup python main.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---log-interval 100 > logs/${output}_train.log &
-tail -f logs/${output}_train.log
+--log-interval 100

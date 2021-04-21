@@ -15,19 +15,20 @@ from src.algorithms.grad import quantile_marks, get_grad_norm_from_parameters
 from src.algorithm_trainer.utils import *
 from src.algorithms.utils import logistic_regression_grad_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
+import src.logger
+
 
 class Meta_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, label_offset=0, init_global_iteration=0):
+        save_folder, grad_clip, init_global_iteration=0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
-        self._writer = writer
+        self._writer = writer # tensorboard writer object
         self._log_interval = log_interval 
-        self._save_folder = save_folder
-        self._grad_clip = grad_clip
-        self._label_offset = label_offset
+        self._save_folder = save_folder # where to save the model and optimizer checkpoints
+        self._grad_clip = grad_clip # clip the meta (outer) loss's gradient
         self._global_iteration = init_global_iteration
         self._eps = 0.
         
@@ -35,13 +36,15 @@ class Meta_algorithm_trainer(object):
     def run(self, mt_loader, epoch=None, is_training=True):
 
         if is_training:
+            # this should be made to be applied on self._algorithm.train()
             self._algorithm._model.train()
         else:
             self._algorithm._model.eval()
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=sys.stdout, position=0)
+                           leave=False,
+                           file=src.logger.stdout, position=0)
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -64,6 +67,7 @@ class Meta_algorithm_trainer(object):
             analysis = (i % self._log_interval == 0)
 
             '''
+            # legacy code before the data sampling code updates
             # randperm
             if randomize_query and is_training:
                 rp = np.random.permutation(2 * n_query * n_way)[:n_query * n_way]
@@ -99,8 +103,6 @@ class Meta_algorithm_trainer(object):
 
             shots_x, shots_y, query_x, query_y = mt_batch
             
-            # assert shots_x.shape == (mt_batch_sz, n_way*n_shot, *original_shape[-3:])
-            # assert query_x.shape == (mt_batch_sz, n_way*n_query, *original_shape[-3:])
             assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
             assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
             assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
@@ -141,8 +143,10 @@ class Meta_algorithm_trainer(object):
                 self._optimizer.zero_grad()
                 loss.backward()
                 if self._grad_clip > 0.:
+                    # technically should have a method for algorithm.parameters()
                     clip_grad_norm_(self._algorithm._model.parameters(), 
-                        max_norm=self._grad_clip, norm_type='inf')
+                                    max_norm=self._grad_clip,
+                                    norm_type='inf')
                 self._optimizer.step()
 
             # logging
@@ -192,7 +196,7 @@ class Meta_algorithm_trainer(object):
                 self._writer.add_scalar(
                     key, metrics_dict[key], self._global_iteration)
         log_array.append(' ') 
-        tqdm.write('\n'.join(log_array))
+        print('\n'.join(log_array))
 
 
 
@@ -227,7 +231,7 @@ class Init_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=sys.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0)
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -370,7 +374,7 @@ class Init_algorithm_trainer(object):
                 self._writer.add_scalar(
                     key, metrics_dict[key], self._global_iteration)
         log_array.append(' ') 
-        tqdm.write('\n'.join(log_array))
+        print('\n'.join(log_array))
 
 
 
@@ -406,7 +410,7 @@ class TL_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=sys.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0)
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -521,7 +525,7 @@ class TL_algorithm_trainer(object):
             with open(save_path, 'wb') as f:
                 torch.save({'model': self._algorithm._model.state_dict(),
                            'optimizer': self._optimizer}, f)
-
+                            # 'optimizer': self._optimizer.state_dict()}, f) # technically only need to save state_dict but not the actual optimizer
         results = {}
         if not is_training:
             results = {
@@ -554,4 +558,4 @@ class TL_algorithm_trainer(object):
                 self._writer.add_scalar(
                     key, metrics_dict[key], self._global_iteration)
         log_array.append(' ') 
-        tqdm.write('\n'.join(log_array))
+        print('\n'.join(log_array))
