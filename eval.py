@@ -211,21 +211,21 @@ def main(args):
         if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
             model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection))
+                projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
         else:
             model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=2,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection))
+                projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
     elif args.model_type in ['conv64', 'conv48', 'conv32']:
         dim = int(args.model_type[-2:])
         model = shallow_conv.ShallowConv(z_dim=dim, h_dim=dim, num_classes=args.num_classes_train, x_width=image_size,
-            classifier_type=args.classifier_type, projection=str2bool(args.projection))
+            classifier_type=args.classifier_type, projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type)
+            projection=str2bool(args.projection), classifier_type=args.classifier_type, learnable_scale=str2bool(args.learnable_scale))
     elif args.model_type == 'wide_resnet16_10':
         model = wide_resnet.wrn16_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type)
+            projection=str2bool(args.projection), classifier_type=args.classifier_type, learnable_scale=str2bool(args.learnable_scale))
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -411,6 +411,8 @@ if __name__ == '__main__':
         help='names of various loss functions that are part fo overall objective')
     parser.add_argument('--scale-factor', type=float, default=1.,
         help='scalar factor multiplied with logits')
+    parser.add_argument('--learnable-scale', type=str, default="False",
+        help='scalar receives grads')
 
 
     # Initialization-based methods

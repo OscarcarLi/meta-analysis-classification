@@ -296,18 +296,19 @@ def main(args):
             else:
                 novel_class_keys = list(novelval_classes.keys())
                 chosen_classes = [novel_class_keys[int(idx)] for idx in chosen_classes_indices_list[run]]
+            
             novelval_loaders = MetaDataLoader(
-                    dataset=novelval_meta_datasets,
-                    n_batches=args.n_iterations_val,
-                    batch_size=args.batch_size_val,
-                    n_way=args.n_way_val,
-                    n_shot=args.n_shot_val,
-                    n_query=args.n_query_val, 
-                    randomize_query=False,
-                    p_dict={
-                        k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
-                            for k in list(novelval_classes)
-                    })
+                dataset=novelval_meta_datasets,
+                n_batches=args.n_iterations_val,
+                batch_size=args.batch_size_val,
+                n_way=args.n_way_val,
+                n_shot=args.n_shot_val,
+                n_query=args.n_query_val, 
+                randomize_query=False,
+                p_dict={
+                    k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
+                        for k in list(novelval_classes)
+                })
 
             results_1 = trainer_1.run(
                 mt_loader=novelval_loaders, is_training=False)
