@@ -260,23 +260,43 @@ def main(args):
     if args.model_type == 'resnet_12':
         # technically tieredimagenet should also have dropblock size of 5
         if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
-            model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=5,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
+            model = resnet_12.resnet12(
+                avg_pool=str2bool(args.avg_pool),
+                drop_rate=0.1, dropblock_size=5,
+                num_classes=args.num_classes_train,
+                classifier_type=args.classifier_type,
                 projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
         else:
-            model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=2,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
+            model = resnet_12.resnet12(
+                avg_pool=str2bool(args.avg_pool),
+                drop_rate=0.1, dropblock_size=2,
+                num_classes=args.num_classes_train,
+                classifier_type=args.classifier_type,
                 projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type in ['conv64', 'conv48', 'conv32']:
         dim = int(args.model_type[-2:])
-        model = shallow_conv.ShallowConv(z_dim=dim, h_dim=dim, num_classes=args.num_classes_train, x_width=image_size,
-            classifier_type=args.classifier_type, projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
+        model = shallow_conv.ShallowConv(
+            z_dim=dim,
+            h_dim=dim,
+            num_classes=args.num_classes_train,
+            x_width=image_size,
+            classifier_type=args.classifier_type,
+            projection=str2bool(args.projection),
+            learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type, learnable_scale=str2bool(args.learnable_scale))
+            projection=str2bool(args.projection),
+            classifier_type=args.classifier_type,
+            learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type == 'wide_resnet16_10':
         model = wide_resnet.wrn16_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type, learnable_scale=str2bool(args.learnable_scale))
+            projection=str2bool(args.projection),
+            classifier_type=args.classifier_type,
+            learnable_scale=str2bool(args.learnable_scale))
+
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
@@ -605,6 +625,8 @@ if __name__ == '__main__':
 
     # Algorithm
     parser.add_argument('--algorithm', type=str, help='type of algorithm')
+    parser.add_argument('--classifier-metric', type=str, default='',
+        help='')
 
 
     # Model
@@ -622,6 +644,10 @@ if __name__ == '__main__':
             ''')
     parser.add_argument('--learnable-scale', type=str, default="False",
         help='scalar receives grads')
+    parser.add_argument('--projection', type=str, default='',
+        help='')
+    parser.add_argument('--avg-pool', type=str, default='True',
+        help='')
 
     # Optimization
     parser.add_argument('--optimizer-type', type=str, default='SGDM',
@@ -716,12 +742,8 @@ if __name__ == '__main__':
         help='path to saved parameters.')
     parser.add_argument('--restart-iter', type=int, default=0,
         help='iteration at restart, it should be the same as the xx in chkpt_0xx.pt') 
-    parser.add_argument('--classifier-metric', type=str, default='',
-        help='')
-    parser.add_argument('--projection', type=str, default='',
-        help='')
-    parser.add_argument('--avg-pool', type=str, default='True',
-        help='')
+
+
     parser.add_argument('--val-frequency', type=int, default=1,
         help='') 
     

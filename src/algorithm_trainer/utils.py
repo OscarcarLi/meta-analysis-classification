@@ -16,6 +16,24 @@ def accuracy(preds, y):
     correct = (preds == y).sum().float()
     return (correct / total).item()
 
+def per_task_accuracy(task_batch_logits, task_batch_y):
+    """compute the prediction accuracy for every task in the batch
+
+    Args:
+        task_batch_logits (torch.Tensor): shape (batch_size, total_n_points, n_way)
+        task_batch_y (torch.Tensor): shape (batch_size, total_n_points)
+    
+    Return:
+        a numpy array of shape (batch_size,) with each element the accuracy of that batch.
+        the accuracy is represented as a number in [0, 1]
+    """
+    accuracy_for_each_task = []
+    assert task_batch_logits.shape[0] == task_batch_y.shape[0]
+    for i in range(task_batch_y.shape[0]):
+        accuracy_for_each_task.append(accuracy(preds=task_batch_logits[i],
+                                               y=task_batch_y[i]))
+    return np.array(accuracy_for_each_task)
+
 
 def spectral_norm(weight_mat, limit=10., n_power_iterations=2, eps=1e-12, device='cpu'):
     h, w = weight_mat.size()
