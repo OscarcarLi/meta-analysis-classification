@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17'
+output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050'
 device='0'
 mkdir -p logs
 mkdir -p runs
@@ -21,10 +21,10 @@ python eval.py \
 --n-shot-val 5 \
 --do-one-shot-eval-too False \
 --n-query-val 15 \
---n-iterations-val 5000 \
---preload-train False \
+--n-iterations-val 1000 \
+--preload-train True \
 --eps 0. \
 --output-folder ${output} \
 --device-number ${device} \
---checkpoint /home/oscarli/projects/meta-analysis-classification/runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17/chkpt_060.pt \
+--checkpoint runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050/chkpt_060.pt \
 --log-interval 100
