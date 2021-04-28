@@ -45,7 +45,8 @@ class Meta_algorithm_trainer(object):
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
                            leave=False,
-                           file=src.logger.stdout, position=0)
+                           file=src.logger.stdout, position=0,
+                           total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -127,7 +128,8 @@ class Meta_algorithm_trainer(object):
                         n_shot=n_shot,
                         n_query=n_query)
 
-            accu = per_task_accuracy(logits, query_y) * 100. # a list of accuracy percentages for each task in the batch
+            # a numpy array of accuracy percentages for each task in the batch
+            accu = per_task_accuracy(logits, query_y) * 100. 
             logits = logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
@@ -236,7 +238,7 @@ class Init_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=src.logger.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0, total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -416,7 +418,7 @@ class TL_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=src.logger.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0, total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)

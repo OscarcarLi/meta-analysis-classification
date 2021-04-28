@@ -41,6 +41,7 @@ def main(args):
         eval_results = f'{args.output_folder}/eval_results.txt'
     with open(eval_results, 'a') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
+        f.write(f'evaluating checkpoint {args.checkpoint}')
 
 
     ####################################################

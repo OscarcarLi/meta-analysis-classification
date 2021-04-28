@@ -36,26 +36,46 @@ def create_model_and_load_chkpt(args, dataset_name, checkpoint_path):
 
     if args.model_type == 'resnet_12':
         if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
-            model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=5,
+            model = resnet_12.resnet12(
+                avg_pool=str2bool(args.avg_pool),
+                drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection))
+                projection=str2bool(args.projection),
+                learnable_scale=str2bool(args.learnable_scale))
+
         else:
-            model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=2,
+            model = resnet_12.resnet12(
+                avg_pool=str2bool(args.avg_pool),
+                drop_rate=0.1, dropblock_size=2,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection))
+                projection=str2bool(args.projection),
+                learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type in ['conv64', 'conv48', 'conv32']:
         dim = int(args.model_type[-2:])
-        model = shallow_conv.ShallowConv(z_dim=dim, h_dim=dim, num_classes=args.num_classes_train, x_width=image_size,
-            classifier_type=args.classifier_type, projection=str2bool(args.projection))
+        model = shallow_conv.ShallowConv(
+            z_dim=dim,
+            h_dim=dim,
+            num_classes=args.num_classes_train,
+            x_width=args.img_side_len,
+            classifier_type=args.classifier_type,
+            projection=str2bool(args.projection),
+            learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type)
+            projection=str2bool(args.projection), classifier_type=args.classifier_type,
+            learnable_scale=str2bool(args.learnable_scale))
+
     elif args.model_type == 'wide_resnet16_10':
         model = wide_resnet.wrn16_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type)
+            projection=str2bool(args.projection), classifier_type=args.classifier_type,
+            learnable_scale=str2bool(args.learnable_scale))
+
     else:
         raise ValueError(
             'Unrecognized model type {}'.format(args.model_type))
+
     print("Model\n" + "=="*27)    
     print(model)   
 
@@ -176,7 +196,7 @@ def main(args):
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     eval_results = f'{args.output_folder}/novel_acc_variance_{args.n_chosen_classes}.txt'
-    with open(eval_results, 'w') as f:
+    with open(eval_results, 'a') as f:
         f.write("--"*20 + "EVALUATION RESULTS" + "--"*20 + '\n')
 
 
@@ -187,8 +207,8 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base_test.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
+    # train_file = os.path.join(args.dataset_path, 'base_test.json')
+    # val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel_large.json')
     basetest_file = os.path.join(args.dataset_path, 'base_test.json')
     print("Dataset name", dataset_name, "image_size", image_size)
@@ -208,14 +228,14 @@ def main(args):
     else:
         novelval_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_train))
         novelval_meta_datasets = MetaDataset(
-                                        dataset_name=dataset_name,
-                                        support_class_images_set=novelval_classes,
-                                        query_class_images_set=novelval_classes,
-                                        image_size=image_size,
-                                        support_aug=False,
-                                        query_aug=False,
-                                        fix_support=0,
-                                        save_folder='')
+                                    dataset_name=dataset_name,
+                                    support_class_images_set=novelval_classes,
+                                    query_class_images_set=novelval_classes,
+                                    image_size=image_size,
+                                    support_aug=False,
+                                    query_aug=False,
+                                    fix_support=0,
+                                    save_folder='')
 
 
     ####################################################
@@ -257,9 +277,24 @@ def main(args):
         chosen_classes_indices_list = []
         with open(args.chosen_classes_indices_list, 'r') as f:
             chosen_classes_indices_list = [line.strip().split(" ") for line in f.readlines()]
+    
+    if args.algorithm_1 == 'TransferLearning':
+        # compare two supervised learning models
+        assert args.algorithm_2 == 'TransferLearning' or args.algorithm_2 == ''
+        with open(eval_results, 'a') as f:
+            f.write('f{dataset_name} {args.sample} examples sampled from each of {len(novelval_classes)} class\n')
+    else:
+        # compare meta-learning algorithm snapshots
+        with open(eval_results, 'a') as f:
+            f.write(f'{dataset_name} {args.n_chosen_classes} out of {len(novelval_classes)} classes\n')
+            f.write(f'Alg1: {args.checkpoint_1}')
+            if args.algorithm_2 != '':
+                f.write(f', Alg2: {args.checkpoint_2}')
+            f.write('\n')
+
 
     for run in range(args.n_runs):
-        
+        print(f'{run} out of {args.n_runs}')
         if args.algorithm_1 == 'TransferLearning':
 
             assert args.algorithm_2 == 'TransferLearning' or args.algorithm_2 == '' 
@@ -269,7 +304,7 @@ def main(args):
                             class_images_set=base_classes,
                             image_size=image_size,
                             aug=False,
-                            sample=args.sample)
+                            sample=args.sample) # fix and only sample args.sample number of examples for each class.
             novelval_loaders = torch.utils.data.DataLoader(
                             novelval_dataset, 
                             batch_size=128, 
@@ -290,13 +325,17 @@ def main(args):
                 f.write("\n")
 
         else:
+            # evaluation on meta-learning algorithm 
             if chosen_classes_indices_list is None:
                 chosen_classes = np.random.choice(
                     list(novelval_classes.keys()), args.n_chosen_classes,replace=False)
             else:
-                novel_class_keys = list(novelval_classes.keys())
-                chosen_classes = [novel_class_keys[int(idx)] for idx in chosen_classes_indices_list[run]]
+                novel_class_keys = sorted(list(novelval_classes.keys())) # use sorted to ensure consistency over multiple runs
+                chosen_classes = [novel_class_keys[int(idx)] for idx in chosen_classes_indices_list[run]] # take the chosen_classes for this run.
             
+            # when the chosen classes is read from the saved txt file
+            # need to make sure we have the correct number classes for each eval
+            assert args.n_chosen_classes == len(chosen_classes)
             novelval_loaders = MetaDataLoader(
                 dataset=novelval_meta_datasets,
                 n_batches=args.n_iterations_val,
@@ -319,10 +358,11 @@ def main(args):
         
             with open(eval_results, 'a') as f:
                 f.write(f"Run{run+1} {args.n_way_val}w{args.n_shot_val}s: ")
-                f.write(f"Classes {chosen_classes} ")
-                f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
+                if len(chosen_classes) != len(novelval_classes):
+                    f.write(f"Classes [{' '.join([str(x) for x in sorted(chosen_classes)])}] ")
+                f.write(f"Alg1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} AccStd {results_1['val_task_acc']}")
                 if args.algorithm_2 != '':
-                    f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}")
+                    f.write(f"Alg2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)} AccStd {results_2['val_task_acc']}")
                 f.write("\n")
 
 
@@ -336,9 +376,27 @@ if __name__ == '__main__':
     parser.add_argument('--random-seed', type=int, default=0,
         help='')
 
+    # Evaluation specific parameters
+    parser.add_argument('--checkpoint-1', type=str, default='',
+        help='path to saved parameters for alg1.')
+    parser.add_argument('--checkpoint-2', type=str, default='',
+        help='path to saved parameters for alg2.')
+    parser.add_argument('--n-chosen-classes', type=int, default=5,
+        help='number of classes chosen for eval in a single run')
+    parser.add_argument('--n-runs', type=int, default=20,
+        help='number of runs')
+    parser.add_argument('--sample', type=int, default=0,
+        help='samples per class; for SimpleDataset Supervised Learning')
+    parser.add_argument('--chosen-classes-indices-list', type=str, default='',
+        help='a txt file with each row specifying which 0-based class indices to choose for evaluation')
+
+
     # Algorithm
     parser.add_argument('--algorithm-1', type=str, help='type of algorithm-1')
-    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2', default='')
+    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2', default='') 
+    parser.add_argument('--classifier-metric', type=str, default='',
+        help='the last layer classification strategy used by protonet')
+
 
     # Model
     parser.add_argument('--model-type', type=str, default='gatedconv',
@@ -347,6 +405,12 @@ if __name__ == '__main__':
         help='classifier type [distance based, linear, GDA]')
     parser.add_argument('--scale-factor', type=float, default=1.,
         help='scalar factor multiplied with logits')
+    parser.add_argument('--learnable-scale', type=str, default="False",
+        help='scalar receives grads') 
+    parser.add_argument('--projection', type=str, default='',
+        help='')
+    parser.add_argument('--avg-pool', type=str, default='True',
+        help='')
 
 
     # Initialization-based methods
@@ -391,29 +455,13 @@ if __name__ == '__main__':
     
 
     # Miscellaneous
-    parser.add_argument('--chosen-classes-indices-list', type=str, default='')
     parser.add_argument('--output-folder', type=str, default='maml',
         help='name of the output folder')
     parser.add_argument('--device-number', type=str, default='0',
         help='gpu device number')
     parser.add_argument('--log-interval', type=int, default=100,
         help='number of batches between tensorboard writes')
-    parser.add_argument('--checkpoint-1', type=str, default='',
-        help='path to saved parameters for alg1.')
-    parser.add_argument('--checkpoint-2', type=str, default='',
-        help='path to saved parameters for alg2.')
-    parser.add_argument('--classifier-metric', type=str, default='',
-        help='')
-    parser.add_argument('--projection', type=str, default='',
-        help='')
-    parser.add_argument('--avg-pool', type=str, default='True',
-        help='')
-    parser.add_argument('--n-chosen-classes', type=int, default=5,
-        help='number of classes chosen for eval in a single run')
-    parser.add_argument('--n-runs', type=int, default=20,
-        help='number of runs')
-    parser.add_argument('--sample', type=int, default=0,
-        help='samples per class')
+
     
     
     args = parser.parse_args()

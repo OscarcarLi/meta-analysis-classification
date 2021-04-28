@@ -72,6 +72,9 @@ class MetaDataLoader:
 
     def __iter__(self):
         return iter(self.data_loader)
+    
+    def __len__(self):
+        return len(self.data_loader)
 
 
 
