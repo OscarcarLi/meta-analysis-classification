@@ -1,15 +1,18 @@
 #! /bin/bash
 
-output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050'
+output='SB_tiered_r12_PNeuc_bs128_SGD0.1Drop90'
+# method_dataset_model_innerAlg_config_outerOpt_misc
 device='0'
 mkdir -p logs
 mkdir -p runs
 
-python eval.py \
+CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
+--preload-train True \
+--eot-model True \
 --fix-support 0 \
 --model-type resnet_12 \
 --avg-pool True \
---projection False \
+--projection True \
 --num-classes-train 0 \
 --algorithm ProtoNet \
 --scale-factor 10. \
@@ -21,10 +24,11 @@ python eval.py \
 --n-shot-val 5 \
 --do-one-shot-eval-too False \
 --n-query-val 15 \
---n-iterations-val 1000 \
---preload-train True \
+--n-iterations-val 5000 \
 --eps 0. \
 --output-folder ${output} \
+--device cuda \
 --device-number ${device} \
---checkpoint runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050/chkpt_060.pt \
---log-interval 100
+--checkpoint runs/SB_tiered_r12_PNeuc_bs128_SGD0.1Drop90/chkpt_100.pt \
+--log-interval 100 > logs/${output}_evaleot.log &
+tail -f logs/${output}_evaleot.log

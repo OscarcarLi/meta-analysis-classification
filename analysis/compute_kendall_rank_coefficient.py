@@ -34,7 +34,8 @@ def main(args):
     n_negative_pairs = 0 # keep count of how many pairs of accuracy values have order mismatch b/w val and test
     for i in range(n_epochs):
         for j in range(i):
-            match = 0 # checks if a match has occured or not for the given pair
+            # checks if a match has occured or not for the given pair
+            # match takes on value either 0 or 1
             if selected_val_accs[i] >= selected_val_accs[j]:
                 match = int(selected_test_accs[i] >= selected_test_accs[j])
             else:

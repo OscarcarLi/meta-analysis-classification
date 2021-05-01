@@ -12,8 +12,8 @@ import json
 import torch.nn as nn
 
 from src.algorithms.grad import quantile_marks, get_grad_norm_from_parameters
-from src.algorithm_trainer.utils import *
-from src.algorithms.utils import logistic_regression_grad_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
+from src.algorithm_trainer.utils import accuracy, smooth_loss, per_task_accuracy
+# from src.algorithms.utils import logistic_regression_grad_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X
 
 import src.logger
 
@@ -21,7 +21,7 @@ import src.logger
 class Meta_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, init_global_iteration=0):
+        save_folder, grad_clip, init_global_iteration=0, eps=0.0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -30,7 +30,8 @@ class Meta_algorithm_trainer(object):
         self._save_folder = save_folder # where to save the model and optimizer checkpoints
         self._grad_clip = grad_clip # clip the meta (outer) loss's gradient
         self._global_iteration = init_global_iteration
-        self._eps = 0.
+        self._eps = eps
+        print(f'eps is {self._eps}')
         
 
     def run(self, mt_loader, epoch=None, is_training=True):
@@ -44,7 +45,8 @@ class Meta_algorithm_trainer(object):
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
                            leave=False,
-                           file=src.logger.stdout, position=0)
+                           file=src.logger.stdout, position=0,
+                           total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -116,6 +118,7 @@ class Meta_algorithm_trainer(object):
             
             # compute logits and loss on query
             with torch.enable_grad() if is_training else torch.no_grad():
+                # logits of shape batch_size x total_n_query x n_way
                 logits, measurements_trajectory = \
                     self._algorithm.inner_loop_adapt(
                         support=shots_x,
@@ -125,16 +128,17 @@ class Meta_algorithm_trainer(object):
                         n_shot=n_shot,
                         n_query=n_query)
 
+            # a numpy array of accuracy percentages for each task in the batch
+            accu = per_task_accuracy(logits, query_y) * 100. 
             logits = logits.reshape(-1, logits.size(-1))
             query_y = query_y.reshape(-1)
             assert logits.size(0) == query_y.size(0)
             loss = smooth_loss(
                 logits, query_y, logits.shape[1], self._eps)
-            accu = accuracy(logits, query_y) * 100.
 
             # metrics accumulation
             aggregate['mt_outer_loss'].append(loss.item())
-            aggregate['mt_outer_accu'].append(accu)
+            aggregate['mt_outer_accu'].extend(accu)
             for k in measurements_trajectory:
                 aggregate[k].append(measurements_trajectory[k][-1])
             
@@ -176,8 +180,11 @@ class Meta_algorithm_trainer(object):
                 'accu': np.mean(aggregate['mt_outer_accu']),
             }
         }
-        mean, i95 = (np.mean(aggregate['mt_outer_accu']), 
-            1.96 * np.std(aggregate['mt_outer_accu']) / np.sqrt(len(aggregate['mt_outer_accu'])))
+        mean, i95 = (
+            np.mean(aggregate['mt_outer_accu']), 
+            1.96 * np.std(aggregate['mt_outer_accu']) / np.sqrt(len(aggregate['mt_outer_accu']))
+        )
+        # print(f"aggregate[mt_outer_accu] length {len(aggregate['mt_outer_accu'])}")
         results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
     
         return results
@@ -231,7 +238,7 @@ class Init_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=src.logger.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0, total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -388,7 +395,7 @@ Trains the transfer learning baseline
 class TL_algorithm_trainer(object):
 
     def __init__(self, algorithm, optimizer, writer, log_interval, 
-        save_folder, grad_clip, label_offset=0, init_global_iteration=0):
+        save_folder, grad_clip, label_offset=0, init_global_iteration=0, eps=0.0):
 
         self._algorithm = algorithm
         self._optimizer = optimizer
@@ -398,7 +405,8 @@ class TL_algorithm_trainer(object):
         self._grad_clip = grad_clip
         self._label_offset = label_offset
         self._global_iteration = init_global_iteration
-        self._eps = 0.
+        self._eps = eps
+        print(f'eps is {self._eps}')
         
 
     def run(self, mt_loader, epoch=None, is_training=True, evaluate_supervised_classification=False):
@@ -410,7 +418,7 @@ class TL_algorithm_trainer(object):
 
         # loaders and iterators
         mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                        leave=False, file=src.logger.stdout, position=0)
+                        leave=False, file=src.logger.stdout, position=0, total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)
@@ -452,13 +460,16 @@ class TL_algorithm_trainer(object):
                 assert logits.size(0) == y.size(0)
                 loss = smooth_loss(
                     logits, y, logits.shape[1], self._eps)
-                accu = accuracy(logits, y) * 100.
+                
+                _, predicted_class = torch.max(logits.data, 1)
+                correctness = (predicted_class == y).float()
+                # accu = accuracy(logits, y) * 100.
 
                 # metrics accumulation
                 aggregate['loss'].append(loss.item())
                 aggregate['accu'].append(accu)
                 aggregate['mt_outer_loss'].append(loss.item())
-                aggregate['mt_outer_accu'].append(accu)
+                aggregate['mt_outer_accu'].append(correctness)
 
             else:
                 """
@@ -488,16 +499,16 @@ class TL_algorithm_trainer(object):
                             n_shot=n_shot,
                             n_query=n_query)
 
+                accu = per_task_accuracy(logits, query_y) * 100. # a list of accuracy percentages for each task in the batch
                 logits = logits.reshape(-1, logits.size(-1))
                 query_y = query_y.reshape(-1)
                 assert logits.size(0) == query_y.size(0)
                 loss = smooth_loss(
                     logits, query_y, logits.shape[1], self._eps)
-                accu = accuracy(logits, query_y) * 100.
 
                 # metrics accumulation
                 aggregate['mt_outer_loss'].append(loss.item())
-                aggregate['mt_outer_accu'].append(accu)
+                aggregate['mt_outer_accu'].extend(accu)
                 for k in measurements_trajectory:
                     aggregate[k].append(measurements_trajectory[k][-1])
         

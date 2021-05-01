@@ -2,7 +2,7 @@
 
 output='metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='0,1,2,3'
+device='1,2,3,4'
 mkdir -p logs
 mkdir -p runs
 
@@ -39,7 +39,7 @@ CUDA_VISIBLE_DEVICES="$device" python main.py \
 --grad-clip 0. \
 --drop-lr-epoch 20,40,50 \
 --lr-scheduler-type deterministic \
---eps 0.1 \
+--eps 0.0 \
 --restart-iter 0 \
 --output-folder ${output} \
 --checkpoint ./runs/metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050/chkpt_055.pt \
