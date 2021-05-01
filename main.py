@@ -259,7 +259,7 @@ def main(args):
 
     if args.model_type == 'resnet_12':
         # technically tieredimagenet should also have dropblock size of 5
-        if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
+        if 'imagenet' in dataset_name.lower() or 'cub' in dataset_name.lower():
             model = resnet_12.resnet12(avg_pool=str2bool(args.avg_pool), drop_rate=0.1, dropblock_size=5,
                 num_classes=args.num_classes_train, classifier_type=args.classifier_type,
                 projection=str2bool(args.projection), learnable_scale=str2bool(args.learnable_scale))
