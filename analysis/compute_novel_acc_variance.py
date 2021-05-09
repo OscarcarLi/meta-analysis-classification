@@ -362,7 +362,7 @@ def main(args):
                     f.write(f"Classes [{' '.join([str(x) for x in sorted(chosen_classes)])}] ")
                 f.write(f"Alg1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} AccStd {results_1['val_task_acc']}")
                 if args.algorithm_2 != '':
-                    f.write(f"Alg2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)} AccStd {results_2['val_task_acc']}")
+                    f.write(f" Alg2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)} AccStd {results_2['val_task_acc']}")
                 f.write("\n")
 
 

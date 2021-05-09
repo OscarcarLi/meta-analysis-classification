@@ -185,7 +185,7 @@ class Meta_algorithm_trainer(object):
             1.96 * np.std(aggregate['mt_outer_accu']) / np.sqrt(len(aggregate['mt_outer_accu']))
         )
         # print(f"aggregate[mt_outer_accu] length {len(aggregate['mt_outer_accu'])}")
-        results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
+        results['val_task_acc'] = "{:.2f} ± {:.2f}".format(mean, i95) 
     
         return results
 
