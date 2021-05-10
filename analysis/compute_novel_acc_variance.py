@@ -30,47 +30,51 @@ def str2bool(arg):
     return arg.lower() == 'true'
 
 
-def create_model_and_load_chkpt(args, dataset_name, checkpoint_path):
-
+def create_model_and_load_chkpt(dataset_name, algorithm_hyperparams):
+    
     print("\n", "--"*20, "MODEL", "--"*20)
 
-    if args.model_type == 'resnet_12':
+    if algorithm_hyperparams['model_type'] == 'resnet_12':
         if 'miniImagenet' in dataset_name or 'CUB' in dataset_name:
             model = resnet_12.resnet12(
-                avg_pool=str2bool(args.avg_pool),
+                avg_pool=str2bool(algorithm_hyperparams['avg_pool']),
                 drop_rate=0.1, dropblock_size=5,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection),
-                learnable_scale=str2bool(args.learnable_scale))
+                num_classes=algorithm_hyperparams['num_classes_train'], 
+                classifier_type=algorithm_hyperparams['classifier_type'],
+                projection=str2bool(algorithm_hyperparams['projection']),
+                learnable_scale=str2bool(algorithm_hyperparams['learnable_scale']))
 
         else:
             model = resnet_12.resnet12(
-                avg_pool=str2bool(args.avg_pool),
+                avg_pool=str2bool(algorithm_hyperparams['avg_pool']),
                 drop_rate=0.1, dropblock_size=2,
-                num_classes=args.num_classes_train, classifier_type=args.classifier_type,
-                projection=str2bool(args.projection),
-                learnable_scale=str2bool(args.learnable_scale))
+                num_classes=algorithm_hyperparams['num_classes_train'], 
+                classifier_type=algorithm_hyperparams['classifier_type'],
+                projection=str2bool(algorithm_hyperparams['projection']),
+                learnable_scale=str2bool(algorithm_hyperparams['learnable_scale']))
 
-    elif args.model_type in ['conv64', 'conv48', 'conv32']:
+    elif algorithm_hyperparams['model_type'] in ['conv64', 'conv48', 'conv32']:
         dim = int(args.model_type[-2:])
         model = shallow_conv.ShallowConv(
             z_dim=dim,
             h_dim=dim,
-            num_classes=args.num_classes_train,
+            num_classes=algorithm_hyperparams['num_classes_train'],
             x_width=args.img_side_len,
-            classifier_type=args.classifier_type,
-            projection=str2bool(args.projection),
-            learnable_scale=str2bool(args.learnable_scale))
+            classifier_type=algorithm_hyperparams['classifier_type'],
+            projection=str2bool(algorithm_hyperparams['projection']),
+            learnable_scale=str2bool(algorithm_hyperparams['learnable_scale']))
 
-    elif args.model_type == 'wide_resnet28_10':
+    elif algorithm_hyperparams['model_type'] == 'wide_resnet28_10':
         model = wide_resnet.wrn28_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type,
-            learnable_scale=str2bool(args.learnable_scale))
+            projection=str2bool(algorithm_hyperparams['projection']), 
+            classifier_type=algorithm_hyperparams['classifier_type'],
+            learnable_scale=str2bool(algorithm_hyperparams['learnable_scale']))
 
-    elif args.model_type == 'wide_resnet16_10':
+    elif algorithm_hyperparams['model_type'] == 'wide_resnet16_10':
         model = wide_resnet.wrn16_10(
-            projection=str2bool(args.projection), classifier_type=args.classifier_type,
-            learnable_scale=str2bool(args.learnable_scale))
+            projection=str2bool(algorithm_hyperparams['projection']), 
+            classifier_type=algorithm_hyperparams['classifier_type'],
+            learnable_scale=str2bool(algorithm_hyperparams['learnable_scale']))
 
     else:
         raise ValueError(
@@ -79,9 +83,11 @@ def create_model_and_load_chkpt(args, dataset_name, checkpoint_path):
     print("Model\n" + "=="*27)    
     print(model)   
 
-    print(f"loading model from {checkpoint_path}")
+    print(f"loading model from {algorithm_hyperparams['checkpoint']}")
     model_dict = model.state_dict()
-    chkpt = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+    chkpt = torch.load(
+        algorithm_hyperparams['checkpoint'], 
+        map_location=torch.device('cpu'))
     chkpt_state_dict = chkpt['model']
     chkpt_state_dict_cpy = chkpt_state_dict.copy()
     # remove "module." from key, possibly present as it was dumped by data-parallel
@@ -109,38 +115,38 @@ def create_model_and_load_chkpt(args, dataset_name, checkpoint_path):
 
 
 
-def create_alg_and_trainer(args, algorithm_type, model):
+def create_alg_and_trainer(args, algorithm_hyperparams, model):
 
     # algorithm
-    if algorithm_type == 'InitBasedAlgorithm':
+    if algorithm_hyperparams['algorithm'] == 'InitBasedAlgorithm':
         algorithm = InitBasedAlgorithm(
             model=model,
             loss_func=torch.nn.CrossEntropyLoss(),
-            method=args.init_meta_algorithm,
-            alpha=args.alpha,
-            inner_loop_grad_clip=args.grad_clip_inner,
-            inner_update_method=args.inner_update_method,
+            method=algorithm_hyperparams['init_meta_algorithm'],
+            alpha=algorithm_hyperparams['alpha'],
+            inner_loop_grad_clip=algorithm_hyperparams['grad_clip_inner'],
+            inner_update_method=algorithm_hyperparams['inner_update_method'],
             device='cuda')
-    elif algorithm_type == 'ProtoNet':
+    elif algorithm_hyperparams['algorithm'] == 'ProtoNet':
         algorithm = ProtoNet(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             device='cuda',
-            scale=args.scale_factor,
-            metric=args.classifier_metric)
-    elif algorithm_type == 'SVM':
+            scale=algorithm_hyperparams['scale_factor'],
+            metric=algorithm_hyperparams['classifier_metric'])
+    elif algorithm_hyperparams['algorithm'] == 'SVM':
         algorithm = SVM(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
-            scale=args.scale_factor,
+            scale=algorithm_hyperparams['scale_factor'],
             device='cuda')
-    elif algorithm_type == 'Ridge':
+    elif algorithm_hyperparams['algorithm'] == 'Ridge':
         algorithm = Ridge(
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
-            scale=args.scale_factor,
+            scale=algorithm_hyperparams['scale_factor'],
             device='cuda')
-    elif algorithm_type == 'TransferLearning':
+    elif algorithm_hyperparams['algorithm'] == 'TransferLearning':
         """
         We use the ProtoNet algorithm at test time.
         """
@@ -148,14 +154,14 @@ def create_alg_and_trainer(args, algorithm_type, model):
             model=model,
             inner_loss_func=torch.nn.CrossEntropyLoss(),
             device='cuda',
-            scale=args.scale_factor,
-            metric=args.classifier_metric)
+            scale=algorithm_hyperparams['scale_factor'],
+            metric=algorithm_hyperparams['classifier_metric'])
     else:
         raise ValueError(
-            'Unrecognized algorithm {}'.format(args.algorithm))
+            'Unrecognized algorithm {}'.format(algorithm_hyperparams['algorithm']))
 
 
-    if algorithm_type == 'InitBasedAlgorithm':
+    if algorithm_hyperparams['algorithm'] == 'InitBasedAlgorithm':
         trainer = Init_algorithm_trainer(
             algorithm=algorithm,
             optimizer=None,
@@ -163,10 +169,10 @@ def create_alg_and_trainer(args, algorithm_type, model):
             log_interval=args.log_interval, 
             save_folder='', 
             grad_clip=None,
-            num_updates_inner_train=args.num_updates_inner_train,
-            num_updates_inner_val=args.num_updates_inner_val,
+            num_updates_inner_train=algorithm_hyperparams['num_updates_inner_train'],
+            num_updates_inner_val=algorithm_hyperparams['num_updates_inner_val'],
             init_global_iteration=None)
-    elif algorithm_type == 'TransferLearning':
+    elif algorithm_hyperparams['algorithm'] == 'TransferLearning':
         trainer = TL_algorithm_trainer(
             algorithm=algorithm,
             optimizer=None,
@@ -201,6 +207,18 @@ def main(args):
 
 
     ####################################################
+    #                LOAD ALG HYPERPARAMS              #
+    ####################################################
+
+    algorithm_hyperparams_1 = algorithm_hyperparams_2 = None
+    with open(args.algorithm_hyperparams_json_1, 'r') as f:
+        algorithm_hyperparams_1 = json.load(f)
+    if args.algorithm_hyperparams_json_2 != '':
+        with open(args.algorithm_hyperparams_json_2, 'r') as f:
+            algorithm_hyperparams_2 = json.load(f)
+
+
+    ####################################################
     #         DATASET AND DATALOADER CREATION          #
     ####################################################
 
@@ -222,11 +240,12 @@ def main(args):
     print("\n", "--"*20, "VAL + NOVEL", "--"*20)
     
     
-    if args.algorithm_1 == 'TransferLearning':
-        assert args.algorithm_2 == 'TransferLearning'
-        base_classes = ClassImagesSet(basetest_file, preload=str2bool(args.preload_train))
+    if  algorithm_hyperparams_1['algorithm'] == 'TransferLearning':
+        if algorithm_hyperparams_2 is not None:
+            assert algorithm_hyperparams_2['algorithm'] == 'TransferLearning'
+        base_classes = ClassImagesSet(basetest_file, preload=str2bool(args.preload_images))
     else:
-        novelval_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_train))
+        novelval_classes = ClassImagesSet(test_file, preload=str2bool(args.preload_images))
         novelval_meta_datasets = MetaDataset(
                                     dataset_name=dataset_name,
                                     support_class_images_set=novelval_classes,
@@ -243,14 +262,12 @@ def main(args):
     ####################################################
     
     model_1 = create_model_and_load_chkpt(
-                    args, 
                     dataset_name=dataset_name, 
-                    checkpoint_path=args.checkpoint_1)
-    if args.algorithm_2 != '':
+                    algorithm_hyperparams=algorithm_hyperparams_1)
+    if algorithm_hyperparams_2 is not None:
         model_2 = create_model_and_load_chkpt(
-                        args, 
                         dataset_name=dataset_name, 
-                        checkpoint_path=args.checkpoint_2)
+                        algorithm_hyperparams=algorithm_hyperparams_2)
 
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
@@ -258,12 +275,12 @@ def main(args):
 
     trainer_1 = create_alg_and_trainer(
                     args, 
-                    algorithm_type=args.algorithm_1,
+                    algorithm_hyperparams=algorithm_hyperparams_1,
                     model=model_1)
-    if args.algorithm_2 != '':
+    if algorithm_hyperparams_2 is not None:
         trainer_2 = create_alg_and_trainer(
                         args, 
-                        algorithm_type=args.algorithm_2,
+                        algorithm_hyperparams=algorithm_hyperparams_2,
                         model=model_2)
 
     ####################################################
@@ -278,26 +295,24 @@ def main(args):
         with open(args.chosen_classes_indices_list, 'r') as f:
             chosen_classes_indices_list = [line.strip().split(" ") for line in f.readlines()]
     
-    if args.algorithm_1 == 'TransferLearning':
+    if algorithm_hyperparams_1['algorithm'] == 'TransferLearning':
         # compare two supervised learning models
-        assert args.algorithm_2 == 'TransferLearning' or args.algorithm_2 == ''
+        assert algorithm_hyperparams_2 is None or algorithm_hyperparams_2['algorithm'] == 'TransferLearning' 
         with open(eval_results, 'a') as f:
             f.write('f{dataset_name} {args.sample} examples sampled from each of {len(novelval_classes)} class\n')
     else:
         # compare meta-learning algorithm snapshots
         with open(eval_results, 'a') as f:
             f.write(f'{dataset_name} {args.n_chosen_classes} out of {len(novelval_classes)} classes\n')
-            f.write(f'Alg1: {args.checkpoint_1}')
-            if args.algorithm_2 != '':
-                f.write(f', Alg2: {args.checkpoint_2}')
+            f.write(f"Alg1: {algorithm_hyperparams_1['checkpoint']}")
+            if algorithm_hyperparams_2 is not None:
+                f.write(f", Alg2: {algorithm_hyperparams_2['checkpoint']}")
             f.write('\n')
 
 
     for run in range(args.n_runs):
-        print(f'{run} out of {args.n_runs}')
-        if args.algorithm_1 == 'TransferLearning':
-
-            assert args.algorithm_2 == 'TransferLearning' or args.algorithm_2 == '' 
+        print(f'{run+1} out of {args.n_runs}')
+        if algorithm_hyperparams_1['algorithm'] == 'TransferLearning':
 
             novelval_dataset = SimpleDataset(
                             dataset_name=dataset_name,
@@ -313,14 +328,14 @@ def main(args):
 
             results_1 = trainer_1.run(
                 mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
-            if args.algorithm_2 != '':
+            if algorithm_hyperparams_2 is not None:
                 results_2 = trainer_2.run(
                     mt_loader=novelval_loaders, is_training=False, evaluate_supervised_classification=True)
             
             with open(eval_results, 'a') as f:
                 f.write(f"Run{run+1}: ")
                 f.write(f"Alg_1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} ")
-                if args.algorithm_2 != '':
+                if algorithm_hyperparams_2 is not None:
                     f.write(f"Alg_2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)}")            
                 f.write("\n")
 
@@ -344,16 +359,17 @@ def main(args):
                 n_shot=args.n_shot_val,
                 n_query=args.n_query_val, 
                 randomize_query=False,
+                verbose=False,
                 p_dict={
                     k: (1 / args.n_chosen_classes if k in chosen_classes else 0.)
                         for k in list(novelval_classes)
                 })
 
             results_1 = trainer_1.run(
-                mt_loader=novelval_loaders, is_training=False)
-            if args.algorithm_2 != '':
+                mt_loader=novelval_loaders, is_training=False, verbose=False)
+            if algorithm_hyperparams_2 is not None:
                 results_2 = trainer_2.run(
-                    mt_loader=novelval_loaders, is_training=False)
+                    mt_loader=novelval_loaders, is_training=False, verbose=False)
         
         
             with open(eval_results, 'a') as f:
@@ -361,26 +377,27 @@ def main(args):
                 if len(chosen_classes) != len(novelval_classes):
                     f.write(f"Classes [{' '.join([str(x) for x in sorted(chosen_classes)])}] ")
                 f.write(f"Alg1: Loss {round(results_1['test_loss_after']['loss'], 3)} Acc {round(results_1['test_loss_after']['accu'], 3)} AccStd {results_1['val_task_acc']}")
-                if args.algorithm_2 != '':
-                    f.write(f"Alg2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)} AccStd {results_2['val_task_acc']}")
+                if algorithm_hyperparams_2 is not None:
+                    f.write(f" Alg2: Loss {round(results_2['test_loss_after']['loss'], 3)} Acc {round(results_2['test_loss_after']['accu'], 3)} AccStd {results_2['val_task_acc']}")
                 f.write("\n")
 
 
 
 if __name__ == '__main__':
 
-    
     parser = argparse.ArgumentParser(
         description='Training the feature backbone on all classes from all tasks.')
     
     parser.add_argument('--random-seed', type=int, default=0,
         help='')
 
+    # algorithm hyperparams
+    parser.add_argument('--algorithm-hyperparams-json-1', type=str, default='',
+        help='path to json with hyper parameters for alg1.')
+    parser.add_argument('--algorithm-hyperparams-json-2', type=str, default='',
+        help='path to json with hyper parameters for alg2.')
+
     # Evaluation specific parameters
-    parser.add_argument('--checkpoint-1', type=str, default='',
-        help='path to saved parameters for alg1.')
-    parser.add_argument('--checkpoint-2', type=str, default='',
-        help='path to saved parameters for alg2.')
     parser.add_argument('--n-chosen-classes', type=int, default=5,
         help='number of classes chosen for eval in a single run')
     parser.add_argument('--n-runs', type=int, default=20,
@@ -389,44 +406,6 @@ if __name__ == '__main__':
         help='samples per class; for SimpleDataset Supervised Learning')
     parser.add_argument('--chosen-classes-indices-list', type=str, default='',
         help='a txt file with each row specifying which 0-based class indices to choose for evaluation')
-
-
-    # Algorithm
-    parser.add_argument('--algorithm-1', type=str, help='type of algorithm-1')
-    parser.add_argument('--algorithm-2', type=str, help='type of algorithm-2', default='') 
-    parser.add_argument('--classifier-metric', type=str, default='',
-        help='the last layer classification strategy used by protonet')
-
-
-    # Model
-    parser.add_argument('--model-type', type=str, default='gatedconv',
-        help='type of the model')
-    parser.add_argument('--classifier-type', type=str, default='no-classifier',
-        help='classifier type [distance based, linear, GDA]')
-    parser.add_argument('--scale-factor', type=float, default=1.,
-        help='scalar factor multiplied with logits')
-    parser.add_argument('--learnable-scale', type=str, default="False",
-        help='scalar receives grads') 
-    parser.add_argument('--projection', type=str, default='',
-        help='')
-    parser.add_argument('--avg-pool', type=str, default='True',
-        help='')
-
-
-    # Initialization-based methods
-    parser.add_argument('--alpha', type=float, default=0.0,
-        help='inner learning rate for init based methods')
-    parser.add_argument('--init-meta-algorithm', type=str, default='MAML',
-        help='MAML/Reptile/FOMAML')
-    parser.add_argument('--grad-clip-inner', type=float, default=0.0,
-        help='gradient clip value in inner loop')
-    parser.add_argument('--num-updates-inner-train', type=int, default=1,
-        help='number of updates in inner loop')
-    parser.add_argument('--num-updates-inner-val', type=int, default=1,
-        help='number of updates in inner loop val')
-    parser.add_argument('--inner-update-method', type=str, default='sgd',
-        help='inner update method can be sgd or adam')
-
 
     # Dataset
     parser.add_argument('--dataset-path', type=str,
@@ -441,19 +420,14 @@ if __name__ == '__main__':
         help='how many samples per class for train (meta val)')
     parser.add_argument('--n-way-val', type=int, default=5,
         help='how classes per task for train (meta val)')
-    parser.add_argument('--label-offset', type=int, default=0,
-        help='offset for label values during fine tuning stage')
-    parser.add_argument('--eps', type=float, default=0.0,
-        help='epsilon of label smoothing')
     parser.add_argument('--n-iterations-val', type=int, default=100,
         help='no. of iterations validation.') 
-    parser.add_argument('--preload-train', type=str, default="True")
+    parser.add_argument('--preload-images', type=str, default="True")
     parser.add_argument('--num-classes-train', type=int, default=0,
         help='no of train classes')
     parser.add_argument('--num-classes-val', type=int, default=0,
         help='no of novel (val) classes')
     
-
     # Miscellaneous
     parser.add_argument('--output-folder', type=str, default='maml',
         help='name of the output folder')
@@ -462,8 +436,7 @@ if __name__ == '__main__':
     parser.add_argument('--log-interval', type=int, default=100,
         help='number of batches between tensorboard writes')
 
-    
-    
+    # Parse Args
     args = parser.parse_args()
 
     # set random seed. only set for numpy, uncomment the below lines for torch and CuDNN.
