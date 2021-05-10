@@ -62,12 +62,13 @@ class MetaDataLoader:
         self.data_loader = torch.utils.data.DataLoader(
             self.dataset,
             batch_sampler=self.sampler,
-            num_workers=12,
+            num_workers=24,
             pin_memory=True,
             collate_fn=lambda ls: collate_fn(
                                     ls=ls,
                                     has_support=(self.n_shot != 0),
-                                    has_query=(self.n_query != 0))
+                                    has_query=(self.n_query != 0)),
+            persistent_workers=False, # persistent_workers have conflict with pin_memory
         )
 
     def __iter__(self):
