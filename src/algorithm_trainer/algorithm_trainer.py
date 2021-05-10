@@ -160,7 +160,10 @@ class Meta_algorithm_trainer(object):
                 for name, values in aggregate.items():
                     metrics[name] = np.mean(values)
                 self.log_output(epoch, i, metrics)
-                aggregate = defaultdict(list)    
+                # i starts with a value of 1, during the last batch in training,
+                # resetting aggregate would cause numpy RuntimeWarning: Mean of empty slice.
+                if i < len(mt_loader): 
+                    aggregate = defaultdict(list)    
 
         # save model and log tboard for eval
         if is_training and self._save_folder is not None:
