@@ -34,7 +34,7 @@ class Meta_algorithm_trainer(object):
         print(f'eps is {self._eps}')
         
 
-    def run(self, mt_loader, epoch=None, is_training=True):
+    def run(self, mt_loader, epoch=None, is_training=True, verbose=True):
 
         if is_training:
             # this should be made to be applied on self._algorithm.train()
@@ -57,7 +57,8 @@ class Meta_algorithm_trainer(object):
         mt_batch_sz = mt_loader.batch_size
         n_query = mt_loader.n_query
         randomize_query = mt_loader.randomize_query
-        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
+        if verbose:
+            print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
         
 
         for i, mt_batch in mt_iterator:
@@ -185,7 +186,7 @@ class Meta_algorithm_trainer(object):
             1.96 * np.std(aggregate['mt_outer_accu']) / np.sqrt(len(aggregate['mt_outer_accu']))
         )
         # print(f"aggregate[mt_outer_accu] length {len(aggregate['mt_outer_accu'])}")
-        results['val_task_acc'] = "{:.2f} ± {:.2f} %".format(mean, i95) 
+        results['val_task_acc'] = "{:.2f} ± {:.2f}".format(mean, i95) 
     
         return results
 

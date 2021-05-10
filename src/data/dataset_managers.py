@@ -23,6 +23,7 @@ class MetaDataLoader:
                 n_shot,
                 n_query,
                 randomize_query,
+                verbose=True,
                 p_dict=None):        
         """object to create the dataloader
 
@@ -57,7 +58,8 @@ class MetaDataLoader:
                             random_query=self.randomize_query,
                             n_batches=self.n_batches,
                             n_tasks=self.batch_size,
-                            p_dict=p_dict)
+                            p_dict=p_dict,
+                            verbose=verbose)
 
         self.data_loader = torch.utils.data.DataLoader(
             self.dataset,
@@ -86,7 +88,7 @@ Used by almost all pytorch implementations released after Protonet.
 
 class EpisodicBatchSampler(torch.utils.data.Sampler):
 
-    def __init__(self, classes, n_way, n_shot, n_query, random_query, n_tasks, n_batches, p_dict):
+    def __init__(self, classes, n_way, n_shot, n_query, random_query, n_tasks, n_batches, p_dict, verbose=True):
         self.classes = classes
         self.n_classes = len(classes)
         self.n_way = n_way
@@ -103,10 +105,10 @@ class EpisodicBatchSampler(torch.utils.data.Sampler):
             self.p = []
             for cl in self.classes:
                 self.p.append(p_dict[cl])
-
-        print("Setting an episodic sampler over classes")
-        for cl, prob in zip(self.classes, self.p):
-            print(f'({cl}, {prob})')
+        if verbose:
+            print("Setting an episodic sampler over classes")
+            for cl, prob in zip(self.classes, self.p):
+                print(f'({cl}, {prob})')
 
     def __len__(self):
         return self.n_batches
