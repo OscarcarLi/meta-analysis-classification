@@ -3,7 +3,6 @@
 	"classifier_metric": "euclidean",
 	"avg_pool": "True",
 	"projection": "False",
-	"checkpoint": "runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_as/chkpt_050.pt", 
 	"classifier_type": "no-classifier",
 	"scale_factor": 10,
 	"learnable_scale": "False",

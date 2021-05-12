@@ -30,7 +30,7 @@ def str2bool(arg):
     return arg.lower() == 'true'
 
 
-def create_model_and_load_chkpt(dataset_name, algorithm_hyperparams):
+def create_model_and_load_chkpt(dataset_name, algorithm_hyperparams, checkpoint_path):
     
     print("\n", "--"*20, "MODEL", "--"*20)
 
@@ -83,10 +83,10 @@ def create_model_and_load_chkpt(dataset_name, algorithm_hyperparams):
     print("Model\n" + "=="*27)    
     print(model)   
 
-    print(f"loading model from {algorithm_hyperparams['checkpoint']}")
+    print(f"loading model from {checkpoint_path}")
     model_dict = model.state_dict()
     chkpt = torch.load(
-        algorithm_hyperparams['checkpoint'], 
+        checkpoint_path, 
         map_location=torch.device('cpu'))
     chkpt_state_dict = chkpt['model']
     chkpt_state_dict_cpy = chkpt_state_dict.copy()
@@ -263,11 +263,13 @@ def main(args):
     
     model_1 = create_model_and_load_chkpt(
                     dataset_name=dataset_name, 
-                    algorithm_hyperparams=algorithm_hyperparams_1)
+                    algorithm_hyperparams=algorithm_hyperparams_1,
+                    checkpoint_path=args.checkpoint_1)
     if algorithm_hyperparams_2 is not None:
         model_2 = create_model_and_load_chkpt(
                         dataset_name=dataset_name, 
-                        algorithm_hyperparams=algorithm_hyperparams_2)
+                        algorithm_hyperparams=algorithm_hyperparams_2,
+                        checkpoint_path=args.checkpoint_2)
 
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
@@ -304,9 +306,9 @@ def main(args):
         # compare meta-learning algorithm snapshots
         with open(eval_results, 'a') as f:
             f.write(f'{dataset_name} {args.n_chosen_classes} out of {len(novelval_classes)} classes\n')
-            f.write(f"Alg1: {algorithm_hyperparams_1['checkpoint']}")
+            f.write(f"Alg1: {args.checkpoint_1}")
             if algorithm_hyperparams_2 is not None:
-                f.write(f", Alg2: {algorithm_hyperparams_2['checkpoint']}")
+                f.write(f", Alg2: {args.checkpoint_2}")
             f.write('\n')
 
 
@@ -390,6 +392,12 @@ if __name__ == '__main__':
     
     parser.add_argument('--random-seed', type=int, default=0,
         help='')
+
+    # algorithm snapshot saved paths
+    parser.add_argument('--checkpoint-1', type=str, default='',
+    help='path to saved parameters for alg1.')
+    parser.add_argument('--checkpoint-2', type=str, default='',
+        help='path to saved parameters for alg2.')
 
     # algorithm hyperparams
     parser.add_argument('--algorithm-hyperparams-json-1', type=str, default='',
