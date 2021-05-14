@@ -12,7 +12,7 @@ import torch.nn.functional as F
 
 from src.algorithms.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from src.algorithm_trainer.utils import accuracy, spectral_norm
-from src.algorithms.utils import one_hot, computeGramMatrix, binv, batched_kronecker, copy_and_replace
+from src.algorithms.utils import one_hot, computeGramMatrix, binv, batched_kronecker, copy_and_replace, get_n_way_for_every_task
 from src.algorithms.utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
 from qpth.qp import QPFunction
 
@@ -213,7 +213,7 @@ class SVM(Algorithm):
         print("Algorithm logits scale:", self._scale)
 
 
-    def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
+    def inner_loop_adapt(self, support, support_labels, query):
         """
         Fits the support set with multi-class SVM and 
         returns the classification score on the query set.
@@ -222,50 +222,58 @@ class SVM(Algorithm):
         On the Algorithmic Implementation of Multiclass Kernel-based Vector Machines
         (Crammer and Singer, Journal of Machine Learning Research 2001).
         This model is the classification head that we use for the final version.
+        
         Parameters:
-        query:  a (tasks_per_batch, n_query, c, h, w) Tensor.
-        support:  a (tasks_per_batch, n_support, c, h, w) Tensor.
-        support_labels: a (tasks_per_batch, n_support) Tensor.
-        n_way: a scalar. Represents the number of classes in a few-shot classification task.
-        n_shot: a scalar. Represents the number of support examples given per class.
-        C_reg: a scalar. Represents the cost parameter C in SVM.
-        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        query:  a (n_tasks_per_batch, total_n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, total_n_support, c, h, w) Tensor.
+        support_labels: a (tasks_per_batch, total_n_support) Tensor.
+        Returns: a (tasks_per_batch, total_n_query, n_way) Tensor.
+        n_way, total_n_support and total_n_query are inferred directly from the minibatch
+        Note:
+        n_way: n_ways for a task in the batch 
+        [n_way has to be the same for every task]
+        total_n_support: total no of support examples for a task in the batch
+        [total_n_support to be the same for every task but no of support examples per class in a task can be different]
+        total_n_query: total no of query examples for a task in the batch
+        [total_n_query to be the same for every task but no of query examples per class in a task can be different]
         """
-
+        
         measurements_trajectory = defaultdict(list)
 
+        # sanity checks
         assert(query.dim() == 5)
         assert(support.dim() == 5)
-        
-        # get features
+        assert query.size(0) == support.size(0) # should have support and query for every task
+
+        # infer n_tasks, n_tasks, total_n_support, total_n_query
+        tasks_per_batch = query.size(0)   # infer task batch size
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        n_way_for_every_task_in_batch = get_n_way_for_every_task(support_labels) # array of ints
+        assert len(set(n_way_for_every_task_in_batch)) == 1 # every task should have same exact n_way
+        n_way = n_way_for_every_task_in_batch[0] # inferred n_way
+
+        # original shapes
         orig_query_shape = query.shape
         orig_support_shape = support.shape
+
+        # get features
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
             query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
-                
+        d = query.size(2) # dimension
 
-        tasks_per_batch = query.size(0)
-        total_n_support = support.size(1) # support samples across all classes in a task
-        total_n_query = query.size(1)     # query samples across all classes in a task
-        d = query.size(2)                 # dimension
-
-        C_reg = self._C_reg
-        maxIter = self._max_iter
-
+        # support and query are now represented by d-dimensional features. 
+        # From here on both support and query are 3-dimensional tensors n_tasks x total_n_support/total_n_query x d        
         assert(query.dim() == 3)
         assert(support.dim() == 3)
-        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-        assert(total_n_support == n_way * n_shot)      # total_n_support must equal to n_way * n_shot
-        assert(total_n_query == n_way * n_query)      # total_n_query must equal to n_way * n_query
-
-
+  
+        
         #Here we solve the dual problem:
         #Note that the classes are indexed by m & samples are indexed by i.
         #min_{\alpha}  0.5 \sum_m ||w_m(\alpha)||^2 + \sum_i \sum_m e^m_i alpha^m_i
         #s.t.  \alpha^m_i <= C^m_i \forall m,i , \sum_m \alpha^m_i=0 \forall i
-
         #where w_m(\alpha) = \sum_i \alpha^m_i x_i,
         #and C^m_i = C if m  = y_i,
         #C^m_i = 0 if m != y_i.
@@ -294,12 +302,11 @@ class SVM(Algorithm):
         #C^m_i = 0 if m != y_i.
         id_matrix_1 = torch.eye(n_way * total_n_support).expand(tasks_per_batch, n_way * total_n_support, n_way * total_n_support)
         C = Variable(id_matrix_1)
-        h = Variable(C_reg * support_labels_one_hot)
+        h = Variable(self._C_reg * support_labels_one_hot)
         #print (C.size(), h.size())
         #This part is for the equality constraints:
         #\sum_m \alpha^m_i=0 \forall i
         id_matrix_2 = torch.eye(total_n_support).expand(tasks_per_batch, total_n_support, total_n_support).cuda()
-
         A = Variable(batched_kronecker(id_matrix_2, torch.ones(tasks_per_batch, 1, n_way).cuda()))
         b = Variable(torch.zeros(tasks_per_batch, total_n_support))
 
@@ -312,7 +319,7 @@ class SVM(Algorithm):
         #        \hat z =   argmin_z 1/2 z^T G z + e^T z
         #                 subject to Cz <= h
         # We use detach() to prevent backpropagation to fixed variables.
-        qp_sol = QPFunction(verbose=False, maxIter=maxIter)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
+        qp_sol = QPFunction(verbose=False, maxIter=self._max_iter)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
         # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
 
         qp_sol = qp_sol.reshape(tasks_per_batch, total_n_support, n_way)
@@ -367,7 +374,7 @@ class ProtoNet(Algorithm):
         self._model = model
         self._device = device
         self._inner_loss_func = inner_loss_func
-        self._normalize = normalize
+        self._normalize = normalize # Represents whether if we want to normalize the distances by the embedding dimension.
         self._scale = scale
         self._metric = metric # euc or cos
         self.to(self._device)
@@ -380,7 +387,7 @@ class ProtoNet(Algorithm):
         print("Algorithm logits scale:", self._scale)
 
    
-    def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
+    def inner_loop_adapt(self, support, support_labels, query):
         """
         Constructs the prototype representation of each class(=mean of support vectors of each class) and 
         returns the classification score (=L2 distance to each class prototype) on the query set.
@@ -390,44 +397,54 @@ class ProtoNet(Algorithm):
         (Snell et al., NIPS 2017).
         
         Parameters:
-        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
-        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
-        support_labels: a (n_tasks_per_batch, n_support) Tensor.
-        n_way: a scalar. Represents the number of classes in a few-shot classification task.
-        n_shot: a scalar. Represents the number of support examples given per class.
-        normalize: a boolean. Represents whether if we want to normalize the distances by the embedding dimension.
-        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        query:  a (n_tasks_per_batch, total_n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, total_n_support, c, h, w) Tensor.
+        support_labels: a (tasks_per_batch, total_n_support) Tensor.
+        Returns: a (tasks_per_batch, total_n_query, n_way) Tensor.
+        n_way, total_n_support and total_n_query are inferred directly from the minibatch
+        Note:
+        n_way: n_ways for a task in the batch 
+        [n_way has to be the same for every task]
+        total_n_support: total no of support examples for a task in the batch
+        [total_n_support to be the same for every task but no of support examples per class in a task can be different]
+        total_n_query: total no of query examples for a task in the batch
+        [total_n_query to be the same for every task but no of query examples per class in a task can be different]
         """
 
         measurements_trajectory = defaultdict(list)
 
+        # sanity checks
         assert(query.dim() == 5)
         assert(support.dim() == 5)
-        
-        # get features
+        assert query.size(0) == support.size(0) # should have support and query for every task
+
+        # infer n_tasks, n_tasks, total_n_support, total_n_query
+        tasks_per_batch = query.size(0)   # infer task batch size
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        n_way_for_every_task_in_batch = get_n_way_for_every_task(support_labels) # array of ints
+        assert len(set(n_way_for_every_task_in_batch)) == 1 # every task should have same exact n_way
+        n_way = n_way_for_every_task_in_batch[0] # inferred n_way
+
+        # original shapes
         orig_query_shape = query.shape
         orig_support_shape = support.shape
 
+        # get features
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
             query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
-        
+        d = query.size(2) # dimension
 
-        tasks_per_batch = query.size(0)
-        total_n_support = support.size(1) # support samples across all classes in a task
-        total_n_query = query.size(1)     # query samples across all classes in a task
-        d = query.size(2)                 # dimension
-        
+        # support and query are now represented by d-dimensional features. 
+        # From here on both support and query are 3-dimensional tensors n_tasks x total_n_support/total_n_query x d        
         assert(query.dim() == 3)
         assert(support.dim() == 3)
-        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-        assert(total_n_support == n_way * n_shot)
-        assert(total_n_query == n_way * n_query)
+
 
         support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * total_n_support), n_way)
         support_labels_one_hot = support_labels_one_hot.view(tasks_per_batch, total_n_support, n_way)
-    
         labels_train_transposed = support_labels_one_hot.transpose(1,2)
         # this makes it tasks_per_batch x n_way x total_n_support
 
@@ -559,76 +576,84 @@ class Ridge(Algorithm):
 
 
 
-    def inner_loop_adapt(self, support, support_labels, query, n_way, n_shot, n_query):
+    def inner_loop_adapt(self, support, support_labels, query):
 
         """
         Fits the support set with ridge regression and 
         returns the classification score on the query set.
         Parameters:
-        query:  a (n_tasks_per_batch, n_query, c, h, w) Tensor.
-        support:  a (n_tasks_per_batch, n_support, c, h, w) Tensor.
-        support_labels: a (tasks_per_batch, n_support) Tensor.
+        query:  a (n_tasks_per_batch, total_n_query, c, h, w) Tensor.
+        support:  a (n_tasks_per_batch, total_n_support, c, h, w) Tensor.
+        support_labels: a (tasks_per_batch, total_n_support) Tensor.
         lambda_reg: a scalar. Represents the strength of L2 regularization.
-        Returns: a (tasks_per_batch, n_query, n_way) Tensor.
+        Returns: a (tasks_per_batch, total_n_query, n_way) Tensor.
+        n_way, total_n_support and total_n_query are inferred directly from the minibatch
+        Note:
+        n_way: n_ways for a task in the batch 
+        [n_way has to be the same for every task]
+        total_n_support: total no of support examples for a task in the batch
+        [total_n_support to be the same for every task but no of support examples per class in a task can be different]
+        total_n_query: total no of query examples for a task in the batch
+        [total_n_query to be the same for every task but no of query examples per class in a task can be different]
         """
 
 
         measurements_trajectory = defaultdict(list)
 
+        # sanity checks
         assert(query.dim() == 5)
         assert(support.dim() == 5)
+        assert query.size(0) == support.size(0) # should have support and query for every task
+
+        # infer n_tasks, n_tasks, total_n_support, total_n_query
+        tasks_per_batch = query.size(0)   # infer task batch size
+        total_n_support = support.size(1) # support samples across all classes in a task
+        total_n_query = query.size(1)     # query samples across all classes in a task
+        n_way_for_every_task_in_batch = get_n_way_for_every_task(support_labels) # array of ints
+        assert len(set(n_way_for_every_task_in_batch)) == 1 # every task should have same exact n_way
+        n_way = n_way_for_every_task_in_batch[0] # inferred n_way
         
-        # get features
+        # original shapes
         orig_query_shape = query.shape
         orig_support_shape = support.shape
-        
+
+        # get features        
         support = self._model(
             support.reshape(-1, *orig_support_shape[2:]), only_features=True).reshape(*orig_support_shape[:2], -1)
         query = self._model(
             query.reshape(-1, *orig_query_shape[2:]), only_features=True).reshape(*orig_query_shape[:2], -1)
+        d = query.size(2) # dimension
         
-        
-        lambda_reg = self._lambda_reg
-        double_precision = self._double_precision
-        tasks_per_batch = query.size(0)
-        total_n_support = support.size(1) # support samples across all classes in a task
-        total_n_query = query.size(1)     # query samples across all classes in a task
-        d = query.size(2)                 # dimension
-        
+        # support and query are now represented by d-dimensional features. 
+        # From here on both support and query are 3-dimensional tensors n_tasks x total_n_support/total_n_query x d        
         assert(query.dim() == 3)
         assert(support.dim() == 3)
-        assert(query.size(0) == support.size(0) and query.size(2) == support.size(2))
-        assert(total_n_support == n_way * n_shot)      # total_n_support must equal to n_way * n_shot
-        assert(total_n_query == n_way * n_query)      # total_n_support must equal to n_way * n_shot
+        
+        
 
         #Here we solve the dual problem:
         #Note that the classes are indexed by m & samples are indexed by i.
         #min_{\alpha}  0.5 \sum_m ||w_m(\alpha)||^2 + \sum_i \sum_m e^m_i alpha^m_i
-
         #where w_m(\alpha) = \sum_i \alpha^m_i x_i,
-        
         #\alpha is an (total_n_support, n_way) matrix
-        kernel_matrix = computeGramMatrix(support, support)
-        kernel_matrix += lambda_reg * torch.eye(total_n_support).expand(tasks_per_batch, total_n_support, total_n_support).cuda()
 
+        kernel_matrix = computeGramMatrix(support, support)
+        kernel_matrix += self._lambda_reg * torch.eye(total_n_support).expand(tasks_per_batch, total_n_support, total_n_support).cuda()
         block_kernel_matrix = kernel_matrix.repeat(n_way, 1, 1) #(n_way * tasks_per_batch, total_n_support, total_n_support)
-        
         support_labels_one_hot = one_hot(support_labels.view(tasks_per_batch * total_n_support), n_way) # (tasks_per_batch * total_n_support, n_way)
         support_labels_one_hot = support_labels_one_hot.transpose(0, 1) # (n_way, tasks_per_batch * total_n_support)
         support_labels_one_hot = support_labels_one_hot.reshape(n_way * tasks_per_batch, total_n_support)     # (n_way*tasks_per_batch, total_n_support)
-        
         G = block_kernel_matrix
         e = -2.0 * support_labels_one_hot
         
-        #This is a fake inequlity constraint as qpth does not support QP without an inequality constraint.
+        #This is a fake inequality constraint as qpth does not support QP without an inequality constraint.
         id_matrix_1 = torch.zeros(tasks_per_batch*n_way, total_n_support, total_n_support)
         C = Variable(id_matrix_1)
         h = Variable(torch.zeros((tasks_per_batch*n_way, total_n_support)))
         dummy = Variable(torch.Tensor()).cuda()      # We want to ignore the equality constraint.
 
-        if double_precision:
+        if self._double_precision:
             G, e, C, h = [x.double().cuda() for x in [G, e, C, h]]
-
         else:
             G, e, C, h = [x.float().cuda() for x in [G, e, C, h]]
 
@@ -637,8 +662,8 @@ class Ridge(Algorithm):
         #                 subject to Cz <= h
         # We use detach() to prevent backpropagation to fixed variables.
         qp_sol = QPFunction(verbose=False)(G, e.detach(), C.detach(), h.detach(), dummy.detach(), dummy.detach())
-        #qp_sol = QPFunction(verbose=False)(G, e.detach(), dummy.detach(), dummy.detach(), dummy.detach(), dummy.detach())
-
+        # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
+        
         #qp_sol (n_way*tasks_per_batch, total_n_support)
         qp_sol = qp_sol.reshape(n_way, tasks_per_batch, total_n_support)
         #qp_sol (n_way, tasks_per_batch, total_n_support)
@@ -669,6 +694,7 @@ class Ridge(Algorithm):
             measurements_trajectory['accu'].append(accu)
 
         return logits, measurements_trajectory
+
 
     def to(self, device, **kwargs):
         self._device = device
