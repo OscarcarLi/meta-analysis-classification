@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_femnistfix2,2_conv64_Ridge_n25s1q5tb5_SGD0.001Drop50_0.2'
+output='metal_femnistfix2,2_conv64_Ridge_nmaxs1qmaxtb1_SGD0.001Drop50_0.1'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='4'
 mkdir -p logs
