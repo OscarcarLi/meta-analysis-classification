@@ -48,7 +48,6 @@ class FedDataLoader:
         self.n_way = self.dataset.n_way
         self.n_shot = self.dataset.n_shot_per_class
         self.n_query = self.dataset.n_query_per_class
-        self.randomize_query = self.dataset.randomize_query
 
     
     def __iter__(self):
@@ -60,6 +59,9 @@ class FedDataLoader:
                 batch_query_y (batch_size, number_of_avaliable_classes * n_query_per_class,)
         '''
         return iter(self.data_loader)
+    
+    def __len__(self):
+        return len(self.data_loader)
 
 
 class FedBatchSampler(torch.utils.data.Sampler):
@@ -102,6 +104,7 @@ class FedDataset(torch.utils.data.Dataset):
                 json_path,
                 n_shot_per_class,
                 n_query_per_class,
+                n_way=0,
                 image_size=None,
                 randomize_query=False,
                 preload=False,
@@ -113,6 +116,8 @@ class FedDataset(torch.utils.data.Dataset):
                                 client_id -> integer_class -> list of image_paths
             n_shot_per_class (int): number of support examples per class
             n_query_per_class (int): number of query examples per class
+            # n_way (int): the number of ways to sample from.
+                        # Defaults to 0 which then will sample from every single class.
             image_size (tuple of ints, optional): reshape the image to image_size.
                                         Defaults to None which means no resizing.
             randomize_query (bool, optional): whether to have random number of query points for each class
@@ -140,7 +145,12 @@ class FedDataset(torch.utils.data.Dataset):
                 for client in tqdm(executor.map(construct_client_dataset, input_list)):
                     self.client_dict[client.client_id] = client
 
-        self.n_way = len(next(iter(self.client_dict.values())).classes) # currently a hacky way to count number of ways from an arbitrary client
+        # self.n_way is a legacy field requirement for algorithm
+        if n_way != 0:
+            self.n_way = n_way
+        else:
+            self.n_way = len(next(iter(self.client_dict.values())).classes) # currently a hacky way to count number of ways from an arbitrary client
+        self.n_way_sample = n_way # this value can still be zero and will be passed to each client dataset for sampling
         self.n_shot_per_class = n_shot_per_class
         self.n_query_per_class = n_query_per_class
         self.randomize_query = randomize_query
@@ -156,10 +166,11 @@ class FedDataset(torch.utils.data.Dataset):
             return self.client_dict[client_id].sample(
                         n_shot_per_class=self.n_shot_per_class,
                         n_query_per_class=self.n_query_per_class,
+                        n_way=self.n_way_sample,
                         randomize_query=self.randomize_query)
         else:
             return self.client_dict[client_id].fixed_sample()
-    
+
     def client_id_list(self):
         return list(sorted(self.client_dict.keys()))
 
@@ -260,11 +271,13 @@ class ClientDataset:
         return (support_x, support_y, query_x, query_y)
 
 
-    def sample(self, n_shot_per_class, n_query_per_class, randomize_query=False):
+    def sample(self, n_shot_per_class, n_query_per_class, n_way=0, randomize_query=False):
         """
         For every class of which the client has data,
             sample n_shot_per_class for support set
         and sample n_query_per_class for query set
+        if n_way is 0, sample from every class the client has, otherwise sample randomly
+            only n_way classes
         Returns:
             (support_x, support_y, query_x, query_y):
                 support_x (number_of_avaliable_classes * n_shot_per_class, c, h, w)
@@ -272,25 +285,34 @@ class ClientDataset:
                 query_x (number_of_avaliable_classes * n_query_per_class, c, h, w)
                 query_y (number_of_avaliable_classes * n_query_per_class,)
         """        
+        sample_every_class = (n_way == 0)
+
         support_x = []
         support_y = []
 
         query_x = []
         query_y = []
 
-        num_classes = len(self.classes)
+        if sample_every_class:
+            classes_to_sample = self.classes
+            n_way = len(self.classes)
+        else:
+            assert n_way <= len(self.classes)
+            # sample without replacement n_way number of classes
+            classes_to_sample = random.sample(self.classes, k=n_way)
+
         if randomize_query:
             # randomize query so that not every class will have the same number
             # n_query_per_class, but the total number of query points is still equal to 
             # n_query_per_class * num_classes
             num_queries = np.random.multinomial(
-                                n=(n_query_per_class - 1) * num_classes,
-                                pvals=[1/num_classes] * num_classes) + \
-                                np.ones(shape=num_classes, dtype=int)
+                                n=(n_query_per_class - 1) * n_way,
+                                pvals=[1/n_way] * n_way) + \
+                                np.ones(shape=n_way, dtype=int)
         else:
-            num_queries = [n_query_per_class] * num_classes
+            num_queries = [n_query_per_class] * n_way
 
-        for cl, n_q in zip(self.classes, num_queries):
+        for i, (cl, n_q) in enumerate(zip(classes_to_sample, num_queries)):
             if self.preload:
                 # Return a k sized list of elements chosen from the population with replacement.
                 examples = random.choices(population=self.class_to_imagelist[cl],
@@ -302,8 +324,17 @@ class ClientDataset:
 
             support_x.extend(examples[:n_shot_per_class])
             query_x.extend(examples[n_shot_per_class:])
-            support_y.extend([cl] * n_shot_per_class)
-            query_y.extend([cl] * n_q)
+
+            if sample_every_class:
+                # in this case we preserve the integer of the actual class
+                support_y.extend([cl] * n_shot_per_class)
+                query_y.extend([cl] * n_q)
+            else:
+                # when only selecting a subset of the classes the label would be randomly assigned and shuffled
+                # the randomness comes from the random.sample step of choosing the n_way classes.
+                # Warning: if n_way = len(self.classes) when it was passed in, there would still be label shuffling
+                support_y.extend([i] * n_shot_per_class)
+                query_y.extend([i] * n_q)
         
         support_x = torch.stack(support_x, dim=0)
         support_y = torch.tensor(support_y)

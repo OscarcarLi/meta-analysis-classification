@@ -23,6 +23,9 @@ from src.optimizers import modified_sgd
 
 from src.data.fedlearn_datasets import FedDataset, FedDataLoader, SimpleFedDataset
 
+import src.logger
+import sys
+
 
 def ensure_path(path):
     if os.path.exists(path):
@@ -48,11 +51,16 @@ def main(args):
     ####################################################
     args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     writer = SummaryWriter(args.output_folder)
-    with open(f'{args.output_folder}/config.txt', 'w') as config_txt:
+
+    time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
+    with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
         for k, v in sorted(vars(args).items()):
             config_txt.write(f'{k}: {v}\n')
     save_folder = args.output_folder
 
+    # replace stdout with Logger; the original sys.stdout is saved in src.logger.stdout
+    sys.stdout = src.logger.Logger(log_filename=f'{args.output_folder}/train_{time_now}.log')
+    src.logger.stdout.write('hi!')
 
     ####################################################
     #         DATASET AND DATALOADER CREATION          #
@@ -104,6 +112,7 @@ def main(args):
                                 json_path=train_file,
                                 n_shot_per_class=args.n_shot_train,
                                 n_query_per_class=args.n_query_train,
+                                n_way=args.n_way_train,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
                                 randomize_query=str2bool(args.randomize_query),
                                  preload=str2bool(args.preload_train),
@@ -136,9 +145,10 @@ def main(args):
                                     json_path=val_file,
                                     n_shot_per_class=ns_val,
                                     n_query_per_class=args.n_query_val,
+                                    n_way=args.n_way_val,
                                     image_size=(image_size, image_size),
                                     randomize_query=False,
-                                    preload=True,
+                                    preload=False,
                                     fixed_sq=str2bool(args.fixed_sq))
             val_loaders[ns_val] = FedDataLoader(
                                 dataset=val_meta_datasets[ns_val],
@@ -167,9 +177,10 @@ def main(args):
                                     json_path=test_file,
                                     n_shot_per_class=ns_val,
                                     n_query_per_class=args.n_query_val,
+                                    n_way=args.n_way_val,
                                     image_size=(image_size, image_size),
                                     randomize_query=False,
-                                    preload=True,
+                                    preload=False,
                                     fixed_sq=str2bool(args.fixed_sq))
             test_loaders[ns_val] = FedDataLoader(
                                 dataset=test_meta_datasets[ns_val],
@@ -293,7 +304,7 @@ def main(args):
             'weight_decay': args.weight_decay, 'momentum': 0.9, 'nesterov': True},
         ])
     print("Total n_epochs: ", args.n_epochs)   
-
+    
     # learning rate scheduler creation
     if args.lr_scheduler_type == 'deterministic':
         drop_eps = [int(x) for x in args.drop_lr_epoch.split(',')]
@@ -301,19 +312,32 @@ def main(args):
             drop_factors = [float(x) for x in args.drop_factors.split(',')]
         else:
             drop_factors = [0.06, 0.012, 0.0024]
-        assert len(drop_factors) >= len(drop_eps), "No ennough drop factors"
+
         print("Drop lr at epochs", drop_eps)
         print("Drop factors", drop_factors[:len(drop_eps)])
-        assert len(drop_eps) <= 3, "Must give less than or equal to three epochs to drop lr"
-        if len(drop_eps) == 3:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1] if e < drop_eps[2] else (drop_factors[2]))
-        elif len(drop_eps) == 2:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else (drop_factors[0] if e < drop_eps[1] else drop_factors[1])
-        else:
-            lambda_epoch = lambda e: 1.0 if e < drop_eps[0] else drop_factors[0]
+
+        assert len(drop_factors) >= len(drop_eps), "No enough drop factors"
+        
+        def lr_lambda(x):
+            '''
+            x is an epoch number
+            drop_eps is assumed to an list of strictly increasing epoch numbers
+            here we require len(drop_factors) >= len(drop_eps)
+            ideally they are of the same length
+            but technically the code can just not use the additional factors
+            '''
+            for i in range(len(drop_eps)):
+                if x >= drop_eps[i]:
+                    continue
+                else:
+                    if i == 0:
+                        return 1.0
+                    else:
+                        return drop_factors[i-1]
+            return drop_factors[len(drop_eps) - 1]
 
         lr_scheduler = torch.optim.lr_scheduler.LambdaLR(
-             optimizer, lr_lambda=lambda_epoch, last_epoch=-1)
+                optimizer, lr_lambda=lr_lambda, last_epoch=-1)
         for _ in range(args.restart_iter):
             lr_scheduler.step()
 
@@ -333,40 +357,44 @@ def main(args):
 
     if args.checkpoint != '':
         print(f"loading model from {args.checkpoint}")
-        model_dict = model.state_dict()
+        model_dict = model.state_dict() # new model's state dict
         chkpt = torch.load(args.checkpoint, map_location=torch.device('cpu'))
-        try:
-            print(f"loading optimizer from {args.checkpoint}")
-            optimizer.state = chkpt['optimizer'].state
-            print("Successfully loaded optimizer")
-        except:
-            print("Failed to load optimizer")
+
+        ### load model
         chkpt_state_dict = chkpt['model']
-        chkpt_state_dict_cpy = chkpt_state_dict.copy()
+        chkpt_state_dict_old_keys = list(chkpt_state_dict.keys())
         # remove "module." from key, possibly present as it was dumped by data-parallel
-        for key in chkpt_state_dict_cpy.keys():
+        for key in chkpt_state_dict_old_keys:
             if 'module.' in key:
                 new_key = re.sub('module\.', '',  key)
                 chkpt_state_dict[new_key] = chkpt_state_dict.pop(key)
-        chkpt_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
-        model_dict.update(chkpt_state_dict)
-        updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
-        print(f"Updated {len(updated_keys)} keys using chkpt")
-        print("Following keys updated :", "\n".join(sorted(updated_keys)))
-        print()
-
-        missed_keys = set(model_dict).difference(set(chkpt_state_dict))
+        load_model_state_dict = {k: v for k, v in chkpt_state_dict.items() if k in model_dict}
+        model_dict.update(load_model_state_dict)
+        # updated_keys = set(model_dict).intersection(set(chkpt_state_dict))
+        print(f"Updated {len(load_model_state_dict.keys())} keys using chkpt")
+        print("Following keys updated :", "\n".join(sorted(load_model_state_dict.keys())))
+        missed_keys = set(model_dict).difference(set(load_model_state_dict))
         print(f"Missed {len(missed_keys)} keys")
         print("Following keys missed :", "\n".join(sorted(missed_keys)))
         model.load_state_dict(model_dict)
+
+        ### load optimizer
+        try:
+            print(f"loading optimizer from {args.checkpoint}")
+            optimizer.load_state_dict(chkpt['optimizer'].state_dict())
+            print("Successfully loaded optimizer")
+
+        except:
+            print("Failed to load optimizer")
                     
         
     # Multi-gpu support and device setup
     os.environ["CUDA_VISIBLE_DEVICES"] = args.device_number
     print('Using GPUs: ', os.environ["CUDA_VISIBLE_DEVICES"])
+    # move model to cuda
     model = torch.nn.DataParallel(model, device_ids=range(torch.cuda.device_count()))
     model.cuda()
-
+    print("Successfully moved the model to cuda")
 
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
@@ -499,50 +527,50 @@ def main(args):
                 print("Validation")
                 results = trainer.run(
                     mt_loader=val_loader, is_training=False, evaluate_supervised_classification=True)
+                print(pprint.pformat(results, indent=4))
                 writer.add_scalar(
                     f"val_acc", results['test_loss_after']['accu'], iter_start + 1)
                 writer.add_scalar(
                     f"val_loss", results['test_loss_after']['loss'], iter_start + 1)
-                val_accu = results['test_loss_after']['accu']
+                # val_accu = results['test_loss_after']['accu']
+
+                print("Test")
+                results = trainer.run(
+                    mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
+                print(pprint.pformat(results, indent=4))
+                writer.add_scalar(
+                    f"test_acc", results['test_loss_after']['accu'], iter_start + 1)
+                writer.add_scalar(
+                    f"test_loss", results['test_loss_after']['loss'], iter_start + 1)
+                # novel_test_loss = results['test_loss_after']['loss']
+
             else:
                 val_accus = {}
+                novel_test_losses = {}
                 for ns_val in all_n_shot_vals:
                     print("Validation ", f"n_shots_val {ns_val}")
                     results = trainer.run(
                         mt_loader=val_loaders[ns_val], is_training=False)
+                    print(pprint.pformat(results, indent=4))
                     writer.add_scalar(
                         f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
                     writer.add_scalar(
                         f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
                     val_accus[ns_val] = results['test_loss_after']['accu']
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-                
-            if args.algorithm in ["SupervisedBaseline"]:
-                print("Test")
-                results = trainer.run(
-                    mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
-                writer.add_scalar(
-                    f"test_acc", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"test_loss", results['test_loss_after']['loss'], iter_start + 1)
-                novel_test_loss = results['test_loss_after']['loss']
-            else:
-                print("Test ", f"n_shots_val {ns_val}")
-                results = trainer.run(
-                    mt_loader=test_loaders[ns_val], is_training=False)
-                writer.add_scalar(
-                    f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-                novel_test_losses[ns_val] = results['test_loss_after']['loss']
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
 
-            if args.algorithm !=  "SupervisedBaseline": 
+                    print("Test ", f"n_shots_val {ns_val}")
+                    results = trainer.run(
+                        mt_loader=test_loaders[ns_val], is_training=False)
+                    print(pprint.pformat(results, indent=4))
+                    writer.add_scalar(
+                        f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
+                    writer.add_scalar(
+                        f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
+                    novel_test_losses[ns_val] = results['test_loss_after']['loss']
+
                 val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
                 novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
-            
+
             # base class generalization
             '''
             if base_class_generalization:
