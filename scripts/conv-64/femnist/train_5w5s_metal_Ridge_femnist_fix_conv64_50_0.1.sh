@@ -15,7 +15,7 @@ python fed_main_fixsq.py \
 --scale-factor 1. \
 --learnable-scale True \
 --classifier-metric euclidean \
---dataset-path fed_data/femnist/fixedsq_atleast_2class1shot1query_split \
+--dataset-path fed_data/femnist/fixedsq_atleast2class1shot1query_split \
 --img-side-len 28 \
 --n-epochs 100 \
 --batch-size-train 1 \
