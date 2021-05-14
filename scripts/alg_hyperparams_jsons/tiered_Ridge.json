@@ -2,7 +2,6 @@
 	"algorithm": "Ridge",
 	"avg_pool": "False",
 	"projection": "False",
-	"checkpoint": "runs/metal_tiered_r12_Ridge_n5s15q6tb8_SGD0.1Drop204050/chkpt_050.pt", 
 	"classifier_type": "no-classifier",
 	"learnable_scale": "True",
 	"model_type": "resnet_12",
