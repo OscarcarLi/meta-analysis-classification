@@ -51,14 +51,14 @@ class Meta_algorithm_trainer(object):
         # metrics aggregation
         aggregate = defaultdict(list)
         
-        # constants
-        n_way = mt_loader.n_way
-        n_shot = mt_loader.n_shot
-        mt_batch_sz = mt_loader.batch_size
-        n_query = mt_loader.n_query
-        randomize_query = mt_loader.randomize_query
-        if verbose:
-            print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
+        # # constants
+        # n_way = mt_loader.n_way
+        # n_shot = mt_loader.n_shot
+        # mt_batch_sz = mt_loader.batch_size
+        # n_query = mt_loader.n_query
+        # randomize_query = mt_loader.randomize_query
+        # if verbose:
+        #     print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
         
 
         for i, mt_batch in mt_iterator:
@@ -106,10 +106,10 @@ class Meta_algorithm_trainer(object):
 
             shots_x, shots_y, query_x, query_y = mt_batch
             
-            assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
-            assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
-            assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
-            assert query_y.shape == (mt_batch_sz, n_way*n_query)
+            # assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
+            # assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
+            # assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
+            # assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
             # to cuda
             shots_x = shots_x.cuda()
@@ -124,10 +124,7 @@ class Meta_algorithm_trainer(object):
                     self._algorithm.inner_loop_adapt(
                         support=shots_x,
                         support_labels=shots_y,
-                        query=query_x,
-                        n_way=n_way,
-                        n_shot=n_shot,
-                        n_query=n_query)
+                        query=query_x)
 
             # a numpy array of accuracy percentages for each task in the batch
             accu = per_task_accuracy(logits, query_y) * 100. 

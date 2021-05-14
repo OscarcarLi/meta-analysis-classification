@@ -246,3 +246,11 @@ def logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multi
     result /= N
     return result
 
+
+def get_n_way_for_every_task(a):
+    """
+    a: torch tensor [n_tasks x *]
+    return a list of size n_tasks
+    i^th element in the list indicates the number of unique elements in a[i]
+    """
+    return [len(torch.unique(x)) for x in a]

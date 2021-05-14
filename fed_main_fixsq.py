@@ -21,7 +21,7 @@ from src.optimizers import modified_sgd
 # from src.data.dataset_managers import MetaDataLoader
 # from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
 
-from src.data.fedlearn_datasets import FedDataset, FedDataLoader, SimpleFedDataset
+from src.data.fedlearn_datasets_fixedsq import FedDataset_Fix, FedDataLoader, SimpleFedDataset
 
 import src.logger
 import sys
@@ -108,19 +108,15 @@ def main(args):
                             shuffle=True,
                             num_workers=6)
     else:
-        train_meta_dataset = FedDataset(
+        train_meta_dataset = FedDataset_Fix(
                                 json_path=train_file,
-                                n_shot_per_class=args.n_shot_train,
-                                n_query_per_class=args.n_query_train,
-                                n_way=args.n_way_train,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
-                                randomize_query=str2bool(args.randomize_query),
-                                 preload=str2bool(args.preload_train),
-                                fixed_sq=str2bool(args.fixed_sq))
+                                preload=str2bool(args.preload_train),)
+                               
 
         train_loader = FedDataLoader(
                             dataset=train_meta_dataset,
-                            n_batches=args.n_iters_per_epoch,
+                            n_batches=0,
                             batch_size=args.batch_size_train)
 
     print("\n", "--"*20, "VAL", "--"*20) 
@@ -141,18 +137,13 @@ def main(args):
         val_loaders = {}
         for ns_val in all_n_shot_vals:
             print("====", f"n_shots_val {ns_val}", "====")
-            val_meta_datasets[ns_val]= FedDataset(
+            val_meta_datasets[ns_val]= FedDataset_Fix(
                                     json_path=val_file,
-                                    n_shot_per_class=ns_val,
-                                    n_query_per_class=args.n_query_val,
-                                    n_way=args.n_way_val,
                                     image_size=(image_size, image_size),
-                                    randomize_query=False,
-                                    preload=False,
-                                    fixed_sq=str2bool(args.fixed_sq))
+                                    preload=False,)
             val_loaders[ns_val] = FedDataLoader(
                                 dataset=val_meta_datasets[ns_val],
-                                n_batches=args.n_iterations_val,
+                                n_batches=0,
                                 batch_size=args.batch_size_val)
 
     print("\n", "--"*20, "TEST", "--"*20)
@@ -173,18 +164,13 @@ def main(args):
         test_loaders = {}
         for ns_val in all_n_shot_vals:
             print("====", f"n_shots_val {ns_val}", "====")    
-            test_meta_datasets[ns_val] = FedDataset(
+            test_meta_datasets[ns_val] = FedDataset_Fix(
                                     json_path=test_file,
-                                    n_shot_per_class=ns_val,
-                                    n_query_per_class=args.n_query_val,
-                                    n_way=args.n_way_val,
                                     image_size=(image_size, image_size),
-                                    randomize_query=False,
-                                    preload=False,
-                                    fixed_sq=str2bool(args.fixed_sq))
+                                    preload=False,)
             test_loaders[ns_val] = FedDataLoader(
                                 dataset=test_meta_datasets[ns_val],
-                                n_batches=args.n_iterations_val,
+                                n_batches=0,
                                 batch_size=args.batch_size_val)
 
     '''
