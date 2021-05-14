@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_femnistfix2,2_conv64_PN_nmaxs1qmaxtb5_SGD0.001Drop50_0.1'
+output='metal_femnistfix2,2_conv64_Ridge_n25s1q5tb5_SGD0.001Drop50_0.2'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='4'
 mkdir -p logs
@@ -8,13 +8,14 @@ mkdir -p runs
 
 python fed_main_fixsq.py \
 --model-type conv64 \
---avg-pool True \
+--avg-pool False \
 --projection False \
 --num-classes-train 0 \
---algorithm ProtoNet \
---scale-factor 10. \
+--algorithm Ridge \
+--scale-factor 1. \
+--learnable-scale True \
 --classifier-metric euclidean \
---dataset-path fed_data/femnist/fixedsq_atleast2class1shot1query_split \
+--dataset-path fed_data/femnist/fixedsq_atleast_2class1shot1query_split \
 --img-side-len 28 \
 --n-epochs 100 \
 --batch-size-train 1 \
