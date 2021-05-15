@@ -318,7 +318,7 @@ def main(args):
     # optimizer construction
     print("\n", "--"*20, "OPTIMIZER", "--"*20)
     print("Optimzer", args.optimizer_type)
-    if args.optimizer_type == 'adam':
+    if args.optimizer_type.lower() == 'adam':
         optimizer = torch.optim.Adam([
             {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
         ])
