@@ -94,7 +94,6 @@ def main(args):
     if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
         """
         For Transfer Learning we create a SimpleFedDataset.
-        The augmentation is decided by query_aug flag.
         """
         
         train_dataset = SimpleFedDataset(

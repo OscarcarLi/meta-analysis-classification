@@ -34,7 +34,7 @@ class Meta_algorithm_trainer(object):
         print(f'eps is {self._eps}')
         
 
-    def run(self, mt_loader, epoch=None, is_training=True, verbose=True):
+    def run(self, mt_loader, epoch=None, is_training=True, verbose=True, evaluate_supervised_classification=False):
 
         if is_training:
             # this should be made to be applied on self._algorithm.train()
