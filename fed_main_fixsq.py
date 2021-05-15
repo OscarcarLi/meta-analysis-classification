@@ -69,21 +69,11 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
-    # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
-    all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
-    # base_class_generalization = dataset_name.lower() in ['miniimagenet', 'fc100-base', 'cifar-fs-base']
     train_file = os.path.join(args.dataset_path, 'base.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
     test_file = os.path.join(args.dataset_path, 'novel.json')
-    '''
-    if base_class_generalization:
-        base_test_file = os.path.join(args.dataset_path, 'base_test.json')
-    '''
     print("Dataset name", dataset_name, "image_size", image_size)
-    if args.algorithm != 'SupervisedBaseline':
-        print("all_n_shot_vals", all_n_shot_vals)
-    # print("base_class_generalization:", base_class_generalization)
+
     
     """
     1. Create FedDataset object, which handles preloading of images for every single client
@@ -94,7 +84,6 @@ def main(args):
     if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
         """
         For Transfer Learning we create a SimpleFedDataset.
-        The augmentation is decided by query_aug flag.
         """
         
         train_dataset = SimpleFedDataset(
@@ -116,7 +105,7 @@ def main(args):
 
         train_loader = FedDataLoader(
                             dataset=train_meta_dataset,
-                            n_batches=0,
+                            n_batches=0, # n_batches=0 means cycle sampling with random permutation through the dataset once
                             batch_size=args.batch_size_train)
 
     print("\n", "--"*20, "VAL", "--"*20) 
@@ -133,18 +122,14 @@ def main(args):
                             drop_last=False,
                             num_workers=6)
     else:
-        val_meta_datasets = {}
-        val_loaders = {}
-        for ns_val in all_n_shot_vals:
-            print("====", f"n_shots_val {ns_val}", "====")
-            val_meta_datasets[ns_val]= FedDataset_Fix(
-                                    json_path=val_file,
-                                    image_size=(image_size, image_size),
-                                    preload=False,)
-            val_loaders[ns_val] = FedDataLoader(
-                                dataset=val_meta_datasets[ns_val],
-                                n_batches=0,
-                                batch_size=args.batch_size_val)
+        val_meta_dataset= FedDataset_Fix(
+                                json_path=val_file,
+                                image_size=(image_size, image_size),
+                                preload=False,)
+        val_loader = FedDataLoader(
+                            dataset=val_meta_dataset,
+                            n_batches=0,
+                            batch_size=args.batch_size_val)
 
     print("\n", "--"*20, "TEST", "--"*20)
     if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
@@ -160,70 +145,20 @@ def main(args):
                             drop_last=False,
                             num_workers=6)
     else:
-        test_meta_datasets = {}
-        test_loaders = {}
-        for ns_val in all_n_shot_vals:
-            print("====", f"n_shots_val {ns_val}", "====")    
-            test_meta_datasets[ns_val] = FedDataset_Fix(
-                                    json_path=test_file,
-                                    image_size=(image_size, image_size),
-                                    preload=False,)
-            test_loaders[ns_val] = FedDataLoader(
-                                dataset=test_meta_datasets[ns_val],
-                                n_batches=0,
-                                batch_size=args.batch_size_val)
+        test_meta_dataset = FedDataset_Fix(
+                                json_path=test_file,
+                                image_size=(image_size, image_size),
+                                preload=False,)
+        test_loader = FedDataLoader(
+                            dataset=test_meta_dataset,
+                            n_batches=0,
+                            batch_size=args.batch_size_val)
 
-    '''
-    # currently for fedlearn_datasets there is no notion of base_class because the classes
-    # used for base, val, test are already the same.
-    if base_class_generalization:
-        # can only do this if there is only one type of evaluation
-        print("\n", "--"*20, "BASE TEST", "--"*20)
-        base_test_classes = ClassImagesSet(base_test_file)
-        base_test_meta_dataset = MetaDataset(
-                                    dataset_name=dataset_name,
-                                    support_class_images_set=base_test_classes,
-                                    query_class_images_set=base_test_classes,
-                                    image_size=image_size,
-                                    support_aug=False,
-                                    query_aug=False,
-                                    fix_support=0,
-                                    save_folder=save_folder)
-        base_test_loader = MetaDataLoader(
-                                dataset=base_test_meta_dataset,
-                                n_batches=args.n_iterations_val,
-                                batch_size=args.batch_size_val,
-                                n_way=args.n_way_val,
-                                n_shot=args.n_shot_val,
-                                n_query=args.n_query_val, 
-                                randomize_query=False)
-
-
-        if args.fix_support > 0:
-            base_test_meta_dataset_using_fixS = MetaDataset(
-                                                    dataset_name=dataset_name,
-                                                    support_class_images_set=train_classes, query_class_images_set=base_test_classes,
-                                                    image_size=image_size,
-                                                    support_aug=False,
-                                                    query_aug=False,
-                                                    fix_support=0,
-                                                    save_folder=save_folder, 
-                                                    fix_support_path=os.path.join(save_folder, "fixed_support_pool.pkl"))
-
-            base_test_loader_using_fixS = MetaDataLoader(
-                                            dataset=base_test_meta_dataset_using_fixS,
-                                            n_batches=args.n_iterations_val,
-                                            batch_size=args.batch_size_val,
-                                            n_way=args.n_way_val,
-                                            n_shot=args.n_shot_val,
-                                            n_query=args.n_query_val, 
-                                            randomize_query=False,)
-    '''
-
+    
     ####################################################
     #             MODEL/BACKBONE CREATION              #
     ####################################################
-    
+
     print("\n", "--"*20, "MODEL", "--"*20)
 
     if args.model_type == 'resnet_12':
@@ -280,7 +215,7 @@ def main(args):
     # optimizer construction
     print("\n", "--"*20, "OPTIMIZER", "--"*20)
     print("Optimzer", args.optimizer_type)
-    if args.optimizer_type == 'adam':
+    if args.optimizer_type.lower() == 'adam':
         optimizer = torch.optim.Adam([
             {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
         ])
@@ -333,7 +268,7 @@ def main(args):
 
     else:
         raise ValueError("Unimplemented lr scheduler")
-    
+
     print("LR scheduler ", args.lr_scheduler_type)  
 
 
@@ -389,7 +324,7 @@ def main(args):
     # start tboard from restart iter
     init_global_iteration = 0
     if args.restart_iter:
-        init_global_iteration = args.restart_iter * args.n_iters_per_epoch 
+        init_global_iteration = args.restart_iter * len(train_dataset) 
 
     # algorithm
     if args.algorithm == 'InitBasedAlgorithm':
@@ -476,118 +411,42 @@ def main(args):
     # iterate over training epochs
     for iter_start in range(args.restart_iter, args.n_epochs):
 
+        # do SB type evaluation or not
+        evaluate_SB = args.algorithm in ["SupervisedBaseline"]
+        
         # training
         for param_group in optimizer.param_groups:
             print('\n\nlearning rate:', param_group['lr'])
 
-        if args.algorithm in ['SupervisedBaseline']:
-            trainer.run(
-                mt_loader=train_loader,
-                evaluate_supervised_classification=True,
-                is_training=True,
-                epoch=iter_start + 1)
-
-        else:
-            trainer.run(
-                mt_loader=train_loader,
-                is_training=True,
-                epoch=iter_start + 1)
+        trainer.run(
+            mt_loader=train_loader,
+            is_training=True,
+            epoch=iter_start + 1,
+            evaluate_supervised_classification=evaluate_SB)
 
         if iter_start % args.val_frequency == 0:
-            '''
-            # On ML train objective
-            print("Train Loss on ML objective")
-            results = trainer.run(
-                mt_loader=no_fixS_train_loader, is_training=False)
-            pp = pprint.PrettyPrinter(indent=4)
-            pp.pprint(results)
-            writer.add_scalar(
-                "train_acc_on_ml", results['test_loss_after']['accu'], iter_start + 1)
-            writer.add_scalar(
-                "train_loss_on_ml", results['test_loss_after']['loss'], iter_start + 1)
-            base_train_loss = results['test_loss_after']['loss']
-            '''
-
             # validation/test
-            if args.algorithm in ["SupervisedBaseline"]:
-                print("Validation")
-                results = trainer.run(
-                    mt_loader=val_loader, is_training=False, evaluate_supervised_classification=True)
-                print(pprint.pformat(results, indent=4))
-                writer.add_scalar(
-                    f"val_acc", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"val_loss", results['test_loss_after']['loss'], iter_start + 1)
-                # val_accu = results['test_loss_after']['accu']
+            print("Validation")
+            results = trainer.run(
+                mt_loader=val_loader, is_training=False, 
+                evaluate_supervised_classification=evaluate_SB)
+            print(pprint.pformat(results, indent=4))
+            writer.add_scalar(
+                f"val_acc", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                f"val_loss", results['test_loss_after']['loss'], iter_start + 1)
+            val_accu = results['test_loss_after']['accu']
 
-                print("Test")
-                results = trainer.run(
-                    mt_loader=test_loader, is_training=False, evaluate_supervised_classification=True)
-                print(pprint.pformat(results, indent=4))
-                writer.add_scalar(
-                    f"test_acc", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    f"test_loss", results['test_loss_after']['loss'], iter_start + 1)
-                # novel_test_loss = results['test_loss_after']['loss']
-
-            else:
-                val_accus = {}
-                novel_test_losses = {}
-                for ns_val in all_n_shot_vals:
-                    print("Validation ", f"n_shots_val {ns_val}")
-                    results = trainer.run(
-                        mt_loader=val_loaders[ns_val], is_training=False)
-                    print(pprint.pformat(results, indent=4))
-                    writer.add_scalar(
-                        f"val_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-                    writer.add_scalar(
-                        f"val_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-                    val_accus[ns_val] = results['test_loss_after']['accu']
-
-                    print("Test ", f"n_shots_val {ns_val}")
-                    results = trainer.run(
-                        mt_loader=test_loaders[ns_val], is_training=False)
-                    print(pprint.pformat(results, indent=4))
-                    writer.add_scalar(
-                        f"test_acc_{args.n_way_val}w{ns_val}s", results['test_loss_after']['accu'], iter_start + 1)
-                    writer.add_scalar(
-                        f"test_loss_{args.n_way_val}w{ns_val}s", results['test_loss_after']['loss'], iter_start + 1)
-                    novel_test_losses[ns_val] = results['test_loss_after']['loss']
-
-                val_accu = val_accus[args.n_shot_val] # stick with 5w5s for model selection
-                novel_test_loss = novel_test_losses[args.n_shot_val] # stick with 5w5s for model selection
-
-            # base class generalization
-            '''
-            if base_class_generalization:
-                # can only do this if there is only one type of evaluation
-                
-                print("Base Test")
-                results = trainer.run(
-                    mt_loader=base_test_loader, is_training=False)
-                pp = pprint.PrettyPrinter(indent=4)
-                pp.pprint(results)
-                writer.add_scalar(
-                    "base_test_acc", results['test_loss_after']['accu'], iter_start + 1)
-                writer.add_scalar(
-                    "base_test_loss", results['test_loss_after']['loss'], iter_start + 1)
-                base_test_loss = results['test_loss_after']['loss']
-                writer.add_scalar(
-                    "base_gen_gap", base_test_loss - base_train_loss, iter_start + 1)
-                writer.add_scalar(
-                    "novel_gen_gap", novel_test_loss - base_train_loss, iter_start + 1)
+            print("Test")
+            results = trainer.run(
+                mt_loader=test_loader, is_training=False,
+                evaluate_supervised_classification=evaluate_SB)
+            print(pprint.pformat(results, indent=4))
+            writer.add_scalar(
+                f"test_acc", results['test_loss_after']['accu'], iter_start + 1)
+            writer.add_scalar(
+                f"test_loss", results['test_loss_after']['loss'], iter_start + 1)
             
-                if args.fix_support > 0:
-                    print("Base Test using FixSupport, matching train and test for fixml")
-                    results = trainer.run(
-                        mt_loader=base_test_loader_using_fixS, is_training=False)
-                    pp = pprint.PrettyPrinter(indent=4)
-                    pp.pprint(results)
-                    writer.add_scalar(
-                        "base_test_acc_usingFixS", results['test_loss_after']['accu'], iter_start + 1)
-                    writer.add_scalar(
-                        "base_test_loss_usingFixS", results['test_loss_after']['loss'], iter_start + 1)
-            '''
 
         # scheduler step
         if args.lr_scheduler_type == 'val_based':
@@ -653,57 +512,21 @@ if __name__ == '__main__':
         help='inner update method can be sgd or adam')
 
 
-    # Dataset
-    # parser.add_argument('--fix-support', type=int, default=0,
-    #     help='fix support set')
-    # parser.add_argument('--fix-support-path', type=str, default='',
-    #     help='path to fix support')    
+    # Dataset 
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
-    parser.add_argument('--batch-size-train', type=int, default=20,
-        help='batch size for training')
     parser.add_argument('--num-classes-train', type=int, default=0,
         help='no of train classes')
-    parser.add_argument('--num-classes-val', type=int, default=0,
-        help='no of novel (val) classes')
+    parser.add_argument('--batch-size-train', type=int, default=20,
+        help='batch size for training')
     parser.add_argument('--batch-size-val', type=int, default=10,
         help='batch size for validation')
-    parser.add_argument('--n-query-train', type=int, default=15,
-        help='how many samples per class for validation (meta train)')
-    parser.add_argument('--n-query-val', type=int, default=15,
-        help='how many samples per class for validation (meta val)')
-    parser.add_argument('--n-shot-train', type=int, default=5,
-        help='how many samples per class for train (meta train)')
-    parser.add_argument('--n-shot-val', type=int, default=5,
-        help='how many samples per class for train (meta val)')
-    parser.add_argument('--do-one-shot-eval-too', type=str, default="False",
-        help='do one shot eval too, especially for SVM expts\
-         where same train config is used for 5w1s, 5w5s')
-    parser.add_argument('--n-way-train', type=int, default=5,
-        help='how classes per task for train (meta train)')
-    parser.add_argument('--n-way-val', type=int, default=5,
-        help='how classes per task for train (meta val)')
-    # parser.add_argument('--label-offset', type=int, default=0,
-    #     help='offset for label values during fine tuning stage')
-    # parser.add_argument('--n-query-pool', type=int, default=0,
-    #     help='pool for query samples')
     parser.add_argument('--eps', type=float, default=0.0,
         help='epsilon of label smoothing')
-    parser.add_argument('--support-aug', type=str, default="False",
-        help='perform data augmentation on support set')
-    parser.add_argument('--query-aug', type=str, default="False",
-        help='perform data augmentation for query')
-    parser.add_argument('--n-iters-per-epoch', type=int, default=1000,
-        help='number of iters in epoch')
-    parser.add_argument('--n-iterations-val', type=int, default=100,
-        help='no. of iterations validation.') 
-    parser.add_argument('--randomize-query', type=str, default="False",
-        help='random query pts per class')
     parser.add_argument('--preload-train', type=str, default="False")
-    parser.add_argument('--fixed_sq', type=str, default="False")
-
+    
 
     # Miscellaneous
     parser.add_argument('--output-folder', type=str, default='maml',

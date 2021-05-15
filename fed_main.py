@@ -94,7 +94,6 @@ def main(args):
     if args.algorithm in ["SupervisedBaseline", "TransferLearning"]:
         """
         For Transfer Learning we create a SimpleFedDataset.
-        The augmentation is decided by query_aug flag.
         """
         
         train_dataset = SimpleFedDataset(
@@ -294,7 +293,7 @@ def main(args):
     # optimizer construction
     print("\n", "--"*20, "OPTIMIZER", "--"*20)
     print("Optimzer", args.optimizer_type)
-    if args.optimizer_type == 'adam':
+    if args.optimizer_type.lower() == 'adam':
         optimizer = torch.optim.Adam([
             {'params': model.parameters(), 'lr': args.lr, 'weight_decay': args.weight_decay}
         ])

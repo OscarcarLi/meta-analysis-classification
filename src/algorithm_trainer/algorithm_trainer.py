@@ -34,7 +34,10 @@ class Meta_algorithm_trainer(object):
         print(f'eps is {self._eps}')
         
 
-    def run(self, mt_loader, epoch=None, is_training=True, verbose=True):
+    def run(self, mt_loader, epoch=None, is_training=True, verbose=True, evaluate_supervised_classification=False):
+        # evaluate_supervised_classification=False is dummy
+        # it is mainly to make the function signature compatible with other trainers
+        # so that the call to the run method is agnostic of which underlying trainer called it.
 
         if is_training:
             # this should be made to be applied on self._algorithm.train()
