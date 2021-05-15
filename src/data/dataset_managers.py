@@ -70,7 +70,7 @@ class MetaDataLoader:
                                     ls=ls,
                                     has_support=(self.n_shot != 0),
                                     has_query=(self.n_query != 0)),
-            persistent_workers=False, # persistent_workers have conflict with pin_memory
+            # persistent_workers=False, # persistent_workers have conflict with pin_memory
         )
 
     def __iter__(self):

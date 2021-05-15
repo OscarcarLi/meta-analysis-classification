@@ -347,7 +347,7 @@ class SVM(Algorithm):
         labels_support = support_labels.reshape(-1)
         
         loss = self._inner_loss_func(logits_support, labels_support)
-        accu = accuracy(logits_support, labels_support)
+        accu = accuracy(logits_support, labels_support) * 100.
         measurements_trajectory['loss'].append(loss.item())
         measurements_trajectory['accu'].append(accu)
 
