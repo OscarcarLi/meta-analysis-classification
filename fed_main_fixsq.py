@@ -105,7 +105,7 @@ def main(args):
 
         train_loader = FedDataLoader(
                             dataset=train_meta_dataset,
-                            n_batches=0,
+                            n_batches=0, # n_batches=0 means cycle sampling with random permutation through the dataset once
                             batch_size=args.batch_size_train)
 
     print("\n", "--"*20, "VAL", "--"*20) 
@@ -158,7 +158,7 @@ def main(args):
     ####################################################
     #             MODEL/BACKBONE CREATION              #
     ####################################################
-    
+
     print("\n", "--"*20, "MODEL", "--"*20)
 
     if args.model_type == 'resnet_12':
@@ -268,7 +268,7 @@ def main(args):
 
     else:
         raise ValueError("Unimplemented lr scheduler")
-    
+
     print("LR scheduler ", args.lr_scheduler_type)  
 
 
