@@ -1,0 +1,10 @@
+{
+	"algorithm": "Ridge",
+	"avg_pool": "False",
+	"projection": "False",
+	"classifier_type": "no-classifier",
+	"learnable_scale": "True",
+	"model_type": "resnet_12",
+	"scale_factor": 1,
+	"num_classes_train": 0
+}

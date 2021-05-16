@@ -1,0 +1,11 @@
+{
+	"algorithm": "ProtoNet",
+	"classifier_metric": "euclidean",
+	"avg_pool": "True",
+	"projection": "False",
+	"classifier_type": "no-classifier",
+	"scale_factor": 10,
+	"learnable_scale": "False",
+	"model_type": "resnet_12",
+	"num_classes_train": 0
+}
