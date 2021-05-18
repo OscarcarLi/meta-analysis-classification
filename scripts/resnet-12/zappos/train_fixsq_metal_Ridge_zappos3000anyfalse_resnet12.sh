@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='metal_zappos3000anyfalse_r12_Ridge_n2s10q10b1_nep60_SGD0.1Drop204050'
+output='metal_zappos3000anyfalse_r12_Ridge_n2s10q10b4_nep60_SGD0.1Drop204050'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='2'
+device='1'
 mkdir -p logs
 mkdir -p runs
 
@@ -20,7 +20,7 @@ python fed_main_fixsq.py \
 --dataset-path fed_data/zappos/zappos-minImg1000-alltrue_vs_anyfalse-nsamp8000-ns10-nq10-tr1000val1000test1000 \
 --img-side-len 84 \
 --n-epochs 60 \
---batch-size-train 1 \
+--batch-size-train 4 \
 --batch-size-val 1 \
 --preload-train False \
 --optimizer-type SGDM \
@@ -34,4 +34,4 @@ python fed_main_fixsq.py \
 --restart-iter 0 \
 --output-folder ${output} \
 --device-number ${device} \
---log-interval 100 
+--log-interval 50 
