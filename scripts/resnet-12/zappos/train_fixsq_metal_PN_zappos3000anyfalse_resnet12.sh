@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_zappos3000anyfalse_r12_PN_n2s10q10b4_nep60_SGD0.1Drop204050'
+output='metal_zappos3000anyfalse_r12_PN_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='3'
 mkdir -p logs
@@ -20,14 +20,14 @@ python fed_main_fixsq.py \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 4 \
---batch-size-val 1 \
+--batch-size-val 4 \
 --preload-train False \
 --optimizer-type SGDM \
---lr 0.1 \
+--lr 0.01 \
 --weight-decay 0.0005 \
 --grad-clip 0. \
---drop-lr-epoch 20,40,50 \
---drop-factors 0.06,0.012,0.0024 \
+--drop-lr-epoch 30 \
+--drop-factors 0.06 \
 --lr-scheduler-type deterministic \
 --eps 0. \
 --restart-iter 0 \
