@@ -49,9 +49,15 @@ def main(args):
     ####################################################
     #                LOGGING AND SAVING                #
     ####################################################
-    args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
+    if args.checkpoint != '':
+        # if we are reloading, we don't need to timestamp and create a new folder
+        # instead keep writing to the original output_folder
+        assert os.path.exists(f'./runs/{args.output_folder}')
+        args.output_folder = f'./runs/{args.output_folder}'
+        print(f'resume training and will write to {args.output_folder}')
+    else:
+        args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     writer = SummaryWriter(args.output_folder)
-
     time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
     with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
         for k, v in sorted(vars(args).items()):
