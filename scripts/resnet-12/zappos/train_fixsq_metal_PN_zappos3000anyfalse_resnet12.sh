@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='metal_zappos3000anyfalse_r12_PN_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
+output='metal_zapposID11000anyfalse_r12_PN_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='3'
+device='0'
 mkdir -p logs
 mkdir -p runs
 
@@ -16,11 +16,11 @@ python fed_main_fixsq.py \
 --algorithm ProtoNet \
 --scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path fed_data/zappos/zappos-minImg1000-alltrue_vs_anyfalse-nsamp8000-ns10-nq10-tr1000val1000test1000 \
+--dataset-path fed_data/zappos/zappos-ID-alltrue_vs_anyfalse-nsamp11000-ns10-nq10-tr1000val5000test5000 \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 4 \
---batch-size-val 4 \
+--batch-size-val 16 \
 --preload-train False \
 --optimizer-type SGDM \
 --lr 0.01 \
