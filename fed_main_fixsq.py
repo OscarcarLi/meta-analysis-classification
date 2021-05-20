@@ -103,14 +103,14 @@ def main(args):
                             shuffle=True,
                             num_workers=6)
     else:
-        train_meta_dataset = FedDataset_Fix(
+        train_dataset = FedDataset_Fix(
                                 json_path=train_file,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
                                 preload=str2bool(args.preload_train),)
                                
 
         train_loader = FedDataLoader(
-                            dataset=train_meta_dataset,
+                            dataset=train_dataset,
                             n_batches=0, # n_batches=0 means cycle sampling with random permutation through the dataset once
                             batch_size=args.batch_size_train)
 
@@ -323,6 +323,18 @@ def main(args):
     model.cuda()
     print("Successfully moved the model to cuda")
 
+    # move the optimizer's states to cuda if loaded
+    if args.checkpoint != '':
+        # https://github.com/pytorch/pytorch/issues/2830
+        # when using gpu, need to move all the statistics of the optimizer to cuda
+        # in addition to the model parameters
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda()
+        print("Successfully moved the optimizer's states to cuda")
+
+
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
     ####################################################
@@ -330,7 +342,7 @@ def main(args):
     # start tboard from restart iter
     init_global_iteration = 0
     if args.restart_iter:
-        init_global_iteration = args.restart_iter * len(train_dataset) 
+        init_global_iteration = args.restart_iter * (len(train_dataset) // args.batch_size_train)
 
     # algorithm
     if args.algorithm == 'InitBasedAlgorithm':
