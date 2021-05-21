@@ -75,9 +75,9 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel.json')
+    train_file = os.path.join(args.dataset_path, args.base_json)
+    val_file = os.path.join(args.dataset_path, args.val_json)
+    test_file = os.path.join(args.dataset_path, args.novel_json)
     print("Dataset name", dataset_name, "image_size", image_size)
 
     
@@ -533,6 +533,12 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
+    parser.add_argument('--base-json', type=str, default='base.json',
+        help='base json name')
+    parser.add_argument('--val-json', type=str, default='',
+        help='val json name')
+    parser.add_argument('--novel-json', type=str, default='',
+        help='novel json name')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
     parser.add_argument('--num-classes-train', type=int, default=0,

@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_zapposID11000anyfalse_r12_Ridge_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
+output='metal_zapposIDanyfalse_r12_Ridge_n2s5q10b4_nep60_SGD0.01Drop30_0.06'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='1'
 mkdir -p logs
@@ -17,7 +17,10 @@ python fed_main_fixsq.py \
 --scale-factor 1. \
 --learnable-scale True \
 --classifier-metric euclidean \
---dataset-path fed_data/zappos/zappos-ID-alltrue_vs_anyfalse-nsamp11000-ns10-nq10-tr1000val5000test5000 \
+--dataset-path fed_data/zappos/zappos-alltrue_vs_anyfalse-ns5-nq10 \
+--base-json base-ID-1000.json \
+--val-json val-ID-5000.json \
+--novel-json novel-ID-5000.json \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 4 \

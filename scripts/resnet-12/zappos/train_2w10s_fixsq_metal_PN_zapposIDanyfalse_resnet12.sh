@@ -1,8 +1,8 @@
 #! /bin/bash
 
-output='metal_zapposID11000anyfalser12_SVM_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
+output='metal_zapposIDanyfalse_r12_PN_n2s10q10b4_nep60_SGD0.01Drop30_0.06'
 # method_dataset_model_innerAlg_config_outerOpt_misc
-device='2'
+device='0'
 mkdir -p logs
 mkdir -p runs
 
@@ -10,18 +10,20 @@ mkdir -p runs
 
 python fed_main_fixsq.py \
 --model-type resnet_12 \
---avg-pool False \
+--avg-pool True \
 --projection False \
 --num-classes-train 0 \
---algorithm SVM \
---scale-factor 1. \
---learnable-scale True \
+--algorithm ProtoNet \
+--scale-factor 10. \
 --classifier-metric euclidean \
---dataset-path fed_data/zappos/zappos-ID-alltrue_vs_anyfalse-nsamp11000-ns10-nq10-tr1000val5000test5000 \
+--dataset-path fed_data/zappos/zappos-alltrue_vs_anyfalse-ns10-nq10 \
+--base-json base-ID-1000.json \
+--val-json val-ID-5000.json \
+--novel-json novel-ID-5000.json \
 --img-side-len 84 \
 --n-epochs 60 \
 --batch-size-train 4 \
---batch-size-val 8 \
+--batch-size-val 16 \
 --preload-train False \
 --optimizer-type SGDM \
 --lr 0.01 \

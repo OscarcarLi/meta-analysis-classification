@@ -130,8 +130,7 @@ class InitBasedAlgorithm(Algorithm):
                 param.grad = calculated_grad.detach()
 
 
-    def inner_loop_adapt(self, support, support_labels, query, query_labels,
-        n_way, n_shot, n_query, num_updates_inner):
+    def inner_loop_adapt(self, support, support_labels, query, query_labels, num_updates_inner):
 
         
         # adapt means doing the complete inner loop update

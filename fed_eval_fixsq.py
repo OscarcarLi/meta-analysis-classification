@@ -61,9 +61,8 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel.json')
+    val_file = os.path.join(args.dataset_path, args.val_json)
+    test_file = os.path.join(args.dataset_path, args.novel_json)
     print("Dataset name", dataset_name, "image_size", image_size)
 
     
@@ -72,25 +71,27 @@ def main(args):
     2. Create FedDataLoader object from each FedDataset, which samples a batch of clients.
     """
 
-    print("\n", "--"*20, "VAL", "--"*20) 
-    val_dataset = FedDataset_Fix(
-                    json_path=val_file,
-                    image_size=(image_size, image_size),
-                    preload=False,)
-    val_loader = FedDataLoader(
-                    dataset=val_dataset,
-                    n_batches=0,
-                    batch_size=args.batch_size_val)
+    if args.val_json != '':
+        print("\n", "--"*20, "VAL", "--"*20) 
+        val_dataset = FedDataset_Fix(
+                        json_path=val_file,
+                        image_size=(image_size, image_size),
+                        preload=False,)
+        val_loader = FedDataLoader(
+                        dataset=val_dataset,
+                        n_batches=0,
+                        batch_size=args.batch_size_val)
 
-    print("\n", "--"*20, "TEST", "--"*20)
-    test_dataset = FedDataset_Fix(
-                    json_path=test_file,
-                    image_size=(image_size, image_size),
-                    preload=False,)
-    test_loader = FedDataLoader(
-                    dataset=test_dataset,
-                    n_batches=0,
-                    batch_size=args.batch_size_val)
+    if args.novel_json != '':
+        print("\n", "--"*20, "TEST", "--"*20)
+        test_dataset = FedDataset_Fix(
+                        json_path=test_file,
+                        image_size=(image_size, image_size),
+                        preload=False,)
+        test_loader = FedDataLoader(
+                        dataset=test_dataset,
+                        n_batches=0,
+                        batch_size=args.batch_size_val)
 
     
     ####################################################
@@ -245,17 +246,19 @@ def main(args):
     #                      VAL/TEST                    #
     ####################################################
 
-    print("Validation")
-    results = trainer.run(
-        mt_loader=val_loader, is_training=False, 
-        evaluate_supervised_classification=False)
-    print(pprint.pformat(results, indent=4))
+    if args.val_json != '':
+        print("Validation")
+        results = trainer.run(
+            mt_loader=val_loader, is_training=False, 
+            evaluate_supervised_classification=False)
+        print(pprint.pformat(results, indent=4))
 
-    print("Test")
-    results = trainer.run(
-        mt_loader=test_loader, is_training=False,
-        evaluate_supervised_classification=False)
-    print(pprint.pformat(results, indent=4))    
+    if args.novel_json != '':
+        print("Test")
+        results = trainer.run(
+            mt_loader=test_loader, is_training=False,
+            evaluate_supervised_classification=False)
+        print(pprint.pformat(results, indent=4))    
 
         
 
@@ -300,6 +303,10 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
+    parser.add_argument('--val-json', type=str, default='',
+        help='val json name')
+    parser.add_argument('--novel-json', type=str, default='',
+        help='novel json name')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
     parser.add_argument('--num-classes-train', type=int, default=0,

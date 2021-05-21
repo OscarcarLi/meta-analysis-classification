@@ -235,7 +235,10 @@ class Init_algorithm_trainer(object):
         print("Starting tboard logs from iter", self._global_iteration)
         
 
-    def run(self, mt_loader, epoch=None, is_training=True):
+    def run(self, mt_loader, epoch=None, is_training=True, evaluate_supervised_classification=False):
+        # evaluate_supervised_classification=False is dummy
+        # it is mainly to make the function signature compatible with other trainers
+        # so that the call to the run method is agnostic of which underlying trainer called it.):
 
         # always transductive
         self._algorithm._model.train()
@@ -248,12 +251,12 @@ class Init_algorithm_trainer(object):
         aggregate = defaultdict(list)
         
         # constants
-        n_way = mt_loader.n_way
-        n_shot = mt_loader.n_shot
-        n_query = mt_loader.n_query
-        mt_batch_sz = mt_loader.batch_size        
-        randomize_query = mt_loader.randomize_query
-        print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
+        # n_way = mt_loader.n_way
+        # n_shot = mt_loader.n_shot
+        # n_query = mt_loader.n_query
+        # mt_batch_sz = mt_loader.batch_size        
+        # randomize_query = mt_loader.randomize_query
+        # print(f"n_way: {n_way}, n_shot: {n_shot}, n_query: {n_query} mt_batch_sz: {mt_batch_sz} randomize_query: {randomize_query}")
 
         # iterating over tasks
         for i, mt_batch in mt_iterator:
@@ -302,16 +305,19 @@ class Init_algorithm_trainer(object):
 
             shots_x, shots_y, query_x, query_y = mt_batch
 
-            assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
-            assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
-            assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
-            assert query_y.shape == (mt_batch_sz, n_way*n_query)
+            # assert shots_x.shape[0:2] == (mt_batch_sz, n_way*n_shot)
+            # assert query_x.shape[0:2] == (mt_batch_sz, n_way*n_query)
+            # assert shots_y.shape == (mt_batch_sz, n_way*n_shot)
+            # assert query_y.shape == (mt_batch_sz, n_way*n_query)
 
             # to cuda
             shots_x = shots_x.cuda()
             query_x = query_x.cuda()
             shots_y = shots_y.cuda()
             query_y = query_y.cuda()
+
+            # no of tasks
+            mt_batch_sz = shots_x.shape[0]
             
             for task_id in range(mt_batch_sz):
                 # compute outer gradients and populate model grad with it
@@ -321,7 +327,6 @@ class Init_algorithm_trainer(object):
                     query_labels=query_y[task_id:task_id+1], 
                     support=shots_x[task_id:task_id+1],  
                     support_labels=shots_y[task_id:task_id+1],
-                    n_way=n_way, n_shot=n_shot, n_query=n_query,
                     num_updates_inner=self._num_updates_inner_train\
                          if is_training else self._num_updates_inner_val)
 
