@@ -27,9 +27,7 @@ def str2bool(arg):
 
 
 def ensure_path(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-    # no need to append timestamp here since the log file has an appended timestamp
+    assert os.path.exists(path), "Output folder should match the one of the chkpt"
     return path
 
 
@@ -54,6 +52,13 @@ def main(args):
     sys.stdout = src.logger.Logger(log_filename=f'{args.output_folder}/eval_{time_now}.log')
     src.logger.stdout.write('hi!')
 
+    # file to maintain a record of evaluations
+    # each record in this file has format: checkpoint val-json-path (if present) novel-json-path (if present) 
+    # followed by accStd 
+    eval_results = f'{args.output_folder}/{args.eval_records_path}'
+    eval_results_record = f'Chkpt:{args.checkpoint}'
+    
+
     ####################################################
     #         DATASET AND DATALOADER CREATION          #
     ####################################################
@@ -64,6 +69,12 @@ def main(args):
     val_file = os.path.join(args.dataset_path, args.val_json)
     test_file = os.path.join(args.dataset_path, args.novel_json)
     print("Dataset name", dataset_name, "image_size", image_size)
+    
+    # log to eval results file
+    if args.val_json != '':
+        eval_results_record += f' ValJson:{val_file}'
+    if args.novel_json != '':
+        eval_results_record += f' TestJson:{test_file}'
 
     
     """
@@ -251,6 +262,7 @@ def main(args):
         results = trainer.run(
             mt_loader=val_loader, is_training=False, 
             evaluate_supervised_classification=False)
+        eval_results_record += f" ValResult: {results['val_task_acc']}"
         print(pprint.pformat(results, indent=4))
 
     if args.novel_json != '':
@@ -258,9 +270,13 @@ def main(args):
         results = trainer.run(
             mt_loader=test_loader, is_training=False,
             evaluate_supervised_classification=False)
+        eval_results_record += f" TestResult: {results['val_task_acc']}"
         print(pprint.pformat(results, indent=4))    
 
-        
+    # write record to eval records file
+    with open(eval_results, 'a') as f:
+        f.write(f'{eval_results_record}' + '\n')
+
 
 if __name__ == '__main__':
 
@@ -335,6 +351,8 @@ if __name__ == '__main__':
         help='')
     parser.add_argument('--val-frequency', type=int, default=1,
         help='') 
+    parser.add_argument('--eval-records-path', type=str, default='eval_records.txt',
+        help='path to file that stores eval records')
     
     
     args = parser.parse_args()
