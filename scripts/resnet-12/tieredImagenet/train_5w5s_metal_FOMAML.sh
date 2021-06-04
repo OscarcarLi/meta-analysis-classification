@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_tiered_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.01det3565'
+output='metal_tiered_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_SGDM0.01det3565'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='0'
 mkdir -p logs
@@ -37,7 +37,7 @@ CUDA_VISIBLE_DEVICES="$device" python main.py \
 --query-aug True \
 --randomize-query False \
 --preload-train True \
---optimizer-type Adam \
+--optimizer-type SGDM \
 --lr 0.01 \
 --weight-decay 0.0005 \
 --grad-clip 0. \

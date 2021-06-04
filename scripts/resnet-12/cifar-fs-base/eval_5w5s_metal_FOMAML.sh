@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det204050'
+output='metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_SGDM0.005det204050'
 # method_dataset_model_innerAlg_config_outerOpt 
 device='1'
 mkdir -p logs
@@ -31,6 +31,5 @@ CUDA_VISIBLE_DEVICES="$device" nohup python eval.py \
 --output-folder ${output} \
 --device cuda \
 --device-number ${device} \
---checkpoint runs/metal_cifar-fs-base_r12_FOMAMLinnUpd5T20Vp0.01_n5s5q15tb4_Adam0.005det204050/chkpt_045.pt \
 --log-interval 100 > logs/${output}_eval.log &
 tail -f logs/${output}_eval.log

@@ -19,8 +19,8 @@ func() {
     --n-runs 1 \
     --preload-images False \
     --algorithm-hyperparams-json-1 scripts/alg_hyperparams_jsons/tiered_PN.json \
-    --checkpoint-1 /home/oscarli/projects/meta-analysis-classification/runs/$output/chkpt_0$1.pt
-    --dataset-path ~/projects/meta-analysis-classification/datasets/filelists/tieredImagenet-base \
+    --checkpoint-1 runs/$output/chkpt_0$1.pt
+    --dataset-path data/tieredImagenet-base \
     --img-side-len 84 \
     --batch-size-val 20 \
     --n-way-val 5 \

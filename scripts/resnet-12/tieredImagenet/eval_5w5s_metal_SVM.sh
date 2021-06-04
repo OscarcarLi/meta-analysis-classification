@@ -24,7 +24,7 @@ python eval.py \
 --n-iterations-val 1250 \
 --preload-train True \
 --eps 0. \
---checkpoint /home/oscarli/projects/meta-analysis-classification/runs/metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050/chkpt_060.pt \
+--checkpoint runs/metal_tiered_r12_SVM_n5s15q6tb8_SGD0.1Drop204050/chkpt_060.pt \
 --output-folder ${output} \
 --device-number ${device} \
 --log-interval 100

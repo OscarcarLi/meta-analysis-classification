@@ -159,8 +159,8 @@ class ResNet(nn.Module):
         layers.append(block(self.inplanes, planes, stride, downsample, drop_rate, drop_block, block_size))
         self.inplanes = planes * block.expansion
 
-        return nn.Sequential(*layers) # Oscar: why is this a Sequential? isn't layer just an nn.Module?
-
+        return nn.Sequential(*layers) 
+        
     def forward(self, x, only_features=False):
         x = self.layer1(x)
         x = self.layer2(x)

@@ -8,7 +8,7 @@ output='metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:202
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='1,2,3,4'
 
-export PYTHONPATH='/home/oscarli/projects/meta-analysis-classification'
+export PYTHONPATH='.'
 
 python analysis/compute_novel_acc_variance.py \
 --sample 0 \
@@ -25,7 +25,7 @@ python analysis/compute_novel_acc_variance.py \
 --algorithm-2 ProtoNet \
 --scale-factor 10. \
 --learnable-scale False \
---dataset-path ~/projects/meta-analysis-classification/datasets/filelists/tieredImagenet-base \
+--dataset-path data/tieredImagenet-base \
 --img-side-len 84 \
 --batch-size-val 40 \
 --n-way-val 5 \
@@ -35,8 +35,8 @@ python analysis/compute_novel_acc_variance.py \
 --eps 0. \
 --output-folder ${output} \
 --device-number ${device} \
---checkpoint-1 /home/oscarli/projects/meta-analysis-classification/runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17/chkpt_043.pt \
---checkpoint-2 /home/oscarli/projects/meta-analysis-classification/runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17/chkpt_051.pt
+--checkpoint-1 runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17/chkpt_043.pt \
+--checkpoint-2 runs/metal_tiered_r12_PN_n20s5q15tb1_SGD0.1Drop204050_base_correct_15:Apr:2021:01:03:17/chkpt_051.pt
 
 # --chosen-classes-indices-list chosen_novel_indices_20from120.txt \
 # --n-chosen-classes 160 \
