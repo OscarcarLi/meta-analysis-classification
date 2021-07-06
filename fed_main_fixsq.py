@@ -49,9 +49,15 @@ def main(args):
     ####################################################
     #                LOGGING AND SAVING                #
     ####################################################
-    args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
+    if args.checkpoint != '':
+        # if we are reloading, we don't need to timestamp and create a new folder
+        # instead keep writing to the original output_folder
+        assert os.path.exists(f'./runs/{args.output_folder}')
+        args.output_folder = f'./runs/{args.output_folder}'
+        print(f'resume training and will write to {args.output_folder}')
+    else:
+        args.output_folder = ensure_path('./runs/{0}'.format(args.output_folder))
     writer = SummaryWriter(args.output_folder)
-
     time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
     with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
         for k, v in sorted(vars(args).items()):
@@ -69,9 +75,9 @@ def main(args):
     # json paths
     dataset_name = args.dataset_path.split('/')[-1]
     image_size = args.img_side_len
-    train_file = os.path.join(args.dataset_path, 'base.json')
-    val_file = os.path.join(args.dataset_path, 'val.json')
-    test_file = os.path.join(args.dataset_path, 'novel.json')
+    train_file = os.path.join(args.dataset_path, args.base_json)
+    val_file = os.path.join(args.dataset_path, args.val_json)
+    test_file = os.path.join(args.dataset_path, args.novel_json)
     print("Dataset name", dataset_name, "image_size", image_size)
 
     
@@ -97,14 +103,14 @@ def main(args):
                             shuffle=True,
                             num_workers=6)
     else:
-        train_meta_dataset = FedDataset_Fix(
+        train_dataset = FedDataset_Fix(
                                 json_path=train_file,
                                 image_size=(image_size, image_size), # has to be a (h, w) tuple
                                 preload=str2bool(args.preload_train),)
                                
 
         train_loader = FedDataLoader(
-                            dataset=train_meta_dataset,
+                            dataset=train_dataset,
                             n_batches=0, # n_batches=0 means cycle sampling with random permutation through the dataset once
                             batch_size=args.batch_size_train)
 
@@ -317,6 +323,18 @@ def main(args):
     model.cuda()
     print("Successfully moved the model to cuda")
 
+    # move the optimizer's states to cuda if loaded
+    if args.checkpoint != '':
+        # https://github.com/pytorch/pytorch/issues/2830
+        # when using gpu, need to move all the statistics of the optimizer to cuda
+        # in addition to the model parameters
+        for state in optimizer.state.values():
+            for k, v in state.items():
+                if torch.is_tensor(v):
+                    state[k] = v.cuda()
+        print("Successfully moved the optimizer's states to cuda")
+
+
     ####################################################
     #        ALGORITHM AND ALGORITHM TRAINER           #
     ####################################################
@@ -324,7 +342,7 @@ def main(args):
     # start tboard from restart iter
     init_global_iteration = 0
     if args.restart_iter:
-        init_global_iteration = args.restart_iter * len(train_dataset) 
+        init_global_iteration = args.restart_iter * (len(train_dataset) // args.batch_size_train)
 
     # algorithm
     if args.algorithm == 'InitBasedAlgorithm':
@@ -515,6 +533,12 @@ if __name__ == '__main__':
     # Dataset 
     parser.add_argument('--dataset-path', type=str,
         help='which dataset to use')
+    parser.add_argument('--base-json', type=str, default='base.json',
+        help='base json name')
+    parser.add_argument('--val-json', type=str, default='',
+        help='val json name')
+    parser.add_argument('--novel-json', type=str, default='',
+        help='novel json name')
     parser.add_argument('--img-side-len', type=int, default=84,
         help='width and height of the input images')
     parser.add_argument('--num-classes-train', type=int, default=0,

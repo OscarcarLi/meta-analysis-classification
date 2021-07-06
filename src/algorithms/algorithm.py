@@ -14,7 +14,7 @@ from src.algorithms.grad import soft_clip, get_grad_norm, get_grad_quantiles
 from src.algorithm_trainer.utils import accuracy, spectral_norm
 from src.algorithms.utils import one_hot, computeGramMatrix, binv, batched_kronecker, copy_and_replace, get_n_way_for_every_task
 from src.algorithms.utils import logistic_regression_hessian_pieces_with_respect_to_w, logistic_regression_hessian_with_respect_to_w, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X, logistic_regression_mixed_derivatives_with_respect_to_w_then_to_X_left_multiply
-from qpth.qp import QPFunction
+from qpth.qp import QPFunction, QPSolvers
 
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.exceptions import ConvergenceWarning
@@ -130,8 +130,7 @@ class InitBasedAlgorithm(Algorithm):
                 param.grad = calculated_grad.detach()
 
 
-    def inner_loop_adapt(self, support, support_labels, query, query_labels,
-        n_way, n_shot, n_query, num_updates_inner):
+    def inner_loop_adapt(self, support, support_labels, query, query_labels, num_updates_inner):
 
         
         # adapt means doing the complete inner loop update
@@ -319,7 +318,7 @@ class SVM(Algorithm):
         #        \hat z =   argmin_z 1/2 z^T G z + e^T z
         #                 subject to Cz <= h
         # We use detach() to prevent backpropagation to fixed variables.
-        qp_sol = QPFunction(verbose=False, maxIter=self._max_iter)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
+        qp_sol = QPFunction(verbose=False, maxIter=self._max_iter, solver=QPSolvers.CVXPY)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
         # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
 
         qp_sol = qp_sol.reshape(tasks_per_batch, total_n_support, n_way)

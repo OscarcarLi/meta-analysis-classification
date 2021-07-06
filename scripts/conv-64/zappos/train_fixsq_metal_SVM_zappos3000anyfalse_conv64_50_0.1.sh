@@ -1,6 +1,6 @@
 #! /bin/bash
 
-output='metal_zappos3000_conv64_SVM_n2s10q10b1_nep100_SGD0.001Drop50_0.1'
+output='metal_zappos3000anyfalse_conv64_SVM_n2s10q10b1_nep100_SGD0.001Drop50_0.1'
 # method_dataset_model_innerAlg_config_outerOpt_misc
 device='3'
 mkdir -p logs
@@ -17,7 +17,7 @@ python fed_main_fixsq.py \
 --scale-factor 1. \
 --learnable-scale True \
 --classifier-metric euclidean \
---dataset-path fed_data/zappos/zappos-minImg1000-alltrue_vs_allfalse-nsamp8000-ns10-nq10-tr1000val1000test1000 \
+--dataset-path fed_data/zappos/zappos-minImg1000-alltrue_vs_anyfalse-nsamp8000-ns10-nq10-tr1000val1000test1000 \
 --img-side-len 28 \
 --n-epochs 100 \
 --batch-size-train 1 \
