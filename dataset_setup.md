@@ -224,7 +224,6 @@ python -m meta_dataset.dataset_conversion.convert_datasets_to_records \
 
 ```bash
 mkdir $DATASRC/quickdraw
-cd $DATASRC/quickdraw
 gsutil -m cp gs://quickdraw_dataset/full/numpy_bitmap/*.npy $DATASRC/quickdraw
 cd $ROOT
 
