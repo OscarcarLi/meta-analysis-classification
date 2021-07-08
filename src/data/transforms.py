@@ -88,7 +88,7 @@ class TransformLoader:
             transform = transforms.Compose(transform_funcs)
 
         else:
-            assert 'tier' in dataset_name.lower()
+            # use for everything else including tier, all meta-dataset datasets
             mean_pix = [x/255.0 for x in [120.39586422,  115.59361427, 104.54012653]]
             std_pix = [x/255.0 for x in [70.68188272,  68.27635443,  72.54505529]]
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)

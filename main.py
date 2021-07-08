@@ -20,7 +20,8 @@ from src.algorithm_trainer.algorithm_trainer import Meta_algorithm_trainer, Init
 from src.algorithms.algorithm import SVM, ProtoNet, Ridge, InitBasedAlgorithm
 from src.optimizers import modified_sgd
 from src.data.dataset_managers import MetaDataLoader
-from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset
+from src.data.datasets import MetaDataset, ClassImagesSet, SimpleDataset, MultipleMetaDatasets
+from src.config import meta_dataset_config
 
 import src.logger
 import sys
@@ -60,7 +61,15 @@ def main(args):
 
     time_now = datetime.now(pytz.timezone("America/New_York")).strftime("%d:%b:%Y:%H:%M:%S")
     with open(f'{args.output_folder}/config_{time_now}.txt', 'w') as config_txt:
-        for k, v in sorted(vars(args).items()):
+        args_dict = vars(args)
+        args_dict['meta_dataset'] = {
+            'ALL_DATASETS': meta_dataset_config.ALL_DATASETS,
+            'TRAIN_JSONS': meta_dataset_config.TRAIN_JSONS,
+            'VAL_JSONS': meta_dataset_config.VAL_JSONS,
+            'TEST_JSONS': meta_dataset_config.TEST_JSONS,
+        }
+        # json.dump(args, config_txt)
+        for k, v in sorted(args_dict.items()):
             config_txt.write(f'{k}: {v}\n')
     save_folder = args.output_folder
 
@@ -103,7 +112,21 @@ def main(args):
     """
 
     print("\n", "--"*20, "TRAIN", "--"*20)
-    train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
+    if dataset_name == 'mds_tfrecords':
+        if args.algorithm == 'TransferLearning':
+            all_train_files = [os.path.join(args.dataset_path, train_json_path)\
+                for train_json_path in meta_dataset_config.TRAIN_JSONS]
+            train_classes = ClassImagesSet(
+                *all_train_files, preload=str2bool(args.preload_train))
+        else:
+            train_classes = {}
+            for train_json_path in meta_dataset_config.TRAIN_JSONS:
+                train_file = os.path.join(args.dataset_path, train_json_path)
+                mds_dataset = train_json_path.split('/')[-2]
+                assert mds_dataset in meta_dataset_config.ALL_DATASETS
+                train_classes[mds_dataset] = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
+    else:
+        train_classes = ClassImagesSet(train_file, preload=str2bool(args.preload_train))
     if args.algorithm == 'TransferLearning':
         """
         For Transfer Learning we create a SimpleDataset.
@@ -122,16 +145,28 @@ def main(args):
                             num_workers=6)
 
     else:
-        train_meta_dataset = MetaDataset(
-                                dataset_name=dataset_name,
-                                support_class_images_set=train_classes,
-                                query_class_images_set=train_classes, 
-                                image_size=image_size,
-                                support_aug=str2bool(args.support_aug),
-                                query_aug=str2bool(args.query_aug),
-                                fix_support=args.fix_support,
-                                save_folder=save_folder,
-                                fix_support_path=args.fix_support_path)
+        if isinstance(train_classes, dict):
+            train_meta_dataset = MultipleMetaDatasets(
+                                    support_class_images_set=train_classes,
+                                    query_class_images_set=train_classes, 
+                                    image_size=image_size,
+                                    support_aug=str2bool(args.support_aug),
+                                    query_aug=str2bool(args.query_aug),
+                                    fix_support=args.fix_support,
+                                    save_folder=save_folder,
+                                    fix_support_path=args.fix_support_path)
+
+        else:
+            train_meta_dataset = MetaDataset(
+                                    dataset_name=dataset_name,
+                                    support_class_images_set=train_classes,
+                                    query_class_images_set=train_classes, 
+                                    image_size=image_size,
+                                    support_aug=str2bool(args.support_aug),
+                                    query_aug=str2bool(args.query_aug),
+                                    fix_support=args.fix_support,
+                                    save_folder=save_folder,
+                                    fix_support_path=args.fix_support_path)
 
         train_loader = MetaDataLoader(
                             dataset=train_meta_dataset,
@@ -143,16 +178,27 @@ def main(args):
                             randomize_query=str2bool(args.randomize_query))
 
     # create a dataloader that has no fixed support
-    no_fixS_train_meta_dataset = MetaDataset(
-                                    dataset_name=dataset_name,
-                                    support_class_images_set=train_classes,
-                                    query_class_images_set=train_classes,
-                                    image_size=image_size,
-                                    support_aug=False,
-                                    query_aug=False,
-                                    fix_support=0, # no fixed support
-                                    save_folder='',
-                                    verbose=False)
+    if isinstance(train_classes, dict):
+        no_fixS_train_meta_dataset = MultipleMetaDatasets(
+                                        support_class_images_set=train_classes,
+                                        query_class_images_set=train_classes,
+                                        image_size=image_size,
+                                        support_aug=False,
+                                        query_aug=False,
+                                        fix_support=0, # no fixed support
+                                        save_folder='',
+                                        verbose=False)
+    else:
+        no_fixS_train_meta_dataset = MetaDataset(
+                                        dataset_name=dataset_name,
+                                        support_class_images_set=train_classes,
+                                        query_class_images_set=train_classes,
+                                        image_size=image_size,
+                                        support_aug=False,
+                                        query_aug=False,
+                                        fix_support=0, # no fixed support
+                                        save_folder='',
+                                        verbose=False)
 
     no_fixS_train_loader = MetaDataLoader(
                                 dataset=no_fixS_train_meta_dataset,
@@ -164,20 +210,43 @@ def main(args):
                                 randomize_query=False)
 
     print("\n", "--"*20, "VAL", "--"*20)
-    val_classes = ClassImagesSet(val_file, preload=False)    
+    if dataset_name == 'mds_tfrecords':
+        if args.algorithm == 'TransferLearning':
+            all_val_files = [os.path.join(args.dataset_path, val_json_path)\
+                for val_json_path in meta_dataset_config.VAL_JSONS]
+            train_classes = ClassImagesSet(*all_val_files)
+        else:
+            val_classes = {}
+            for val_json_path in meta_dataset_config.VAL_JSONS:
+                val_file = os.path.join(args.dataset_path, val_json_path)
+                mds_dataset = val_json_path.split('/')[-2]
+                assert mds_dataset in meta_dataset_config.ALL_DATASETS
+                val_classes[mds_dataset] = ClassImagesSet(val_file)
+    else:
+        val_classes = ClassImagesSet(val_file, preload=False)    
     val_meta_datasets = {}
     val_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")
-        val_meta_datasets[ns_val] = MetaDataset(
-                                        dataset_name=dataset_name,
-                                        support_class_images_set=val_classes,
-                                        query_class_images_set=val_classes,
-                                        image_size=image_size,
-                                        support_aug=False,
-                                        query_aug=False,
-                                        fix_support=0,
-                                        save_folder='')
+        if isinstance(val_classes, dict):
+            val_meta_datasets[ns_val] = MultipleMetaDatasets(
+                                support_class_images_set=val_classes,
+                                query_class_images_set=val_classes,
+                                image_size=image_size,
+                                support_aug=False,
+                                query_aug=False,
+                                fix_support=0,
+                                save_folder='')
+        else:
+            val_meta_datasets[ns_val] = MetaDataset(
+                                            dataset_name=dataset_name,
+                                            support_class_images_set=val_classes,
+                                            query_class_images_set=val_classes,
+                                            image_size=image_size,
+                                            support_aug=False,
+                                            query_aug=False,
+                                            fix_support=0,
+                                            save_folder='')
 
         val_loaders[ns_val] = MetaDataLoader(
                                 dataset=val_meta_datasets[ns_val],
@@ -188,21 +257,45 @@ def main(args):
                                 n_query=args.n_query_val, 
                                 randomize_query=False)
 
+
     print("\n", "--"*20, "TEST", "--"*20)
-    test_classes = ClassImagesSet(test_file)
+    if dataset_name == 'mds_tfrecords':
+        if args.algorithm == 'TransferLearning':
+            all_test_files = [os.path.join(args.dataset_path, test_json_path)\
+                for test_json_path in meta_dataset_config.TEST_JSONS]
+            train_classes = ClassImagesSet(*all_test_files)
+        else:
+            test_classes = {}
+            for test_json_path in meta_dataset_config.TEST_JSONS:
+                test_file = os.path.join(args.dataset_path, test_json_path)
+                mds_dataset = test_json_path.split('/')[-2]
+                assert mds_dataset in meta_dataset_config.ALL_DATASETS
+                test_classes[mds_dataset] = ClassImagesSet(test_file)
+    else:
+        test_classes = ClassImagesSet(test_file)
     test_meta_datasets = {}
     test_loaders = {}
     for ns_val in all_n_shot_vals:
         print("====", f"n_shots_val {ns_val}", "====")    
-        test_meta_datasets[ns_val] = MetaDataset(
-                                        dataset_name=dataset_name,
-                                        support_class_images_set=test_classes,
-                                        query_class_images_set=test_classes,
-                                        image_size=image_size,
-                                        support_aug=False,
-                                        query_aug=False,
-                                        fix_support=0,
-                                        save_folder='')
+        if isinstance(test_classes, dict):
+            test_meta_datasets[ns_val] = MultipleMetaDatasets(
+                                support_class_images_set=test_classes,
+                                query_class_images_set=test_classes,
+                                image_size=image_size,
+                                support_aug=False,
+                                query_aug=False,
+                                fix_support=0,
+                                save_folder='')
+        else:
+            test_meta_datasets[ns_val] = MetaDataset(
+                                            dataset_name=dataset_name,
+                                            support_class_images_set=test_classes,
+                                            query_class_images_set=test_classes,
+                                            image_size=image_size,
+                                            support_aug=False,
+                                            query_aug=False,
+                                            fix_support=0,
+                                            save_folder='')
 
         test_loaders[ns_val] = MetaDataLoader(
                                     dataset=test_meta_datasets[ns_val],
@@ -213,7 +306,9 @@ def main(args):
                                     n_query=args.n_query_val,
                                     randomize_query=False,)
 
+
     if base_class_generalization:
+        assert dataset_name.lower() not in ['mds_tfrecords'] 
         # can only do this if there is only one type of evaluation
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
@@ -541,7 +636,7 @@ def main(args):
             is_training=True,
             epoch=iter_start + 1) # 1 based instead of 0 based
 
-        if iter_start % args.val_frequency == 0:
+        if (iter_start % args.val_frequency == 0):
             # On ML train objective
             print("Train Loss on ML objective")
             results = trainer.run(

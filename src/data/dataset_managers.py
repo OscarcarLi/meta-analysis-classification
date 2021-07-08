@@ -7,6 +7,9 @@ import torch
 from PIL import ImageEnhance
 
 from collections import defaultdict
+import data
+
+from src.data.datasets import MultipleMetaDatasets
 
 
 """
@@ -19,14 +22,13 @@ class MetaDataLoader:
                 dataset,
                 n_batches,
                 batch_size,
-                n_way,
-                n_shot,
-                n_query,
-                randomize_query,
+                n_way=None,
+                n_shot=None,
+                n_query=None,
+                randomize_query=False,
                 verbose=True,
                 p_dict=None):        
         """object to create the dataloader
-
         Args:
             dataset (MetaDataset): given a class index, return random support and query examples
             batch_size (int): the number of tasks in a task batch
@@ -45,27 +47,40 @@ class MetaDataLoader:
         self.n_shot = n_shot
         self.n_query = n_query
         self.randomize_query = randomize_query
+        self.p_dict = p_dict
 
         print("Size of Support:", self.n_shot)
         print("Size of Query:", self.n_query, "randomize query", self.randomize_query)
-
-        self.p_dict = p_dict
-        self.sampler = EpisodicBatchSampler(
-                            classes=dataset.classes,
-                            n_way=self.n_way, 
-                            n_shot=self.n_shot,
-                            n_query=self.n_query,
-                            random_query=self.randomize_query,
-                            n_batches=self.n_batches,
-                            n_tasks=self.batch_size,
-                            p_dict=p_dict,
-                            verbose=verbose)
+        print("p_dict", self.p_dict)
+        
+        if isinstance(dataset, MultipleMetaDatasets):
+            self.sampler = MultipleMetaDatasetsEpisodicBatchSampler(
+                    multi_dataset=dataset,
+                    n_way=self.n_way, 
+                    n_shot=self.n_shot,
+                    n_query=self.n_query,
+                    random_query=self.randomize_query,
+                    n_batches=self.n_batches,
+                    n_tasks=self.batch_size,
+                    p_dict=p_dict,
+                    verbose=verbose)
+        else:        
+            self.sampler = EpisodicBatchSampler(
+                    dataset=dataset,
+                    n_way=self.n_way, 
+                    n_shot=self.n_shot,
+                    n_query=self.n_query,
+                    random_query=self.randomize_query,
+                    n_batches=self.n_batches,
+                    n_tasks=self.batch_size,
+                    p_dict=p_dict,
+                    verbose=verbose)
 
         self.data_loader = torch.utils.data.DataLoader(
             self.dataset,
             batch_sampler=self.sampler,
             num_workers=24,
-            pin_memory=True,
+            pin_memory=False,
             collate_fn=lambda ls: collate_fn(
                                     ls=ls,
                                     has_support=(self.n_shot != 0),
@@ -89,9 +104,10 @@ Used by almost all pytorch implementations released after Protonet.
 
 class EpisodicBatchSampler(torch.utils.data.Sampler):
 
-    def __init__(self, classes, n_way, n_shot, n_query, random_query, n_tasks, n_batches, p_dict, verbose=True):
-        self.classes = classes
-        self.n_classes = len(classes)
+    def __init__(self, dataset, n_way, n_shot, n_query, random_query, n_tasks, n_batches, p_dict, verbose=True):
+        self.dataset = dataset
+        self.classes = self.dataset.classes
+        self.n_classes = len(self.classes)
         self.n_way = n_way
         self.n_shot = n_shot
         self.n_query = n_query
@@ -154,6 +170,79 @@ class EpisodicBatchSampler(torch.utils.data.Sampler):
             yield yield_result
 
 
+
+
+class MultipleMetaDatasetsEpisodicBatchSampler(torch.utils.data.Sampler):
+
+    def __init__(self, multi_dataset, n_way, n_shot, n_query, random_query, n_tasks, n_batches, p_dict, verbose=True):
+        
+        self.multi_dataset = multi_dataset
+        self.samplers = {}
+        self.n_batches = n_batches
+        self.n_tasks = n_tasks
+        assert random_query == False
+        assert p_dict is None
+        print("n_way", n_way, n_shot, n_query)
+        for dataset_name in self.multi_dataset.datasets:
+            self.samplers[dataset_name] = EpisodicBatchSampler(
+                dataset=self.multi_dataset.datasets[dataset_name],
+                n_way=n_way, 
+                n_shot=n_shot,
+                n_query=n_query,
+                random_query=random_query,
+                n_batches=1,
+                n_tasks=1,
+                p_dict=p_dict,
+                verbose=verbose
+            )
+
+    def __len__(self):
+        return self.n_batches
+
+    def __iter__(self):
+        for _ in range(self.n_batches):
+            '''
+            for self.n_batches number of times,
+            each time return the sampled classes' indices for self.n_tasks
+            '''
+            yield_result = []
+            chosen_datasets = np.random.choice(
+                    list(self.multi_dataset.datasets.keys()), self.n_tasks, replace=True)
+            for task_idx, chosen_dataset_name in enumerate(chosen_datasets):
+                chosen_dataset_yield = next(iter(self.samplers[chosen_dataset_name]))
+                for class_yield in chosen_dataset_yield:
+                    class_yield['dataset_idx'] = chosen_dataset_name
+                    class_yield['task_idx'] = task_idx
+                yield_result += chosen_dataset_yield
+            yield yield_result
+                
+
+
+class GoogleMetaDatasetEpisodicBatchSampler:
+
+    def __init__(self, n_tasks, n_batches, n_datasets):
+        self.n_tasks = n_tasks 
+        self.n_batches = n_batches
+        self.n_datasets = n_datasets
+
+    def __len__(self):
+        return self.n_batches
+
+    def __iter__(self):
+        for _ in range(self.n_batches):
+            '''
+            for self.n_batches number of times,
+            each time return the self.n_tasks episodes from GoogleMetaDataset
+            '''
+            yield_result = np.random.choice(self.n_datasets, self.n_tasks, replace=False)
+            print(yield_result)
+            yield yield_result
+    
+    
+
+
+
+
 def collate_fn(ls, has_support, has_query):
     result = defaultdict(lambda: defaultdict(list))
 
@@ -196,4 +285,3 @@ def collate_fn(ls, has_support, has_query):
         return query_x_tb, query_y_tb
     else:
         assert False, 'no support and no query'
-        

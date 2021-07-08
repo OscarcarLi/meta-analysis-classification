@@ -42,8 +42,8 @@ python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dat
 python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset ilsvrc_2012 --split val
 python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset ilsvrc_2012 --split novel
 
-# mscoco
-python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset mscoco --split base
+# mscoco (MSCOCO has no base classes)
+# python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset mscoco --split base
 python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset mscoco --split val
 python process_metadataset.py --base-path data/meta_dataset/mds_tfrecords/ --dataset mscoco --split novel
 

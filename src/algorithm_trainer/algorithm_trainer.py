@@ -46,10 +46,11 @@ class Meta_algorithm_trainer(object):
             self._algorithm._model.eval()
 
         # loaders and iterators
-        mt_iterator = tqdm(enumerate(mt_loader, start=1),
-                           leave=False,
-                           file=src.logger.stdout, position=0,
-                           total=len(mt_loader))
+        mt_iterator =   tqdm(
+                        enumerate(mt_loader, start=1),
+                        leave=False,
+                        file=src.logger.stdout, position=0,
+                        total=len(mt_loader))
         
         # metrics aggregation
         aggregate = defaultdict(list)

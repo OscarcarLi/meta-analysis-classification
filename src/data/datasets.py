@@ -1,3 +1,4 @@
+from h5py._hl import dataset
 import torch
 from PIL import Image
 import json
@@ -7,17 +8,272 @@ import concurrent.futures
 from collections import defaultdict
 import tqdm
 import os
+import h5py
 from copy import deepcopy
 
 from src.data.transforms import TransformLoader
+
+# for metadataset
+import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
+# so that actual tensors are loaded
+# when __getitem__ is called
+import gin
+from meta_dataset.data import config
+from meta_dataset.data import dataset_spec as dataset_spec_lib
+from meta_dataset.data import learning_spec
+from meta_dataset.data import pipeline
+
+GIN_FILE_PATH = 'meta_dataset/learn/gin/setups/data_config.gin'
+gin.parse_config_file(GIN_FILE_PATH)
+# the above parses default dataset configs for GoogleMetaDataset
+# like data augmentation, which is False by default
 
 
 # for transform
 identity = lambda x:x
 
 def load_image(image_path):
-    img = Image.open(image_path).convert('RGB')
+    if '.h5' in image_path:
+        # image is stored in hdf5 format
+        hf = h5py.File(image_path, 'r')
+        img_array = hf.get('image')[()]
+        img = Image.fromarray(img_array)
+    else:
+        img = Image.open(image_path).convert('RGB')
     return img
+
+
+
+"""
+Data Manager for meta-training methods.
+This would need additional params: [n_way, n_shot, n_query, n_eposide]
+"""
+
+
+class GoogleMetaDataset:
+
+    def __init__(self, basepath, split, n_ways, n_shots, n_query):
+        
+        self.all_datasets = [
+            'aircraft',
+            'cu_birds', 
+            'dtd', 
+            'fungi', 
+            # 'ilsvrc_2012',
+            'omniglot', 
+            # 'quickdraw', 
+            'vgg_flower'
+        ]
+        
+        # paths
+        self.basepath = basepath
+        
+        # ways, shots and query
+        self.n_ways = n_ways
+        self.n_shots = n_shots
+        self.n_query = n_query
+
+        # config specification
+        self.config = config.EpisodeDescriptionConfig(
+            num_ways=self.n_ways, 
+            num_support=self.n_shots, 
+            num_query=self.n_query)
+
+        # metadataset specifics
+        self.use_bilevel_ontology = False
+        self.use_dag_ontology = False
+
+        # split (train/val/test)
+        self.split = split
+        self.learning_spec_map = {
+            'train':learning_spec.Split.TRAIN, 
+            'val':learning_spec.Split.VALID, 
+            'test':learning_spec.Split.TEST
+        }
+        self.learning_spec_split = self.learning_spec_map[self.split]
+        
+        # construct multiple one source batch pipeline for each dataset
+        # current implementation can only handle one source per sampler when
+        # no of ways, shots, queries are fixed
+
+
+        # variable_ways_shots = config.EpisodeDescriptionConfig(
+        #     num_query=None, num_support=None, num_ways=None)
+
+        # dataset_episodic = pipeline.make_multisource_episode_pipeline(
+        #     dataset_spec_list=all_dataset_specs,
+        #     use_dag_ontology_list=use_dag_ontology_list,
+        #     use_bilevel_ontology_list=use_bilevel_ontology_list,
+        #     episode_descr_config=variable_ways_shots,
+        #     split=SPLIT,
+        #     image_size=84,
+        #     shuffle_buffer_size=300)
+
+
+        use_bilevel_ontology_list = [False]*len(self.all_datasets)
+        use_dag_ontology_list = [False]*len(self.all_datasets)
+        # Enable ontology aware sampling for Omniglot and ImageNet. 
+        # use_bilevel_ontology_list[5] = True
+        # use_dag_ontology_list[4] = True
+
+        # use_bilevel_ontology_list = [True]
+        # use_dag_ontology_list = [False]
+
+        variable_ways_shots = config.EpisodeDescriptionConfig(
+            num_query=None, num_support=None, num_ways=self.n_ways)
+
+        all_dataset_specs = []
+        for dataset_name in self.all_datasets:
+          dataset_records_path = os.path.join(self.basepath, dataset_name)
+          dataset_spec = dataset_spec_lib.load_dataset_spec(dataset_records_path)
+          all_dataset_specs.append(dataset_spec)
+
+        self.episode_generator = pipeline.make_multisource_episode_pipeline(
+            dataset_spec_list=all_dataset_specs,
+            use_dag_ontology_list=use_dag_ontology_list,
+            use_bilevel_ontology_list=use_bilevel_ontology_list,
+            episode_descr_config=variable_ways_shots,
+            split=self.learning_spec_split,
+            image_size=84,
+            shuffle_buffer_size=300)
+
+
+        # self.all_samplers = []
+        # for dataset_name in self.all_datasets:
+        #     dataset_records_path = os.path.join(self.basepath, dataset_name)
+        #     dataset_spec = dataset_spec_lib.load_dataset_spec(dataset_records_path)
+        #     self.all_samplers.append(
+        #         pipeline.make_one_source_episode_pipeline(
+        #             dataset_spec = dataset_spec,
+        #             use_bilevel_ontology = self.use_bilevel_ontology,
+        #             use_dag_ontology = self.use_dag_ontology,
+        #             split = self.learning_spec_split,
+        #             image_size = 84, 
+        #             episode_descr_config = self.config))
+
+        
+        # functions for tf -> torch conversion
+        self.to_torch_labels = lambda a: torch.from_numpy(a.numpy()).long()
+        self.to_torch_imgs = lambda a: torch.from_numpy(np.transpose(a.numpy(), (0, 3, 1, 2)))
+
+
+
+    @ staticmethod
+    def iterate_dataset(dataset, n):
+        if not tf.executing_eagerly():
+            iterator = dataset.make_one_shot_iterator()
+            next_element = iterator.get_next()
+            with tf.Session() as sess:
+                for idx in range(n):
+                    yield idx, sess.run(next_element)
+        else:
+            for idx, episode in enumerate(dataset):
+                if idx == n:
+                    break
+                yield idx, episode
+
+
+    def sample(self, n_batches, dataset_fixed):
+        for i, (e, _) in enumerate(dataset_fixed):
+            if i == n_batches:
+                break
+            return self.to_torch_imgs(e[0]), self.to_torch_labels(e[1]),\
+                   self.to_torch_imgs(e[3]), self.to_torch_labels(e[4])
+
+
+    def __getitem__(self, dataset_id):
+        # _, (episode, _) = next(self.iterate_dataset(self.all_samplers[dataset_id], 1))
+        # support_images=self.to_torch_imgs(episode[0])
+        # support_class_ids=self.to_torch_labels(episode[1])
+        # query_images=self.to_torch_imgs(episode[3])
+        # query_class_ids=self.to_torch_labels(episode[4])
+        # return support_images, support_class_ids, query_images, query_class_ids
+        return self.sample(1, self.episode_generator)
+
+
+    def __len__(self):
+        return len(self.all_datasets)
+
+
+
+
+class MultipleMetaDatasets(torch.utils.data.Dataset):
+
+    def __init__(self, support_class_images_set,
+                       query_class_images_set,
+                       image_size,
+                       support_aug, query_aug,
+                       fix_support,
+                       save_folder,
+                       fix_support_path='',
+                       verbose=True):
+
+        assert support_class_images_set.keys() == query_class_images_set.keys(),\
+            f"""support and query datasets not matching
+                support: {support_class_images_set.keys()},
+                query: {query_class_images_set.keys()}"""
+        
+        self.datasets = {}
+        for dataset_name in support_class_images_set.keys():
+            self.datasets[dataset_name] = MetaDataset(
+                       dataset_name,
+                       support_class_images_set=support_class_images_set[dataset_name],
+                       query_class_images_set=query_class_images_set[dataset_name],
+                       image_size=image_size,
+                       support_aug=support_aug, query_aug=query_aug,
+                       fix_support=fix_support,
+                       save_folder=save_folder,
+                       fix_support_path=fix_support_path,
+                       verbose=verbose
+            )
+
+    def __getitem__(self, task_class_info):
+        """return a random support, query (input, label) tuple of class cl for a specific dataset
+
+        Args:
+            task_class_info (dict): a dictionary containing information of the class requested
+                                ['dataset_idx']: index of the dataset
+                                ['task_idx']: the index of the task
+                                ['cl']: the unique class index
+                                ['n_shot']: number of shots requested
+                                ['n_query']: number of query requested
+                                ['cl_label']: the label to be used for this class
+
+        Returns:
+                dict: with keys
+                    'task_idx': the index of the task in the batch of tasks for assembling
+                    'support_x_cl': tensor of shape (task_class_info['n_shot], c, h, w)
+                    'support_y': tensor of shape (task_class_info['n_shot])
+                    'query_x_cl': tensor of shape (task_class_info['n_shot], c, h, w)
+                    'query_y': tensor of shape (task_class_info['n_shot])
+                    'cl': the unique cl identifier (for debugging)
+        """
+
+        return self.datasets[task_class_info['dataset_idx']][task_class_info] 
+
+    def __len__(self):
+        return sum(len(self.datasets[x].support_class_images_set) for x in self.datasets)
+
+
+
+    def save_fixed_support(self, save_folder):
+        for dataset_name in self.datasets:
+            dataset_save_folder = os.path.join(save_folder, dataset_name)
+            if not os.path.exists(dataset_save_folder):
+                os.makedir(dataset_save_folder)
+            self.datasets[dataset_name].save_fixed_support(dataset_save_folder)
+        
+
+    def load_fixed_support(self, fix_support_path):
+        for dataset_name in self.datasets:
+            dataset_fix_support_path = os.path.join(fix_support_path, dataset_name)
+            assert os.path.exists(dataset_fix_support_path)
+            self.datasets[dataset_name].load_fixed_support(dataset_fix_support_path)
+
+
+
+
 
 
 class MetaDataset(torch.utils.data.Dataset):
@@ -296,7 +552,8 @@ class SubMetadataset(torch.utils.data.Dataset):
                 for idx in np.random.choice(
                                 a=self.indices,
                                 size=class_info['num'],
-                                replace=False)] # class_info['num'] must be <= len(self.indices)
+                                replace=True)] # Since for some meta-dataset classes \
+                                               # class_info['num'] > len(self.indices)
 
         labels = [self.target_transform(class_info['cl_label'])] * class_info['num']
 
