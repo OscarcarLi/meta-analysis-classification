@@ -84,18 +84,19 @@ def main(args):
     ####################################################
 
     # json paths
-    dataset_name = args.dataset_path.split('/')[-1]
+    dataset_name = args.dataset_path.split('/')[-1] # meta-dataset's name is mds_tfrecords
     image_size = args.img_side_len
-    dataset_name = args.dataset_path.split('/')[-1]
     # Following is needed when same train config is used for both 5w5s and 5w1s evaluations. 
     # This is the case in the case of SVM when 5w15s5q is used for both 5w5s and 5w1s evaluations. 
     all_n_shot_vals = [args.n_shot_val, 1] if str2bool(args.do_one_shot_eval_too) else [args.n_shot_val]
-    base_class_generalization = dataset_name.lower() in ['miniimagenet-base',
-                                                         'miniimagenet-base-repartition',
-                                                         'diffv1-miniimagenet-base',
-                                                         'fc100-base',
-                                                         'cifar-fs-base',
-                                                         'tieredimagenet-base']
+    base_class_generalization = any([x in dataset_name.lower() for x in 
+                                            [
+                                                'miniimagenet-base',
+                                                'fc100-base',
+                                                'cifar-fs-base',
+                                                'tieredimagenet-base'
+                                            ]
+                                    ])
 
     train_file = os.path.join(args.dataset_path, 'base.json')
     val_file = os.path.join(args.dataset_path, 'val.json')
@@ -114,8 +115,10 @@ def main(args):
     print("\n", "--"*20, "TRAIN", "--"*20)
     if dataset_name == 'mds_tfrecords':
         if args.algorithm == 'TransferLearning':
+            assert False, 'currently the classes from different meta-dataset would overwrite each other'
             all_train_files = [os.path.join(args.dataset_path, train_json_path)\
                 for train_json_path in meta_dataset_config.TRAIN_JSONS]
+            # wouldn't these different datasets' train_files have overlapping keys?
             train_classes = ClassImagesSet(
                 *all_train_files, preload=str2bool(args.preload_train))
         else:
@@ -147,8 +150,8 @@ def main(args):
     else:
         if isinstance(train_classes, dict):
             train_meta_dataset = MultipleMetaDatasets(
-                                    support_class_images_set=train_classes,
-                                    query_class_images_set=train_classes, 
+                                    multiple_support_class_images_set_dict=train_classes,
+                                    multiple_query_class_images_set_dict=train_classes, 
                                     image_size=image_size,
                                     support_aug=str2bool(args.support_aug),
                                     query_aug=str2bool(args.query_aug),
@@ -180,8 +183,8 @@ def main(args):
     # create a dataloader that has no fixed support
     if isinstance(train_classes, dict):
         no_fixS_train_meta_dataset = MultipleMetaDatasets(
-                                        support_class_images_set=train_classes,
-                                        query_class_images_set=train_classes,
+                                        multiple_support_class_images_set_dict=train_classes,
+                                        multiple_query_class_images_set_dict=train_classes,
                                         image_size=image_size,
                                         support_aug=False,
                                         query_aug=False,
@@ -212,6 +215,7 @@ def main(args):
     print("\n", "--"*20, "VAL", "--"*20)
     if dataset_name == 'mds_tfrecords':
         if args.algorithm == 'TransferLearning':
+            assert False, 'currently the classes from different meta-dataset would overwrite each other'
             all_val_files = [os.path.join(args.dataset_path, val_json_path)\
                 for val_json_path in meta_dataset_config.VAL_JSONS]
             train_classes = ClassImagesSet(*all_val_files)
@@ -230,8 +234,8 @@ def main(args):
         print("====", f"n_shots_val {ns_val}", "====")
         if isinstance(val_classes, dict):
             val_meta_datasets[ns_val] = MultipleMetaDatasets(
-                                support_class_images_set=val_classes,
-                                query_class_images_set=val_classes,
+                                multiple_support_class_images_set_dict=val_classes,
+                                multiple_query_class_images_set_dict=val_classes,
                                 image_size=image_size,
                                 support_aug=False,
                                 query_aug=False,
@@ -279,8 +283,8 @@ def main(args):
         print("====", f"n_shots_val {ns_val}", "====")    
         if isinstance(test_classes, dict):
             test_meta_datasets[ns_val] = MultipleMetaDatasets(
-                                support_class_images_set=test_classes,
-                                query_class_images_set=test_classes,
+                                multiple_support_class_images_set_dict=test_classes,
+                                multiple_query_class_images_set_dict=test_classes,
                                 image_size=image_size,
                                 support_aug=False,
                                 query_aug=False,
@@ -309,7 +313,7 @@ def main(args):
 
     if base_class_generalization:
         assert dataset_name.lower() not in ['mds_tfrecords'] 
-        # can only do this if there is only one type of evaluation
+        # can only do this if there is only one dataset for evaluation
         print("\n", "--"*20, "BASE TEST", "--"*20)
         base_test_classes = ClassImagesSet(base_test_file)
         base_test_meta_dataset = MetaDataset(

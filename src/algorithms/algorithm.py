@@ -318,6 +318,7 @@ class SVM(Algorithm):
         #        \hat z =   argmin_z 1/2 z^T G z + e^T z
         #                 subject to Cz <= h
         # We use detach() to prevent backpropagation to fixed variables.
+        # qp_sol = QPFunction(verbose=False, maxIter=self._max_iter)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
         qp_sol = QPFunction(verbose=False, maxIter=self._max_iter, solver=QPSolvers.CVXPY)(G, e.detach(), C.detach(), h.detach(), A.detach(), b.detach())
         # G is not detached, that is the only one that needs gradients, since its a function of phi(x).
 

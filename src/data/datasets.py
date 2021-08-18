@@ -14,18 +14,18 @@ from copy import deepcopy
 from src.data.transforms import TransformLoader
 
 # for metadataset
-import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
+# import tensorflow as tf
+# tf.compat.v1.enable_eager_execution()
 # so that actual tensors are loaded
 # when __getitem__ is called
-import gin
-from meta_dataset.data import config
-from meta_dataset.data import dataset_spec as dataset_spec_lib
-from meta_dataset.data import learning_spec
-from meta_dataset.data import pipeline
+# import gin
+# from meta_dataset.data import config
+# from meta_dataset.data import dataset_spec as dataset_spec_lib
+# from meta_dataset.data import learning_spec
+# from meta_dataset.data import pipeline
 
-GIN_FILE_PATH = 'meta_dataset/learn/gin/setups/data_config.gin'
-gin.parse_config_file(GIN_FILE_PATH)
+# GIN_FILE_PATH = 'meta_dataset/learn/gin/setups/data_config.gin'
+# gin.parse_config_file(GIN_FILE_PATH)
 # the above parses default dataset configs for GoogleMetaDataset
 # like data augmentation, which is False by default
 
@@ -50,7 +50,7 @@ Data Manager for meta-training methods.
 This would need additional params: [n_way, n_shot, n_query, n_eposide]
 """
 
-
+'''
 class GoogleMetaDataset:
 
     def __init__(self, basepath, split, n_ways, n_shots, n_query):
@@ -194,32 +194,52 @@ class GoogleMetaDataset:
 
     def __len__(self):
         return len(self.all_datasets)
-
+'''
 
 
 
 class MultipleMetaDatasets(torch.utils.data.Dataset):
 
-    def __init__(self, support_class_images_set,
-                       query_class_images_set,
+    def __init__(self, multiple_support_class_images_set_dict,
+                       multiple_query_class_images_set_dict,
                        image_size,
                        support_aug, query_aug,
                        fix_support,
                        save_folder,
                        fix_support_path='',
                        verbose=True):
+        """MultipleMetaDatasets for sample tasks from multiple datasets;
+            where each dataset is used separatedly for task construction
 
-        assert support_class_images_set.keys() == query_class_images_set.keys(),\
+        Args:
+            multiple_support_class_images_set_dict (dict):
+                maps str dataset_name to its support ClassImagesSet
+            multiple_query_class_images_set_dict (dict):
+                maps str dataset_name to its query ClassImagesSet
+            image_size (int): the side length of the square image
+            support_aug (bool): whether to use data augmentation for support set
+            query_aug (bool): whether to use data augmentation for query set
+            save_folder (str): the folder to save the fixed support set information at
+            fix_support (int): the fixed number of examples for each class
+                               if == 0, then use all of the examples
+            randomize_query (bool): whether to use a random number of query examples per class
+            fix_support_path (str, optional): the full path location of where the fix support
+                                              information is saved at. Load this support set
+                                              when this path is not the empty string. Defaults to ''.
+            verbose (bool, optional): print the configuration. Defaults to True.
+        """
+        assert multiple_support_class_images_set_dict.keys() == multiple_query_class_images_set_dict.keys(),\
             f"""support and query datasets not matching
-                support: {support_class_images_set.keys()},
-                query: {query_class_images_set.keys()}"""
+                support: {multiple_support_class_images_set_dict.keys()},
+                query: {multiple_query_class_images_set_dict.keys()}"""
         
         self.datasets = {}
-        for dataset_name in support_class_images_set.keys():
+        for dataset_name in multiple_support_class_images_set_dict.keys():
+            print(f"setting up {dataset_name}")
             self.datasets[dataset_name] = MetaDataset(
                        dataset_name,
-                       support_class_images_set=support_class_images_set[dataset_name],
-                       query_class_images_set=query_class_images_set[dataset_name],
+                       support_class_images_set=multiple_support_class_images_set_dict[dataset_name],
+                       query_class_images_set=multiple_query_class_images_set_dict[dataset_name],
                        image_size=image_size,
                        support_aug=support_aug, query_aug=query_aug,
                        fix_support=fix_support,
@@ -227,13 +247,14 @@ class MultipleMetaDatasets(torch.utils.data.Dataset):
                        fix_support_path=fix_support_path,
                        verbose=verbose
             )
+            print('\n'*5)
 
     def __getitem__(self, task_class_info):
         """return a random support, query (input, label) tuple of class cl for a specific dataset
 
         Args:
             task_class_info (dict): a dictionary containing information of the class requested
-                                ['dataset_idx']: index of the dataset
+                                ['dataset_name']: name of the dataset
                                 ['task_idx']: the index of the task
                                 ['cl']: the unique class index
                                 ['n_shot']: number of shots requested
@@ -250,11 +271,13 @@ class MultipleMetaDatasets(torch.utils.data.Dataset):
                     'cl': the unique cl identifier (for debugging)
         """
 
-        return self.datasets[task_class_info['dataset_idx']][task_class_info] 
+        return self.datasets[task_class_info['dataset_name']][task_class_info] 
 
     def __len__(self):
         return sum(len(self.datasets[x].support_class_images_set) for x in self.datasets)
-
+    
+    def dataset_names(self):
+        return set(self.datasets.keys())
 
 
     def save_fixed_support(self, save_folder):
