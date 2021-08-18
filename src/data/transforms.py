@@ -64,7 +64,7 @@ class TransformLoader:
             if aug:
                 print("Using cifar/fc100 specific augmentation strategy")
                 transform = transforms.Compose([
-                    transforms.RandomCrop(size=32, padding=4), # border is padded with 4 px on each side
+                    transforms.RandomCrop(size=[self.image_size, self.image_size], padding=4), # border is padded with 4 px on each side
                     transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4), # [max(0, 1 - brightness), 1 + brightness] 
                     transforms.RandomHorizontalFlip(p=0.5),
                     lambda x: np.array(x), # TODO: is this necessary?
@@ -73,6 +73,7 @@ class TransformLoader:
                 ])
             else:
                 transform = transforms.Compose([
+                    transforms.Resize([self.image_size, self.image_size]),
                     lambda x: np.array(x),
                     transforms.ToTensor(),
                     normalize
@@ -94,7 +95,7 @@ class TransformLoader:
             normalize = transforms.Normalize(mean=mean_pix, std=std_pix)
             if aug:
                 transform = transforms.Compose([
-                    transforms.RandomCrop(84, padding=8),
+                    transforms.RandomCrop([self.image_size, self.image_size], padding=8),
                     transforms.ColorJitter(brightness=0.4, contrast=0.4, saturation=0.4),
                     transforms.RandomHorizontalFlip(),
                     lambda x: np.array(x),
@@ -103,6 +104,7 @@ class TransformLoader:
                 ])
             else:
                 transform = transforms.Compose([
+                    transforms.Resize([self.image_size, self.image_size]),
                     lambda x: np.array(x),
                     transforms.ToTensor(),
                     normalize
